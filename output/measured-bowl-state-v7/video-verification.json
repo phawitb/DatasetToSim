@@ -1,0 +1,42 @@
+[
+  {
+    "episode": 0,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "7.833333",
+    "nb_frames": "235"
+  },
+  {
+    "episode": 37,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "5.933333",
+    "nb_frames": "178"
+  },
+  {
+    "episode": 38,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "5.033333",
+    "nb_frames": "151"
+  },
+  {
+    "episode": 66,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "5.633333",
+    "nb_frames": "169"
+  },
+  {
+    "episode": 71,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "8.866667",
+    "nb_frames": "266"
+  }
+]

@@ -16,15 +16,17 @@
     "top_rim_diameter": 0.118,
     "top_rim_measurement_surface": "outer rim (confirmed by user)",
     "height": 0.05,
-    "bottom_diameter": null,
-    "wall_thickness": null
+    "bottom_diameter": 0.098,
+    "wall_thickness": null,
+    "bottom_measurement_surface": "outside bottom diameter (user confirmed 2026-11-06)"
   },
-  "integration_status": "Applied to output/strict-action cube and bowl visual/contact geometry. Historical simulations are preserved with their original dimensions.",
+  "integration_status": "New runs use confirmed dimensions; historical simulation settings remain frozen with their original dimensions.",
   "historical_estimates": {
     "cube_size": 0.022,
     "bowl_top_outer_diameter": 0.12,
     "cube_mass_kg": 0.012,
-    "bowl_height": 0.05
+    "bowl_height": 0.05,
+    "bowl_bottom_outer_diameter": 0.0826
   },
   "robot": {
     "gripper": "standard SO-101; no finger extension or replacement (user confirmed)",

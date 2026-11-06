@@ -14,7 +14,11 @@ OUT=ROOT/'output/system-identification';OUT.mkdir(exist_ok=True)
 BASE=ROOT/'output/strict-action'
 
 def fast_trace(m,e,adapter):
-    d=mujoco.MjData(m);d.qpos[:6]=adapter.to_model(e.state_deg[0]);target=adapter.to_model(e.action_deg)
+    d=mujoco.MjData(m)
+    # Offline fitters mutate armature/geometry in place. Refresh derived model
+    # constants so every trial has the same physics as a fresh XML rebuild.
+    mujoco.mj_setConst(m,d);mujoco.mj_resetData(m,d)
+    d.qpos[:6]=adapter.to_model(e.state_deg[0]);target=adapter.to_model(e.action_deg)
     for j,n in enumerate(m.actuator_history[:,0]):
         if n:mujoco.mj_initCtrlHistory(m,d,j,None,np.full((int(n),1),d.qpos[j]))
     mujoco.mj_forward(m,d);states=[];poses=[];dt=float(m.opt.timestep)

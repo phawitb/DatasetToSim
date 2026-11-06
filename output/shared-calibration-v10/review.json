@@ -1,0 +1,11 @@
+{
+  "independent_read_only_review": true,
+  "actionable_P1_P2_findings": [],
+  "verified_episodes": 72,
+  "verified_original_actions": 11661,
+  "verified_physics_steps": 396474,
+  "all_saved_models_share_physical_parameters": true,
+  "runtime_sources_unchanged_from_v7": true,
+  "parent_verified_videos": 8,
+  "scope": "calibration-set task scoring and integrity; not physical validation or completion of all7 fixes"
+}

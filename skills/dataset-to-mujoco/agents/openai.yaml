@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dataset to MuJoCo"
+  short_description: "Replay real robot datasets in calibrated MuJoCo"
+  default_prompt: "ใช้ $dataset-to-mujoco แปลง dataset หุ่นยนต์จริงเป็น MuJoCo โดยคง action เดิม ใช้ค่าคาลิเบรตร่วม และสร้างวิดีโอ real เทียบ sim"

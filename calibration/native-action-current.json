@@ -26,8 +26,8 @@
     "world": {
       "robot_base": {
         "position": [
-          -0.042113422701842304,
-          -0.003313107635184487,
+          -0.04313097980534639,
+          -0.0008075270005848776,
           0.0034000017
         ],
         "quaternion": [
@@ -235,11 +235,11 @@
   },
   "adapter": {
     "arm_offset_deg": [
-      6.618380254086902,
-      1.171374613322825,
-      -7.5433909652802225,
-      -4.292786403025225,
-      2.827231237522091
+      6.396717912617382,
+      1.8053056394003568,
+      -7.4727132992496,
+      -4.480207129620211,
+      2.421203399177579
     ],
     "arm_sign": [
       1,
@@ -318,15 +318,17 @@
       "top_rim_diameter": 0.118,
       "top_rim_measurement_surface": "outer rim (confirmed by user)",
       "height": 0.05,
-      "bottom_diameter": null,
-      "wall_thickness": null
+      "bottom_diameter": 0.098,
+      "wall_thickness": null,
+      "bottom_measurement_surface": "outside bottom diameter (user confirmed 2026-11-06)"
     },
-    "integration_status": "Applied to output/strict-action cube and bowl visual/contact geometry. Historical simulations are preserved with their original dimensions.",
+    "integration_status": "New runs use confirmed dimensions; historical simulation settings remain frozen with their original dimensions.",
     "historical_estimates": {
       "cube_size": 0.022,
       "bowl_top_outer_diameter": 0.12,
       "cube_mass_kg": 0.012,
-      "bowl_height": 0.05
+      "bowl_height": 0.05,
+      "bowl_bottom_outer_diameter": 0.0826
     },
     "robot": {
       "gripper": "standard SO-101; no finger extension or replacement (user confirmed)",
@@ -347,24 +349,28 @@
   "gripper_degrees_per_native_unit": 1.2984615384615383,
   "wrist_camera": {
     "position": [
-      0.0010412850081354254,
-      0.0650023178608403,
-      -0.04380002952420127
+      0.0016698483457234317,
+      0.06573952223803609,
+      -0.044600305825204356
     ],
     "quaternion": [
-      0.9587794401915067,
-      -0.2836994420422573,
-      0.010359127158958762,
-      0.01221884345907752
+      0.9584617378612059,
+      -0.2850281932058865,
+      0.008417888484380263,
+      0.006258217584051607
     ],
-    "fovy": 52.87740565381298,
-    "exposure_delay_frames": 1.3005752737118432,
-    "training_mask_iou": 0.8012595004212257,
+    "fovy": 55.04524766950375,
+    "exposure_delay_frames": 1.5415166293507683,
+    "training_mask_iou": 0.776848690299718,
     "training_episodes": [
       1,
       4,
       8,
-      28
+      28,
+      37,
+      45,
+      50,
+      64
     ],
     "fit_frames": [
       [
@@ -462,18 +468,122 @@
       [
         28,
         138
+      ],
+      [
+        37,
+        0
+      ],
+      [
+        37,
+        135
+      ],
+      [
+        37,
+        139
+      ],
+      [
+        37,
+        142
+      ],
+      [
+        37,
+        143
+      ],
+      [
+        37,
+        177
+      ],
+      [
+        45,
+        0
+      ],
+      [
+        45,
+        111
+      ],
+      [
+        45,
+        115
+      ],
+      [
+        45,
+        118
+      ],
+      [
+        45,
+        121
+      ],
+      [
+        45,
+        123
+      ],
+      [
+        45,
+        149
+      ],
+      [
+        50,
+        0
+      ],
+      [
+        50,
+        117
+      ],
+      [
+        50,
+        119
+      ],
+      [
+        50,
+        123
+      ],
+      [
+        50,
+        125
+      ],
+      [
+        50,
+        127
+      ],
+      [
+        50,
+        148
+      ],
+      [
+        64,
+        0
+      ],
+      [
+        64,
+        106
+      ],
+      [
+        64,
+        111
+      ],
+      [
+        64,
+        113
+      ],
+      [
+        64,
+        115
+      ],
+      [
+        64,
+        142
       ]
     ],
-    "evaluations": 1200,
+    "evaluations": 446,
     "uses_measured_states_for_calibration_only": true,
     "cube_hidden_in_calibration_renders": true,
-    "gripper_closed_model_deg": -12.109721659798588,
-    "objective": "distal jaw orange masks only; red cube excluded; signed lag for identification only"
+    "gripper_closed_model_deg": -11.43315002909942,
+    "objective": "distal jaw orange masks only; geometric zero fixed from user closure constraint; red cube excluded"
   },
   "estimates": {
     "wood_density_kg_m3": 600.0,
     "cube_mass_kg": 0.004448925,
-    "bowl_bottom_outer_radius_m": 0.0413,
+    "bowl_bottom_outer_radius_m": 0.049,
     "bowl_wall_radial_thickness_m": 0.003,
     "bowl_floor_thickness_m": 0.004
   },
@@ -491,57 +601,60 @@
     "Current follower calibration identity with historical recording is unverified.",
     "Shared motor parameters fitted to native recorded states; no real hardware validation.",
     "Camera intrinsic distortion and exposure timestamps unmeasured; whole-frame delays approximate fitted image timing.",
-    "Wood mass, friction, bowl bottom radius and wall thickness remain estimates.",
+    "Wood mass, friction and bowl wall/floor thickness remain estimates; bottom outer diameter98mm is user measured.",
     "Initial cube pose derived from RGB silhouette; occlusion and pixel boundaries produce uncertainty.",
-    "Original native action values and recording boundaries retained; no action repair, future-state following, cube weld/forces/teleportation."
+    "Original native action values and recording boundaries retained; no action repair, future-state following, cube weld/forces/teleportation.",
+    "This refinement uses all72 native-state and terminal-image observations for shared calibration; results are calibration-set replay, not independent policy or hardware validation.",
+    "Terminal red-pixel centroid approximates cube projection and can differ from cube center under occlusion; episodes9/53 detections excluded.",
+    "Identified motor Coulomb friction includes effective gearbox/controller behavior and is not an independently measured coefficient."
   ],
   "gripper_pad_proxies": false,
   "cube_projection_height_fraction": 1.0,
   "identified_dynamics": {
     "kp": [
-      12.786947319143406,
-      18.696165771818812,
-      13.657174659088684,
-      39.04476816922069,
-      8.551877117339739,
-      4.3733935908674395
+      11.47194776568579,
+      18.286199199045235,
+      13.65158767909088,
+      59.98102190153152,
+      8.411089396639305,
+      4.050644404023861
     ],
     "kv": [
-      0.724017365078673,
-      1.031083311588442,
-      0.6037361725055069,
-      2.9741284686164113,
-      0.08152177334247682,
-      0.19408646589206863
+      0.3316230306226332,
+      1.0514156396292993,
+      0.5059454632098074,
+      5.145800386091145,
+      0.07371437849660746,
+      0.21977856223994507
     ],
     "delay_s": [
-      0.013746267595261392,
-      0.029705043958387883,
-      0.027955845152601227,
-      0.02167582076914229,
-      0.022875452469895835,
-      0.03329815036678188
+      0.021548948356157414,
+      0.0253199471626392,
+      0.027141888091978997,
+      0.015813072654399955,
+      0.017799554187976473,
+      0.030324133193840776
     ],
     "armature": [
-      0.006586724155536422,
-      0.02311630784154999,
-      0.0005901087846040954,
-      0.0016896407303983799,
-      0.0039337405135688175,
-      0.0003310026517685357
+      0.006748566618196999,
+      0.019615179229696588,
+      0.00041936340210160106,
+      0.047070536780666986,
+      0.007352739430272591,
+      0.00040274538092545636
     ],
     "frictionloss": [
-      0.11547642832508409,
-      0.05694348330145182,
-      0.149863945566803,
-      0.14833261484111238,
-      0.1471576361210023,
-      0.0928620701596248
+      0.2444725304350192,
+      0.08269245069528006,
+      0.2829711133914346,
+      0.298368217869057,
+      0.16659648765638682,
+      0.0772191627877975
     ]
   },
   "contact_model": {
     "solref": [
-      0.006,
+      0.004,
       1
     ],
     "solimp": [
@@ -860,12 +973,12 @@
   },
   "camera_delay_frames": {
     "top": 2,
-    "wrist": 1
+    "wrist": 2
   },
   "camera_timing_note": "Whole-frame causal observation delay rounded from image fits; no command retiming. Fits are estimates, not measured hardware timestamps.",
   "source_sha256": {
     "scripts/strict_action_replay.py": "5dba50a448510439176420a5b071f51bab6a3a3309894fc88ec0d5314917c080",
-    "scripts/strict_action_scene.py": "8a99f7390602f1facb0a4ad5302f1439b9d4217e0cbad27929e20d901c10a35a",
+    "scripts/strict_action_scene.py": "c599d264ceb1b1d469b1f1a25453e1b8f42db986a4b48a149c3a20e15f835fbb",
     "scripts/benchmark72.py": "ba103c230faa41beee7ce6e96c6668367358ffd1dfc60a928022ab635666524c",
     "src/dataset_to_sim/strict_replay.py": "d01cac533c1c7c2ad673d51872b9d26e41195059d8feea5784ab28ec9a61dab8",
     "scripts/episode0_physics.py": "a56a44ed038d90bff0c8aa06b9d382f963c7dcb0b41e258582ad396cdc515a2b",
@@ -1008,7 +1121,7 @@
   "contact_materials": {
     "jaw": [
       1.4,
-      0.01,
+      0.005,
       0.0001
     ],
     "cube": [
@@ -1017,12 +1130,12 @@
       0.0001
     ],
     "work_mat": [
-      0.95,
+      0.3,
       0.0002,
       0.0001
     ],
     "table": [
-      0.95,
+      0.3,
       0.0002,
       0.0001
     ]
@@ -1165,5 +1278,5849 @@
       "User supplied zero-contact constraint, not a measured angular reference",
       "Actuator deadband and finger compliance remain uncertain"
     ]
+  },
+  "native_motor_refinement": {
+    "training_episodes": [
+      1,
+      4,
+      8,
+      13,
+      20,
+      28,
+      31,
+      37,
+      38,
+      40,
+      44,
+      49,
+      50,
+      61,
+      64,
+      71
+    ],
+    "objective": "80%per-episode native softL1 plus20%stable held-state error for arms; free/empty gripper only; no object outcome reward",
+    "losses": [
+      {
+        "joint": 1,
+        "before": 0.6432597045220645,
+        "after": 0.5965553460714133
+      },
+      {
+        "joint": 2,
+        "before": 0.4166476124307532,
+        "after": 0.32954156665861933
+      },
+      {
+        "joint": 3,
+        "before": 0.3882162999658655,
+        "after": 0.3449552911624475
+      },
+      {
+        "joint": 0,
+        "before": 0.376748174884302,
+        "after": 0.21458734166799287
+      },
+      {
+        "joint": 4,
+        "before": 0.1801720654606278,
+        "after": 0.17292636000145195
+      },
+      {
+        "joint": 5,
+        "before": 0.46981441550136877,
+        "after": 0.4450330289690232
+      }
+    ],
+    "calls": 546,
+    "held_selector": "stable blocked observations, no minimum opening25 requirement",
+    "calibrated_geometry_unchanged": true
+  },
+  "stable_grasp_identification": {
+    "training_episodes": [
+      1,
+      4,
+      8,
+      13,
+      20,
+      28,
+      31,
+      37,
+      38,
+      40,
+      44,
+      49,
+      50,
+      61,
+      64,
+      71
+    ],
+    "objective": "stable real blocked-gripper softL1 plus physical gap at stable hold plus0.1arm error; no final outcome reward",
+    "held_selector": "stable blocked gripper, no opening25 threshold",
+    "loss": 5.918984695139621,
+    "calls": 127,
+    "shared_reference_delta_deg_and_mm": [
+      -0.22215157111400674,
+      -0.7260331164853303,
+      0.4183985447102745,
+      0.21043339866161248,
+      -0.22784058324111256,
+      0.9169849044560578,
+      0.23545198916195798
+    ],
+    "per_episode": [
+      {
+        "episode": 1,
+        "held_loss": 3.5158742485915013,
+        "held_rmse": 2.5703605478912657,
+        "arm_capped_mse": 0.39687406511648776,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77
+        ]
+      },
+      {
+        "episode": 4,
+        "held_loss": 4.219646804773888,
+        "held_rmse": 2.9455303214072637,
+        "arm_capped_mse": 0.18439638359825478,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74
+        ]
+      },
+      {
+        "episode": 8,
+        "held_loss": 3.5278275784899815,
+        "held_rmse": 2.577379996937237,
+        "arm_capped_mse": 0.24653291661312826,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90
+        ]
+      },
+      {
+        "episode": 13,
+        "held_loss": 3.8778150160383134,
+        "held_rmse": 2.7639141788961203,
+        "arm_capped_mse": 0.3073309934618358,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96
+        ]
+      },
+      {
+        "episode": 20,
+        "held_loss": 6.582416135162204,
+        "held_rmse": 4.661847131988268,
+        "arm_capped_mse": 1.1594301944329322,
+        "stable_hold_gap_scaled": 1.6801478228279823,
+        "held_frames": [
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89
+        ]
+      },
+      {
+        "episode": 28,
+        "held_loss": 3.919333707236462,
+        "held_rmse": 2.7856615779728613,
+        "arm_capped_mse": 0.2096596225152061,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81
+        ]
+      },
+      {
+        "episode": 31,
+        "held_loss": 3.7967703309061327,
+        "held_rmse": 2.7211272276420506,
+        "arm_capped_mse": 0.31883514540259184,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127
+        ]
+      },
+      {
+        "episode": 37,
+        "held_loss": 13.530111066056339,
+        "held_rmse": 7.763582735011066,
+        "arm_capped_mse": 0.35964143606610566,
+        "stable_hold_gap_scaled": 4.055034971867961,
+        "held_frames": [
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123
+        ]
+      },
+      {
+        "episode": 38,
+        "held_loss": 3.7757940418702813,
+        "held_rmse": 2.7106368013333366,
+        "arm_capped_mse": 0.3384333903054322,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102
+        ]
+      },
+      {
+        "episode": 40,
+        "held_loss": 3.481216337309916,
+        "held_rmse": 2.5516542657317416,
+        "arm_capped_mse": 0.2943261490485271,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111
+        ]
+      },
+      {
+        "episode": 44,
+        "held_loss": 4.504042604313186,
+        "held_rmse": 3.0982041867697876,
+        "arm_capped_mse": 0.26753919776408797,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98
+        ]
+      },
+      {
+        "episode": 49,
+        "held_loss": 7.675513047478684,
+        "held_rmse": 5.120438967676403,
+        "arm_capped_mse": 0.25423321190104015,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109
+        ]
+      },
+      {
+        "episode": 50,
+        "held_loss": 13.451812672981246,
+        "held_rmse": 7.723763190047146,
+        "arm_capped_mse": 0.7245367044456827,
+        "stable_hold_gap_scaled": 0.8340546880007595,
+        "held_frames": [
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103
+        ]
+      },
+      {
+        "episode": 61,
+        "held_loss": 4.096253515132958,
+        "held_rmse": 2.89394573749329,
+        "arm_capped_mse": 0.4858933376032175,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172
+        ]
+      },
+      {
+        "episode": 64,
+        "held_loss": 3.90141908121868,
+        "held_rmse": 2.7764682594704246,
+        "arm_capped_mse": 0.24627708987043428,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94
+        ]
+      },
+      {
+        "episode": 71,
+        "held_loss": 3.4423436274643096,
+        "held_rmse": 3.0266134571713406,
+        "arm_capped_mse": 1.0695685012881964,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          191,
+          192,
+          193,
+          194,
+          195,
+          196,
+          197,
+          198,
+          199,
+          200,
+          201,
+          202,
+          203,
+          204,
+          205,
+          206,
+          207,
+          208,
+          209,
+          210,
+          211
+        ]
+      }
+    ],
+    "initial_max_penetration_m": 0.0,
+    "zero_and_measured_dimensions_fixed": true,
+    "no_episode_specific_parameters": true,
+    "no_action_modification": true
+  },
+  "stable_material_identification": {
+    "training_episodes": [
+      1,
+      4,
+      8,
+      13,
+      20,
+      28,
+      31,
+      37,
+      38,
+      40,
+      44,
+      49,
+      50,
+      61,
+      64,
+      71
+    ],
+    "objective": "native stable held-gripper softL1 plus0.1arm cappedMSE; no final outcome reward",
+    "best": {
+      "jaw_sliding": 1.0,
+      "table_sliding": 0.6,
+      "jaw_torsion_m": 0.005,
+      "loss": 5.269778125558251,
+      "episode_losses": [
+        3.571745275157083,
+        4.187376288045249,
+        3.540782591258584,
+        3.811017478427649,
+        4.21870393558549,
+        3.8700464681834457,
+        3.640950939570956,
+        13.567595761364837,
+        3.6252863783554568,
+        3.6101513325818098,
+        4.2521456738586725,
+        5.894111870697099,
+        13.507965292409635,
+        4.553965725696535,
+        4.301545440262461,
+        4.163059557477061
+      ]
+    },
+    "trials": 39,
+    "measured_properties": false
+  },
+  "full_dataset_identification": {
+    "training_episodes": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71
+    ],
+    "objective": "all72 native stable grasp-state error plus physical grasp gap and observed terminal cube image error; mean plus0.25worst-quartile loss; calibration-set result, not heldout generalization",
+    "held_selector": "stable blocked gripper, no opening25 threshold",
+    "loss": 11.21169342572826,
+    "calls": 119,
+    "shared_reference_delta_deg_and_mm": [
+      0.5880991592471329,
+      0.5094011180960053,
+      -0.07740910008662788,
+      -0.2210038951400881,
+      0.8880635817641142,
+      1.5140741139676814,
+      1.8269426505375268
+    ],
+    "per_episode": [
+      {
+        "terminal_pixel_error": 30.149017384965525,
+        "terminal_loss": 1.6179597140915671,
+        "episode": 0,
+        "held_loss": 3.92996481740984,
+        "held_rmse": 2.792020755055439,
+        "arm_capped_mse": 0.6111699747811291,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186
+        ]
+      },
+      {
+        "terminal_pixel_error": 43.71991073201023,
+        "terminal_loss": 2.807733971857161,
+        "episode": 1,
+        "held_loss": 3.8819083196039417,
+        "held_rmse": 2.7676001208305303,
+        "arm_capped_mse": 0.35216215139447804,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77
+        ]
+      },
+      {
+        "terminal_pixel_error": 23.950814124565746,
+        "terminal_loss": 1.1203228955181834,
+        "episode": 2,
+        "held_loss": 4.107882211098688,
+        "held_rmse": 2.8857902274246365,
+        "arm_capped_mse": 0.5040554043804678,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86
+        ]
+      },
+      {
+        "terminal_pixel_error": 47.11271632655219,
+        "terminal_loss": 3.118210663568057,
+        "episode": 3,
+        "held_loss": 4.110895790511981,
+        "held_rmse": 2.8876889662024943,
+        "arm_capped_mse": 0.490863652926163,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77
+        ]
+      },
+      {
+        "terminal_pixel_error": 42.12445639067973,
+        "terminal_loss": 2.663121085936198,
+        "episode": 4,
+        "held_loss": 4.295557828080655,
+        "held_rmse": 2.985059052696996,
+        "arm_capped_mse": 0.2748212554318042,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74
+        ]
+      },
+      {
+        "terminal_pixel_error": 16.540740389093543,
+        "terminal_loss": 0.5953729840225095,
+        "episode": 5,
+        "held_loss": 4.095981430020911,
+        "held_rmse": 2.8813893526567633,
+        "arm_capped_mse": 0.4003242499607133,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98
+        ]
+      },
+      {
+        "terminal_pixel_error": 21.581168969380943,
+        "terminal_loss": 0.9423576500571289,
+        "episode": 6,
+        "held_loss": 3.914377823890648,
+        "held_rmse": 2.7834512561425973,
+        "arm_capped_mse": 0.3081594154782387,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83
+        ]
+      },
+      {
+        "terminal_pixel_error": 24.321739625342016,
+        "terminal_loss": 1.1488839584889945,
+        "episode": 7,
+        "held_loss": 3.741418141470217,
+        "held_rmse": 2.6913698794208583,
+        "arm_capped_mse": 0.24942303907647057,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83
+        ]
+      },
+      {
+        "terminal_pixel_error": 23.83339710918999,
+        "terminal_loss": 1.1113193628496987,
+        "episode": 8,
+        "held_loss": 3.5094491889262933,
+        "held_rmse": 2.567459280435189,
+        "arm_capped_mse": 0.25302848079385526,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90
+        ]
+      },
+      {
+        "terminal_pixel_error": null,
+        "terminal_loss": 0.0,
+        "episode": 9,
+        "held_loss": 4.140467891577984,
+        "held_rmse": 2.903860799447062,
+        "arm_capped_mse": 0.25454732057131574,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84
+        ]
+      },
+      {
+        "terminal_pixel_error": 25.009503994301884,
+        "terminal_loss": 1.2023043110251121,
+        "episode": 10,
+        "held_loss": 4.486277096913721,
+        "held_rmse": 3.092549687703935,
+        "arm_capped_mse": 0.2782477333223831,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78
+        ]
+      },
+      {
+        "terminal_pixel_error": 4.9481248494416326,
+        "terminal_loss": 0.06030080212978062,
+        "episode": 11,
+        "held_loss": 4.005017117569957,
+        "held_rmse": 2.8325408157658654,
+        "arm_capped_mse": 0.2977844415873509,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78
+        ]
+      },
+      {
+        "terminal_pixel_error": 17.77989304022364,
+        "terminal_loss": 0.6760504414562014,
+        "episode": 12,
+        "held_loss": 4.355288573544831,
+        "held_rmse": 3.017896525449917,
+        "arm_capped_mse": 0.2702996307228062,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113
+        ]
+      },
+      {
+        "terminal_pixel_error": 44.509952643459535,
+        "terminal_loss": 2.879688396120198,
+        "episode": 13,
+        "held_loss": 3.8472786080933155,
+        "held_rmse": 2.747468267349818,
+        "arm_capped_mse": 0.33154705443250754,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96
+        ]
+      },
+      {
+        "terminal_pixel_error": 13.489461554031552,
+        "terminal_loss": 0.4123962630913174,
+        "episode": 14,
+        "held_loss": 3.5675475510217085,
+        "held_rmse": 2.598249857309674,
+        "arm_capped_mse": 0.27275507056738396,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92
+        ]
+      },
+      {
+        "terminal_pixel_error": 14.651263595409498,
+        "terminal_loss": 0.4792327945196506,
+        "episode": 15,
+        "held_loss": 5.766321663111991,
+        "held_rmse": 3.781082014558059,
+        "arm_capped_mse": 0.44805376015829634,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186,
+          187,
+          188,
+          189,
+          190,
+          191,
+          192
+        ]
+      },
+      {
+        "terminal_pixel_error": 11.487562715701834,
+        "terminal_loss": 0.3064346883169766,
+        "episode": 16,
+        "held_loss": 3.3684177027920397,
+        "held_rmse": 2.4911416804379343,
+        "arm_capped_mse": 0.2904037989242945,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93
+        ]
+      },
+      {
+        "terminal_pixel_error": 28.97392741509473,
+        "terminal_loss": 1.5206369734114564,
+        "episode": 17,
+        "held_loss": 4.292263491566687,
+        "held_rmse": 2.9885917185162945,
+        "arm_capped_mse": 0.3188900605003882,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97
+        ]
+      },
+      {
+        "terminal_pixel_error": 23.193906263037103,
+        "terminal_loss": 1.0626088351902725,
+        "episode": 18,
+        "held_loss": 6.1147663211335965,
+        "held_rmse": 5.3186586538145,
+        "arm_capped_mse": 0.4095101073658918,
+        "stable_hold_gap_scaled": 2.1759773664967774,
+        "held_frames": [
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185
+        ]
+      },
+      {
+        "terminal_pixel_error": 35.68072016873731,
+        "terminal_loss": 2.0903713667095527,
+        "episode": 19,
+        "held_loss": 4.094420824560666,
+        "held_rmse": 2.881709677033011,
+        "arm_capped_mse": 0.48851935547684977,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95
+        ]
+      },
+      {
+        "terminal_pixel_error": 13.557706667319538,
+        "terminal_loss": 0.41621896788573487,
+        "episode": 20,
+        "held_loss": 4.2176894031855054,
+        "held_rmse": 2.944391502974634,
+        "arm_capped_mse": 1.049765631971978,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89
+        ]
+      },
+      {
+        "terminal_pixel_error": 33.71888150261749,
+        "terminal_loss": 1.9204119296160194,
+        "episode": 21,
+        "held_loss": 3.153458990515084,
+        "held_rmse": 2.3750617155637066,
+        "arm_capped_mse": 0.28424758351978946,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90
+        ]
+      },
+      {
+        "terminal_pixel_error": 26.298608013078724,
+        "terminal_loss": 1.3039624444378428,
+        "episode": 22,
+        "held_loss": 5.068431040749228,
+        "held_rmse": 3.414890005353845,
+        "arm_capped_mse": 0.5337207623398854,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101
+        ]
+      },
+      {
+        "terminal_pixel_error": 50.08861038175741,
+        "terminal_loss": 3.393393078550363,
+        "episode": 23,
+        "held_loss": 1.8695459446524862,
+        "held_rmse": 1.6608784521814266,
+        "arm_capped_mse": 0.558552271878342,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102
+        ]
+      },
+      {
+        "terminal_pixel_error": 32.445782321179465,
+        "terminal_loss": 1.8114679461243823,
+        "episode": 24,
+        "held_loss": 0.374078345514318,
+        "held_rmse": 0.6602844583352938,
+        "arm_capped_mse": 0.5175891335106722,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106
+        ]
+      },
+      {
+        "terminal_pixel_error": 30.132034534341006,
+        "terminal_loss": 1.6165446287564587,
+        "episode": 25,
+        "held_loss": 3.7438784557489457,
+        "held_rmse": 2.692665574472093,
+        "arm_capped_mse": 0.4149861689000661,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108
+        ]
+      },
+      {
+        "terminal_pixel_error": 11.026140445427293,
+        "terminal_loss": 0.28380334775629823,
+        "episode": 26,
+        "held_loss": 3.560149524607118,
+        "held_rmse": 2.594714030889429,
+        "arm_capped_mse": 0.6367645495847502,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120
+        ]
+      },
+      {
+        "terminal_pixel_error": 23.369019812349134,
+        "terminal_loss": 1.0758918820237593,
+        "episode": 27,
+        "held_loss": 3.269043863213184,
+        "held_rmse": 2.437381947938314,
+        "arm_capped_mse": 0.2912441262876372,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112
+        ]
+      },
+      {
+        "terminal_pixel_error": 19.173235195734172,
+        "terminal_loss": 0.7705828770692631,
+        "episode": 28,
+        "held_loss": 3.838099028151769,
+        "held_rmse": 2.7424674712874886,
+        "arm_capped_mse": 0.26670543710609373,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81
+        ]
+      },
+      {
+        "terminal_pixel_error": 19.073892871901222,
+        "terminal_loss": 0.763717404672128,
+        "episode": 29,
+        "held_loss": 4.070694234561096,
+        "held_rmse": 2.868164668801722,
+        "arm_capped_mse": 0.2370693671886663,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95
+        ]
+      },
+      {
+        "terminal_pixel_error": 13.137980620599208,
+        "terminal_loss": 0.3929198373268594,
+        "episode": 30,
+        "held_loss": 3.659388006385525,
+        "held_rmse": 2.6471063471201544,
+        "arm_capped_mse": 0.26671507536513417,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131
+        ]
+      },
+      {
+        "terminal_pixel_error": 21.6313138279022,
+        "terminal_loss": 0.9460375726069632,
+        "episode": 31,
+        "held_loss": 3.660273058473899,
+        "held_rmse": 2.6477325706446186,
+        "arm_capped_mse": 0.2990412683907462,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127
+        ]
+      },
+      {
+        "terminal_pixel_error": 19.718604031192832,
+        "terminal_loss": 0.8085999090987919,
+        "episode": 32,
+        "held_loss": 4.227340937350781,
+        "held_rmse": 2.952187717724055,
+        "arm_capped_mse": 0.2774353391760309,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100
+        ]
+      },
+      {
+        "terminal_pixel_error": 22.34140897613675,
+        "terminal_loss": 0.9985639146748291,
+        "episode": 33,
+        "held_loss": 3.7643984155086074,
+        "held_rmse": 2.706437985472653,
+        "arm_capped_mse": 1.444561414026499,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186,
+          187,
+          188,
+          189,
+          190,
+          191,
+          192,
+          193,
+          194,
+          195,
+          196,
+          197,
+          198,
+          199,
+          200,
+          201,
+          202,
+          203,
+          204,
+          205,
+          206,
+          207,
+          208,
+          209,
+          210,
+          211,
+          212,
+          213,
+          214,
+          215,
+          216,
+          217,
+          218,
+          219,
+          220,
+          221,
+          222,
+          223,
+          224
+        ]
+      },
+      {
+        "terminal_pixel_error": 4.499027373805842,
+        "terminal_loss": 0.04997865186507333,
+        "episode": 34,
+        "held_loss": 3.7728900514396937,
+        "held_rmse": 2.7078495010716614,
+        "arm_capped_mse": 0.35415625985844135,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83
+        ]
+      },
+      {
+        "terminal_pixel_error": 18.884227455769857,
+        "terminal_loss": 0.7506618232731777,
+        "episode": 35,
+        "held_loss": 4.070597974516148,
+        "held_rmse": 2.8660616862316677,
+        "arm_capped_mse": 0.3778706782053779,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186,
+          187,
+          188,
+          189,
+          190,
+          191,
+          192,
+          193,
+          194,
+          195,
+          196,
+          197,
+          198,
+          199,
+          200,
+          201,
+          202,
+          203,
+          204,
+          205,
+          206
+        ]
+      },
+      {
+        "terminal_pixel_error": 3.931824163126134,
+        "terminal_loss": 0.038281730403681546,
+        "episode": 36,
+        "held_loss": 3.9805835468863258,
+        "held_rmse": 2.8187720107478387,
+        "arm_capped_mse": 0.28713534504851795,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101
+        ]
+      },
+      {
+        "terminal_pixel_error": 89.42283377271558,
+        "terminal_loss": 7.163210790952439,
+        "episode": 37,
+        "held_loss": 13.53000031008989,
+        "held_rmse": 7.763520691571197,
+        "arm_capped_mse": 0.3790405741554949,
+        "stable_hold_gap_scaled": 3.446689699692879,
+        "held_frames": [
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123
+        ]
+      },
+      {
+        "terminal_pixel_error": 23.582108844235613,
+        "terminal_loss": 1.0921123161058937,
+        "episode": 38,
+        "held_loss": 3.4956136119202963,
+        "held_rmse": 2.5605298955531057,
+        "arm_capped_mse": 0.38000214204864413,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102
+        ]
+      },
+      {
+        "terminal_pixel_error": 46.63437437007801,
+        "terminal_loss": 3.074214099630196,
+        "episode": 39,
+        "held_loss": 5.098962331792528,
+        "held_rmse": 3.4172935433858833,
+        "arm_capped_mse": 0.3693363045762898,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80
+        ]
+      },
+      {
+        "terminal_pixel_error": 21.3581540677508,
+        "terminal_loss": 0.9260395506243246,
+        "episode": 40,
+        "held_loss": 3.8841188454671327,
+        "held_rmse": 2.768694334695578,
+        "arm_capped_mse": 0.2820838835719713,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111
+        ]
+      },
+      {
+        "terminal_pixel_error": 27.47317789723602,
+        "terminal_loss": 1.3981987931449473,
+        "episode": 41,
+        "held_loss": 3.607111781598247,
+        "held_rmse": 2.6191800743809495,
+        "arm_capped_mse": 0.25391437601698885,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91
+        ]
+      },
+      {
+        "terminal_pixel_error": 15.536213214903611,
+        "terminal_loss": 0.5325361222674507,
+        "episode": 42,
+        "held_loss": 3.5899273674266583,
+        "held_rmse": 2.6134211188528944,
+        "arm_capped_mse": 0.29834137205031824,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98
+        ]
+      },
+      {
+        "terminal_pixel_error": 35.92530186979743,
+        "terminal_loss": 2.1117238652857884,
+        "episode": 43,
+        "held_loss": 4.210752811924347,
+        "held_rmse": 2.943016024010306,
+        "arm_capped_mse": 0.2626809803201243,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90
+        ]
+      },
+      {
+        "terminal_pixel_error": 169.2885776050356,
+        "terminal_loss": 15.046589837130522,
+        "episode": 44,
+        "held_loss": 13.099299539201755,
+        "held_rmse": 7.5527321405684615,
+        "arm_capped_mse": 0.3493067152724542,
+        "stable_hold_gap_scaled": 0.8416597941215761,
+        "held_frames": [
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98
+        ]
+      },
+      {
+        "terminal_pixel_error": 36.26245443012241,
+        "terminal_loss": 2.1412143162322623,
+        "episode": 45,
+        "held_loss": 5.219292150723179,
+        "held_rmse": 3.487630277575138,
+        "arm_capped_mse": 0.5544636969194306,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96
+        ]
+      },
+      {
+        "terminal_pixel_error": 4.833076626353687,
+        "terminal_loss": 0.057568053980733946,
+        "episode": 46,
+        "held_loss": 3.736027978489252,
+        "held_rmse": 2.6882709455524836,
+        "arm_capped_mse": 0.26923176949755134,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89
+        ]
+      },
+      {
+        "terminal_pixel_error": 45.87981708084117,
+        "terminal_loss": 3.004955160010372,
+        "episode": 47,
+        "held_loss": 5.794860265315435,
+        "held_rmse": 3.7865485458955916,
+        "arm_capped_mse": 0.3675674418786833,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104
+        ]
+      },
+      {
+        "terminal_pixel_error": 21.222167062119787,
+        "terminal_loss": 0.9161282118804754,
+        "episode": 48,
+        "held_loss": 4.017695342512589,
+        "held_rmse": 2.849642913777325,
+        "arm_capped_mse": 0.3922990307696604,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115
+        ]
+      },
+      {
+        "terminal_pixel_error": 21.08394222239903,
+        "terminal_loss": 0.9060843408914692,
+        "episode": 49,
+        "held_loss": 6.009134836642671,
+        "held_rmse": 3.9183553843252517,
+        "arm_capped_mse": 0.26222872920545287,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109
+        ]
+      },
+      {
+        "terminal_pixel_error": 270.35301119787124,
+        "terminal_loss": 25.10917753524741,
+        "episode": 50,
+        "held_loss": 13.451756731730585,
+        "held_rmse": 7.72371913288659,
+        "arm_capped_mse": 0.6246362453646008,
+        "stable_hold_gap_scaled": 0.8442217957977656,
+        "held_frames": [
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103
+        ]
+      },
+      {
+        "terminal_pixel_error": 278.09898327900316,
+        "terminal_loss": 25.88172241824656,
+        "episode": 51,
+        "held_loss": 13.25045347423337,
+        "held_rmse": 7.624423508143048,
+        "arm_capped_mse": 0.3692769795032573,
+        "stable_hold_gap_scaled": 3.1059582721162142,
+        "held_frames": [
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135
+        ]
+      },
+      {
+        "terminal_pixel_error": 7.528650182307818,
+        "terminal_loss": 0.13700859513377628,
+        "episode": 52,
+        "held_loss": 4.09589138159364,
+        "held_rmse": 2.8849178209674635,
+        "arm_capped_mse": 0.44228540487998214,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144
+        ]
+      },
+      {
+        "terminal_pixel_error": null,
+        "terminal_loss": 0.0,
+        "episode": 53,
+        "held_loss": 10.245246120324929,
+        "held_rmse": 6.588476560544947,
+        "arm_capped_mse": 0.30599821995261106,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106
+        ]
+      },
+      {
+        "terminal_pixel_error": 32.50231515687813,
+        "terminal_loss": 1.8162815548083322,
+        "episode": 54,
+        "held_loss": 4.229785210658068,
+        "held_rmse": 2.958853688192891,
+        "arm_capped_mse": 0.3547641661616856,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97
+        ]
+      },
+      {
+        "terminal_pixel_error": 32.81665970417119,
+        "terminal_loss": 1.8430888021738099,
+        "episode": 55,
+        "held_loss": 7.484086016999109,
+        "held_rmse": 4.657303491384308,
+        "arm_capped_mse": 0.44825014519916584,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117
+        ]
+      },
+      {
+        "terminal_pixel_error": 21.338154984485936,
+        "terminal_loss": 0.9245800692440307,
+        "episode": 56,
+        "held_loss": 4.545318563056324,
+        "held_rmse": 3.117886314882831,
+        "arm_capped_mse": 0.5042406658812754,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100
+        ]
+      },
+      {
+        "terminal_pixel_error": 32.81503669605751,
+        "terminal_loss": 1.8429502122244585,
+        "episode": 57,
+        "held_loss": 4.661845653887433,
+        "held_rmse": 3.185712983426943,
+        "arm_capped_mse": 0.2431266827692721,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122
+        ]
+      },
+      {
+        "terminal_pixel_error": 32.35262986615396,
+        "terminal_loss": 1.8035413225786798,
+        "episode": 58,
+        "held_loss": 4.192638634355728,
+        "held_rmse": 2.936923703754389,
+        "arm_capped_mse": 0.4488255512629906,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119
+        ]
+      },
+      {
+        "terminal_pixel_error": 23.173495337693723,
+        "terminal_loss": 1.0610633547284065,
+        "episode": 59,
+        "held_loss": 2.87808476939297,
+        "held_rmse": 2.22466756729195,
+        "arm_capped_mse": 0.6622193511120299,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122
+        ]
+      },
+      {
+        "terminal_pixel_error": 25.26107137872024,
+        "terminal_loss": 1.22198964492563,
+        "episode": 60,
+        "held_loss": 2.9184319327655732,
+        "held_rmse": 2.247834461462417,
+        "arm_capped_mse": 0.5942257828743208,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123
+        ]
+      },
+      {
+        "terminal_pixel_error": 11.532708694283023,
+        "terminal_loss": 0.3086865742824232,
+        "episode": 61,
+        "held_loss": 5.273811039535201,
+        "held_rmse": 3.511596953128919,
+        "arm_capped_mse": 0.4593396042724153,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          167,
+          168,
+          169,
+          170,
+          171,
+          172
+        ]
+      },
+      {
+        "terminal_pixel_error": 26.873805176194182,
+        "terminal_loss": 1.3499274688387524,
+        "episode": 62,
+        "held_loss": 5.046659616404199,
+        "held_rmse": 3.3819707019479623,
+        "arm_capped_mse": 0.41655516550644384,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144,
+          145,
+          146,
+          147,
+          148,
+          149,
+          150,
+          151,
+          152,
+          153,
+          154,
+          155,
+          156,
+          157,
+          158,
+          159,
+          160,
+          161
+        ]
+      },
+      {
+        "terminal_pixel_error": 153.54973704799085,
+        "terminal_loss": 13.48467686053123,
+        "episode": 63,
+        "held_loss": 13.779481794569364,
+        "held_rmse": 7.871098641557767,
+        "arm_capped_mse": 0.48498702077701855,
+        "stable_hold_gap_scaled": 0.006241004109936756,
+        "held_frames": [
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144
+        ]
+      },
+      {
+        "terminal_pixel_error": 32.66893971671269,
+        "terminal_loss": 1.830482505134579,
+        "episode": 64,
+        "held_loss": 4.177238829767653,
+        "held_rmse": 2.923786091128143,
+        "arm_capped_mse": 0.22940143235144558,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94
+        ]
+      },
+      {
+        "terminal_pixel_error": 8.806855301105287,
+        "terminal_loss": 0.18531622493085953,
+        "episode": 65,
+        "held_loss": 3.682368940430756,
+        "held_rmse": 2.660450470489421,
+        "arm_capped_mse": 0.23112731774826722,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114
+        ]
+      },
+      {
+        "terminal_pixel_error": 51.577554501482986,
+        "terminal_loss": 3.5319473319559433,
+        "episode": 66,
+        "held_loss": 3.8472103823535146,
+        "held_rmse": 2.7540564906765757,
+        "arm_capped_mse": 0.3648961698257522,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127
+        ]
+      },
+      {
+        "terminal_pixel_error": 16.901329120538488,
+        "terminal_loss": 0.6185013386300997,
+        "episode": 67,
+        "held_loss": 4.665162659542472,
+        "held_rmse": 3.185671710599792,
+        "arm_capped_mse": 0.2823527756043573,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98
+        ]
+      },
+      {
+        "terminal_pixel_error": 36.83971174010574,
+        "terminal_loss": 2.191854435800562,
+        "episode": 68,
+        "held_loss": 3.3546884694337975,
+        "held_rmse": 2.4836422216720777,
+        "arm_capped_mse": 0.2710053212579183,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82
+        ]
+      },
+      {
+        "terminal_pixel_error": 39.43748362639453,
+        "terminal_loss": 2.4218945202052673,
+        "episode": 69,
+        "held_loss": 5.052308821458117,
+        "held_rmse": 3.38897282815164,
+        "arm_capped_mse": 0.47371357163102146,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128,
+          129
+        ]
+      },
+      {
+        "terminal_pixel_error": 90.2611075977699,
+        "terminal_loss": 7.24503517828688,
+        "episode": 70,
+        "held_loss": 7.523239708622082,
+        "held_rmse": 5.261990447486676,
+        "arm_capped_mse": 0.4647269342733042,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          184,
+          185,
+          186,
+          187,
+          188,
+          189,
+          190,
+          191,
+          192,
+          193,
+          194,
+          195,
+          196,
+          197
+        ]
+      },
+      {
+        "terminal_pixel_error": 30.550073607952115,
+        "terminal_loss": 1.6514476546313683,
+        "episode": 71,
+        "held_loss": 3.855239669240734,
+        "held_rmse": 2.752018183911265,
+        "arm_capped_mse": 0.6111340700569927,
+        "stable_hold_gap_scaled": 0.0,
+        "held_frames": [
+          191,
+          192,
+          193,
+          194,
+          195,
+          196,
+          197,
+          198,
+          199,
+          200,
+          201,
+          202,
+          203,
+          204,
+          205,
+          206,
+          207,
+          208,
+          209,
+          210,
+          211
+        ]
+      }
+    ],
+    "initial_max_penetration_m": 0.0,
+    "zero_and_measured_dimensions_fixed": true,
+    "no_episode_specific_parameters": true,
+    "no_action_modification": true
+  },
+  "wrist_camera_validation": [
+    {
+      "candidate": "before",
+      "camera_training_episodes": [
+        1,
+        4,
+        8,
+        28,
+        37,
+        45,
+        50,
+        64
+      ],
+      "evaluation_episodes": [
+        0,
+        3,
+        12,
+        21,
+        24,
+        38,
+        40,
+        44,
+        66,
+        71
+      ],
+      "evaluation_mean_iou": 0.7678787844173567,
+      "rows": [
+        {
+          "episode": 0,
+          "frame": 0,
+          "iou": 0.8850138121546961
+        },
+        {
+          "episode": 0,
+          "frame": 58,
+          "iou": 0.8730756072528224
+        },
+        {
+          "episode": 0,
+          "frame": 105,
+          "iou": 0.6740963855421687
+        },
+        {
+          "episode": 0,
+          "frame": 140,
+          "iou": 0.7348099371445675
+        },
+        {
+          "episode": 0,
+          "frame": 175,
+          "iou": 0.7318768619662364
+        },
+        {
+          "episode": 0,
+          "frame": 210,
+          "iou": 0.8363116511794139
+        },
+        {
+          "episode": 3,
+          "frame": 0,
+          "iou": 0.8752563226247437
+        },
+        {
+          "episode": 3,
+          "frame": 31,
+          "iou": 0.7919896640826873
+        },
+        {
+          "episode": 3,
+          "frame": 55,
+          "iou": 0.7226169330965068
+        },
+        {
+          "episode": 3,
+          "frame": 74,
+          "iou": 0.7240791268758526
+        },
+        {
+          "episode": 3,
+          "frame": 93,
+          "iou": 0.7570175438596491
+        },
+        {
+          "episode": 3,
+          "frame": 111,
+          "iou": 0.8513665293897417
+        },
+        {
+          "episode": 12,
+          "frame": 0,
+          "iou": 0.9066808059384942
+        },
+        {
+          "episode": 12,
+          "frame": 39,
+          "iou": 0.556118754525706
+        },
+        {
+          "episode": 12,
+          "frame": 71,
+          "iou": 0.7972844963688033
+        },
+        {
+          "episode": 12,
+          "frame": 95,
+          "iou": 0.7097833223900197
+        },
+        {
+          "episode": 12,
+          "frame": 119,
+          "iou": 0.6922861150070126
+        },
+        {
+          "episode": 12,
+          "frame": 143,
+          "iou": 0.8477457501847746
+        },
+        {
+          "episode": 21,
+          "frame": 0,
+          "iou": 0.9080622347949081
+        },
+        {
+          "episode": 21,
+          "frame": 33,
+          "iou": 0.5564946619217082
+        },
+        {
+          "episode": 21,
+          "frame": 59,
+          "iou": 0.8172920065252854
+        },
+        {
+          "episode": 21,
+          "frame": 79,
+          "iou": 0.8368314150304672
+        },
+        {
+          "episode": 21,
+          "frame": 99,
+          "iou": 0.8311281337047354
+        },
+        {
+          "episode": 21,
+          "frame": 119,
+          "iou": 0.8615891614793116
+        },
+        {
+          "episode": 24,
+          "frame": 0,
+          "iou": 0.9033970276008493
+        },
+        {
+          "episode": 24,
+          "frame": 37,
+          "iou": 0.675289312457454
+        },
+        {
+          "episode": 24,
+          "frame": 67,
+          "iou": 0.5717934165720772
+        },
+        {
+          "episode": 24,
+          "frame": 89,
+          "iou": 0.7094391244870041
+        },
+        {
+          "episode": 24,
+          "frame": 111,
+          "iou": 0.6696311797018049
+        },
+        {
+          "episode": 24,
+          "frame": 134,
+          "iou": 0.8416523235800344
+        },
+        {
+          "episode": 38,
+          "frame": 0,
+          "iou": 0.8470264695771743
+        },
+        {
+          "episode": 38,
+          "frame": 37,
+          "iou": 0.8074792243767313
+        },
+        {
+          "episode": 38,
+          "frame": 67,
+          "iou": 0.6802408947519357
+        },
+        {
+          "episode": 38,
+          "frame": 90,
+          "iou": 0.5939597315436241
+        },
+        {
+          "episode": 38,
+          "frame": 112,
+          "iou": 0.8112263139077583
+        },
+        {
+          "episode": 38,
+          "frame": 135,
+          "iou": 0.8432890855457227
+        },
+        {
+          "episode": 40,
+          "frame": 0,
+          "iou": 0.8076797917344615
+        },
+        {
+          "episode": 40,
+          "frame": 38,
+          "iou": 0.75049115913556
+        },
+        {
+          "episode": 40,
+          "frame": 68,
+          "iou": 0.7384615384615385
+        },
+        {
+          "episode": 40,
+          "frame": 91,
+          "iou": 0.6823419495484273
+        },
+        {
+          "episode": 40,
+          "frame": 114,
+          "iou": 0.6687644915534945
+        },
+        {
+          "episode": 40,
+          "frame": 137,
+          "iou": 0.8297491039426523
+        },
+        {
+          "episode": 44,
+          "frame": 0,
+          "iou": 0.8674991328477281
+        },
+        {
+          "episode": 44,
+          "frame": 35,
+          "iou": 0.715961716579191
+        },
+        {
+          "episode": 44,
+          "frame": 63,
+          "iou": 0.7460850111856824
+        },
+        {
+          "episode": 44,
+          "frame": 84,
+          "iou": 0.6821234409977615
+        },
+        {
+          "episode": 44,
+          "frame": 105,
+          "iou": 0.7968275396557543
+        },
+        {
+          "episode": 44,
+          "frame": 126,
+          "iou": 0.7011456628477906
+        },
+        {
+          "episode": 66,
+          "frame": 0,
+          "iou": 0.8569965870307167
+        },
+        {
+          "episode": 66,
+          "frame": 42,
+          "iou": 0.7985274431057564
+        },
+        {
+          "episode": 66,
+          "frame": 75,
+          "iou": 0.7266369993642721
+        },
+        {
+          "episode": 66,
+          "frame": 100,
+          "iou": 0.7245283018867924
+        },
+        {
+          "episode": 66,
+          "frame": 126,
+          "iou": 0.6934739617666447
+        },
+        {
+          "episode": 66,
+          "frame": 151,
+          "iou": 0.7899964526427812
+        },
+        {
+          "episode": 71,
+          "frame": 0,
+          "iou": 0.9028954802259888
+        },
+        {
+          "episode": 71,
+          "frame": 66,
+          "iou": 0.9057739992915338
+        },
+        {
+          "episode": 71,
+          "frame": 119,
+          "iou": 0.7643086816720257
+        },
+        {
+          "episode": 71,
+          "frame": 159,
+          "iou": 0.6819648619576909
+        },
+        {
+          "episode": 71,
+          "frame": 198,
+          "iou": 0.6459300526152894
+        },
+        {
+          "episode": 71,
+          "frame": 238,
+          "iou": 0.8613323678493845
+        }
+      ],
+      "scope": "jaw-only image calibration on measured joints; not integrated-state validation, not a blind task-generalization split"
+    },
+    {
+      "candidate": "after",
+      "camera_training_episodes": [
+        1,
+        4,
+        8,
+        28,
+        37,
+        45,
+        50,
+        64
+      ],
+      "evaluation_episodes": [
+        0,
+        3,
+        12,
+        21,
+        24,
+        38,
+        40,
+        44,
+        66,
+        71
+      ],
+      "evaluation_mean_iou": 0.775861746115013,
+      "rows": [
+        {
+          "episode": 0,
+          "frame": 0,
+          "iou": 0.8987252124645893
+        },
+        {
+          "episode": 0,
+          "frame": 58,
+          "iou": 0.8751743375174338
+        },
+        {
+          "episode": 0,
+          "frame": 105,
+          "iou": 0.7364735837046468
+        },
+        {
+          "episode": 0,
+          "frame": 140,
+          "iou": 0.8038232528987778
+        },
+        {
+          "episode": 0,
+          "frame": 175,
+          "iou": 0.6752192270217603
+        },
+        {
+          "episode": 0,
+          "frame": 210,
+          "iou": 0.8441605839416059
+        },
+        {
+          "episode": 3,
+          "frame": 0,
+          "iou": 0.8738301559792028
+        },
+        {
+          "episode": 3,
+          "frame": 31,
+          "iou": 0.7727864583333334
+        },
+        {
+          "episode": 3,
+          "frame": 55,
+          "iou": 0.7336349924585218
+        },
+        {
+          "episode": 3,
+          "frame": 74,
+          "iou": 0.6771361026680176
+        },
+        {
+          "episode": 3,
+          "frame": 93,
+          "iou": 0.8019669199821189
+        },
+        {
+          "episode": 3,
+          "frame": 111,
+          "iou": 0.8696993060909792
+        },
+        {
+          "episode": 12,
+          "frame": 0,
+          "iou": 0.9050701186623517
+        },
+        {
+          "episode": 12,
+          "frame": 39,
+          "iou": 0.611875452570601
+        },
+        {
+          "episode": 12,
+          "frame": 71,
+          "iou": 0.7707547169811321
+        },
+        {
+          "episode": 12,
+          "frame": 95,
+          "iou": 0.6665582303188029
+        },
+        {
+          "episode": 12,
+          "frame": 119,
+          "iou": 0.7009719839908519
+        },
+        {
+          "episode": 12,
+          "frame": 143,
+          "iou": 0.8556351300414625
+        },
+        {
+          "episode": 21,
+          "frame": 0,
+          "iou": 0.9006433166547534
+        },
+        {
+          "episode": 21,
+          "frame": 33,
+          "iou": 0.5333629893238434
+        },
+        {
+          "episode": 21,
+          "frame": 59,
+          "iou": 0.7668494034182521
+        },
+        {
+          "episode": 21,
+          "frame": 79,
+          "iou": 0.7785167941469904
+        },
+        {
+          "episode": 21,
+          "frame": 99,
+          "iou": 0.781718963165075
+        },
+        {
+          "episode": 21,
+          "frame": 119,
+          "iou": 0.8705089820359282
+        },
+        {
+          "episode": 24,
+          "frame": 0,
+          "iou": 0.9007194244604316
+        },
+        {
+          "episode": 24,
+          "frame": 37,
+          "iou": 0.741421143847487
+        },
+        {
+          "episode": 24,
+          "frame": 67,
+          "iou": 0.6236342725704428
+        },
+        {
+          "episode": 24,
+          "frame": 89,
+          "iou": 0.6750951604132681
+        },
+        {
+          "episode": 24,
+          "frame": 111,
+          "iou": 0.6350440642820114
+        },
+        {
+          "episode": 24,
+          "frame": 134,
+          "iou": 0.8030095759233926
+        },
+        {
+          "episode": 38,
+          "frame": 0,
+          "iou": 0.8621174815335912
+        },
+        {
+          "episode": 38,
+          "frame": 37,
+          "iou": 0.8290598290598291
+        },
+        {
+          "episode": 38,
+          "frame": 67,
+          "iou": 0.7435667265110713
+        },
+        {
+          "episode": 38,
+          "frame": 90,
+          "iou": 0.5711673270344407
+        },
+        {
+          "episode": 38,
+          "frame": 112,
+          "iou": 0.7467959819882231
+        },
+        {
+          "episode": 38,
+          "frame": 135,
+          "iou": 0.8568723968193867
+        },
+        {
+          "episode": 40,
+          "frame": 0,
+          "iou": 0.8123546994354035
+        },
+        {
+          "episode": 40,
+          "frame": 38,
+          "iou": 0.769334229993275
+        },
+        {
+          "episode": 40,
+          "frame": 68,
+          "iou": 0.7725150100066711
+        },
+        {
+          "episode": 40,
+          "frame": 91,
+          "iou": 0.660212367270456
+        },
+        {
+          "episode": 40,
+          "frame": 114,
+          "iou": 0.6446363334440385
+        },
+        {
+          "episode": 40,
+          "frame": 137,
+          "iou": 0.8567727609178386
+        },
+        {
+          "episode": 44,
+          "frame": 0,
+          "iou": 0.8730946472881956
+        },
+        {
+          "episode": 44,
+          "frame": 35,
+          "iou": 0.8199399799933311
+        },
+        {
+          "episode": 44,
+          "frame": 63,
+          "iou": 0.845915602013163
+        },
+        {
+          "episode": 44,
+          "frame": 84,
+          "iou": 0.6559311224489796
+        },
+        {
+          "episode": 44,
+          "frame": 105,
+          "iou": 0.6870988446726572
+        },
+        {
+          "episode": 44,
+          "frame": 126,
+          "iou": 0.7377160284649271
+        },
+        {
+          "episode": 66,
+          "frame": 0,
+          "iou": 0.865458347856396
+        },
+        {
+          "episode": 66,
+          "frame": 42,
+          "iou": 0.8536842105263158
+        },
+        {
+          "episode": 66,
+          "frame": 75,
+          "iou": 0.8177240684793555
+        },
+        {
+          "episode": 66,
+          "frame": 100,
+          "iou": 0.7357096981374438
+        },
+        {
+          "episode": 66,
+          "frame": 126,
+          "iou": 0.6632753528060388
+        },
+        {
+          "episode": 66,
+          "frame": 151,
+          "iou": 0.8094890510948906
+        },
+        {
+          "episode": 71,
+          "frame": 0,
+          "iou": 0.9174212241941325
+        },
+        {
+          "episode": 71,
+          "frame": 66,
+          "iou": 0.9193899782135077
+        },
+        {
+          "episode": 71,
+          "frame": 119,
+          "iou": 0.8444520081688224
+        },
+        {
+          "episode": 71,
+          "frame": 159,
+          "iou": 0.7819465081723626
+        },
+        {
+          "episode": 71,
+          "frame": 198,
+          "iou": 0.6218982630272953
+        },
+        {
+          "episode": 71,
+          "frame": 238,
+          "iou": 0.8921348314606742
+        }
+      ],
+      "scope": "jaw-only image calibration on measured joints; not integrated-state validation, not a blind task-generalization split"
+    }
+  ],
+  "bowl_geometry_update": {
+    "source": "User measured outside bottom diameter98mm",
+    "previous_bottom_outer_radius_m": 0.0413,
+    "bottom_outer_radius_m": 0.049,
+    "top_outer_radius_m": 0.059,
+    "height_m": 0.05,
+    "wall_and_floor_thickness_still_estimated": true,
+    "actions_motors_and_joint_references_unchanged_from_input_config": true
+  },
+  "worst_grasp_identification": {
+    "objective": "mean stable held-gripper softL1 plus worst8 mean plus0.5armMSE; optional simulated bilateral contact-gap term at real hold onset; all72 calibration set",
+    "record": {
+      "call": 104,
+      "loss": 17.70912721302479,
+      "screen_passes": 68,
+      "arm_rmse_deg": 0.6752439941806712,
+      "delta_deg_mm": [
+        -0.006241785230271375,
+        -0.09166840369732655,
+        0.003089382707850674,
+        -0.002108037637035004,
+        -0.008292052462483605,
+        0.011717346606298019,
+        0.0075117978124384505
+      ],
+      "initial_depth_m": 0.0,
+      "gap_weight": 1.0
+    },
+    "per_episode": [
+      {
+        "episode": 0,
+        "gap_scaled": 0.0,
+        "held_loss": 4.244045758208792,
+        "arm_mse": 0.608596811362843,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12041893898278037,
+        "terminal_cube": [
+          0.22862389374490658,
+          -0.12904565335837162,
+          0.01674787128494512
+        ]
+      },
+      {
+        "episode": 1,
+        "gap_scaled": 0.0,
+        "held_loss": 4.146513950413253,
+        "arm_mse": 0.35018138800017445,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.09110929904772545,
+        "terminal_cube": [
+          0.2270209506601656,
+          -0.14454174393344738,
+          0.016747875278346504
+        ]
+      },
+      {
+        "episode": 2,
+        "gap_scaled": 0.0,
+        "held_loss": 4.454382205103325,
+        "arm_mse": 0.48331115371208755,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.08655967978726653,
+        "terminal_cube": [
+          0.2332365169630291,
+          -0.1451815108146077,
+          0.016747871371648865
+        ]
+      },
+      {
+        "episode": 3,
+        "gap_scaled": 0.0,
+        "held_loss": 4.3942104367058334,
+        "arm_mse": 0.4840598376172218,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.10377512644205425,
+        "terminal_cube": [
+          0.20659169550628775,
+          -0.14521321199490556,
+          0.01674788779416502
+        ]
+      },
+      {
+        "episode": 4,
+        "gap_scaled": 0.0,
+        "held_loss": 4.536724211902402,
+        "arm_mse": 0.27927131131555705,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1143754643627075,
+        "terminal_cube": [
+          0.2298530804536719,
+          -0.1477771633484418,
+          0.016747874058297144
+        ]
+      },
+      {
+        "episode": 5,
+        "gap_scaled": 0.0,
+        "held_loss": 4.339934405272007,
+        "arm_mse": 0.38516058016237315,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12116512725629315,
+        "terminal_cube": [
+          0.22277487514337665,
+          -0.13667051268175018,
+          0.016747876243492707
+        ]
+      },
+      {
+        "episode": 6,
+        "gap_scaled": 0.0,
+        "held_loss": 4.373979306322256,
+        "arm_mse": 0.3041516040952847,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11529912423251125,
+        "terminal_cube": [
+          0.2139323200533997,
+          -0.13985167381995597,
+          0.016747882235605856
+        ]
+      },
+      {
+        "episode": 7,
+        "gap_scaled": 0.0,
+        "held_loss": 4.059747073333966,
+        "arm_mse": 0.246759245078291,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1113099719894443,
+        "terminal_cube": [
+          0.23574326027033585,
+          -0.12623050381126782,
+          0.016747866396755032
+        ]
+      },
+      {
+        "episode": 8,
+        "gap_scaled": 0.0,
+        "held_loss": 3.821920559607231,
+        "arm_mse": 0.2588005943222291,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12411215058868806,
+        "terminal_cube": [
+          0.24292162364340705,
+          -0.14996256414289413,
+          0.01674786646293467
+        ]
+      },
+      {
+        "episode": 9,
+        "gap_scaled": 0.0,
+        "held_loss": 4.421966658546443,
+        "arm_mse": 0.2552098680184364,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12135369343915446,
+        "terminal_cube": [
+          0.25770892150480357,
+          -0.14420685343990072,
+          0.016747856282699983
+        ]
+      },
+      {
+        "episode": 10,
+        "gap_scaled": 0.0,
+        "held_loss": 4.754381779394224,
+        "arm_mse": 0.276404349508383,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.10882195007067014,
+        "terminal_cube": [
+          0.2327147073500485,
+          -0.1487147046827507,
+          0.016747872502022584
+        ]
+      },
+      {
+        "episode": 11,
+        "gap_scaled": 0.0,
+        "held_loss": 4.392455674005216,
+        "arm_mse": 0.29854522465555366,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11612096030907716,
+        "terminal_cube": [
+          0.21346209117959095,
+          -0.15051735631569657,
+          0.01674788455421289
+        ]
+      },
+      {
+        "episode": 12,
+        "gap_scaled": 0.0,
+        "held_loss": 4.666806794026149,
+        "arm_mse": 0.2717889758546278,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12826128927136432,
+        "terminal_cube": [
+          0.2384607274245277,
+          -0.14795772141662228,
+          0.016747868775054162
+        ]
+      },
+      {
+        "episode": 13,
+        "gap_scaled": 0.0,
+        "held_loss": 4.153822056630849,
+        "arm_mse": 0.32055577521067263,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14469012120461433,
+        "terminal_cube": [
+          0.22307138093126805,
+          -0.14300472775892076,
+          0.016747877224080346
+        ]
+      },
+      {
+        "episode": 14,
+        "gap_scaled": 0.0,
+        "held_loss": 3.961573515004416,
+        "arm_mse": 0.2795962916881571,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.127761030764115,
+        "terminal_cube": [
+          0.2563884592839082,
+          -0.14604874149713154,
+          0.016747857435820083
+        ]
+      },
+      {
+        "episode": 15,
+        "gap_scaled": 0.0,
+        "held_loss": 7.135646098900177,
+        "arm_mse": 0.43155358549094763,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14337428095780022,
+        "terminal_cube": [
+          0.22969764639802537,
+          -0.14421264073828371,
+          0.016747873363852483
+        ]
+      },
+      {
+        "episode": 16,
+        "gap_scaled": 0.0,
+        "held_loss": 3.9634129107282954,
+        "arm_mse": 0.3350439141072713,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.15234878262790963,
+        "terminal_cube": [
+          0.23703674958378015,
+          -0.15383377782760155,
+          0.01674787066234477
+        ]
+      },
+      {
+        "episode": 17,
+        "gap_scaled": 0.0,
+        "held_loss": 4.1194860395743715,
+        "arm_mse": 0.32109546902177366,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14972363093318095,
+        "terminal_cube": [
+          0.23297966600321568,
+          -0.1561536837296873,
+          0.01674787362289523
+        ]
+      },
+      {
+        "episode": 18,
+        "gap_scaled": 4.210180110911812,
+        "held_loss": 6.191110723189111,
+        "arm_mse": 0.39990432694349115,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1547328721104174,
+        "terminal_cube": [
+          0.22192108295218704,
+          -0.14058907969368764,
+          0.016747877473529505
+        ]
+      },
+      {
+        "episode": 19,
+        "gap_scaled": 0.0,
+        "held_loss": 4.472691691680568,
+        "arm_mse": 0.5263285611096801,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14056829952533062,
+        "terminal_cube": [
+          0.2295177944429857,
+          -0.14010862057951898,
+          0.016747872420762436
+        ]
+      },
+      {
+        "episode": 20,
+        "gap_scaled": 0.0,
+        "held_loss": 4.500895155550135,
+        "arm_mse": 1.1865354503947505,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13803946136360956,
+        "terminal_cube": [
+          0.2498641384167142,
+          -0.10665783307791189,
+          0.016747853460165194
+        ]
+      },
+      {
+        "episode": 21,
+        "gap_scaled": 0.0,
+        "held_loss": 0.6956856794215669,
+        "arm_mse": 0.2764983769996926,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12696158756538958,
+        "terminal_cube": [
+          0.22531790315571154,
+          -0.13449653140270434,
+          0.016747872130204303
+        ]
+      },
+      {
+        "episode": 22,
+        "gap_scaled": 0.0,
+        "held_loss": 4.57337783702268,
+        "arm_mse": 0.716561733416131,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1336544208120981,
+        "terminal_cube": [
+          0.2256701531572256,
+          -0.14758586827759612,
+          0.016747874428346965
+        ]
+      },
+      {
+        "episode": 23,
+        "gap_scaled": 0.0,
+        "held_loss": 4.392563869569358,
+        "arm_mse": 0.851474680213524,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1463818433308407,
+        "terminal_cube": [
+          0.22885405964490124,
+          -0.1544020800108682,
+          0.0167478737208277
+        ]
+      },
+      {
+        "episode": 24,
+        "gap_scaled": 0.0,
+        "held_loss": 3.6309800677833213,
+        "arm_mse": 0.5452175055219003,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14659450684833292,
+        "terminal_cube": [
+          0.20010959973534317,
+          -0.12815836337685768,
+          0.016747886269455857
+        ]
+      },
+      {
+        "episode": 25,
+        "gap_scaled": 0.0,
+        "held_loss": 4.153447112745378,
+        "arm_mse": 0.5128252450598725,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1525301466625567,
+        "terminal_cube": [
+          0.2332448085276167,
+          -0.1380449114457175,
+          0.01674786794667557
+        ]
+      },
+      {
+        "episode": 26,
+        "gap_scaled": 0.0,
+        "held_loss": 4.027932121966832,
+        "arm_mse": 0.8569794120965899,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14891625118003793,
+        "terminal_cube": [
+          0.24554662182706571,
+          -0.13638497837447747,
+          0.016747860157406133
+        ]
+      },
+      {
+        "episode": 27,
+        "gap_scaled": 0.0,
+        "held_loss": 3.681304051435241,
+        "arm_mse": 0.29906771139886457,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14419886923413444,
+        "terminal_cube": [
+          0.23497592000482215,
+          -0.13071182926729347,
+          0.01674786551414777
+        ]
+      },
+      {
+        "episode": 28,
+        "gap_scaled": 0.0,
+        "held_loss": 4.1350215527568,
+        "arm_mse": 0.27290461520966686,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13817191611668492,
+        "terminal_cube": [
+          0.22565963043511658,
+          -0.13093623396245826,
+          0.01674787128615167
+        ]
+      },
+      {
+        "episode": 29,
+        "gap_scaled": 0.0,
+        "held_loss": 4.434840856698878,
+        "arm_mse": 0.23925427689841222,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11278165795660298,
+        "terminal_cube": [
+          0.23907492932009386,
+          -0.14118298209047048,
+          0.01674786501355528
+        ]
+      },
+      {
+        "episode": 30,
+        "gap_scaled": 0.0,
+        "held_loss": 4.0673944027475875,
+        "arm_mse": 0.27256493729554804,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1076854242600811,
+        "terminal_cube": [
+          0.22940196285681247,
+          -0.13938695943817436,
+          0.01674787104608594
+        ]
+      },
+      {
+        "episode": 31,
+        "gap_scaled": 0.0,
+        "held_loss": 3.8681987433632523,
+        "arm_mse": 0.30403731398985223,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1318779222646882,
+        "terminal_cube": [
+          0.2305295810749555,
+          -0.1453376941223328,
+          0.016747872755405076
+        ]
+      },
+      {
+        "episode": 32,
+        "gap_scaled": 0.0,
+        "held_loss": 4.50130841453965,
+        "arm_mse": 0.27536065107060503,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12448869897969754,
+        "terminal_cube": [
+          0.2298961005479398,
+          -0.15020803460917156,
+          0.01674787397984466
+        ]
+      },
+      {
+        "episode": 33,
+        "gap_scaled": 0.0,
+        "held_loss": 3.9280204074152656,
+        "arm_mse": 2.532011055782173,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1032019783349544,
+        "terminal_cube": [
+          0.22717902962883624,
+          -0.14146949041196696,
+          0.016747873724785818
+        ]
+      },
+      {
+        "episode": 34,
+        "gap_scaled": 1.6277385937389313,
+        "held_loss": 4.578717847912459,
+        "arm_mse": 0.36140992102760117,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.10522549700138695,
+        "terminal_cube": [
+          0.22904822544505068,
+          -0.13062416993569895,
+          0.016747870531417686
+        ]
+      },
+      {
+        "episode": 35,
+        "gap_scaled": 0.0,
+        "held_loss": 4.406136358209029,
+        "arm_mse": 0.377665602810223,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11809971162328207,
+        "terminal_cube": [
+          0.2505657756972065,
+          -0.11858558941884219,
+          0.01674785521573947
+        ]
+      },
+      {
+        "episode": 36,
+        "gap_scaled": 0.0,
+        "held_loss": 4.38847678265667,
+        "arm_mse": 0.2913183843012961,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1416253474855523,
+        "terminal_cube": [
+          0.23398313534252063,
+          -0.13730469347867974,
+          0.016747868843366858
+        ]
+      },
+      {
+        "episode": 37,
+        "gap_scaled": 2.9375982590971272,
+        "held_loss": 13.530135723961312,
+        "arm_mse": 0.39918996929826656,
+        "screen_lift_and_inside": false,
+        "lift_m": 0.0,
+        "terminal_cube": [
+          0.23783323522134983,
+          -0.051591366900135084,
+          0.012747869317715274
+        ]
+      },
+      {
+        "episode": 38,
+        "gap_scaled": 0.0,
+        "held_loss": 4.87895579434174,
+        "arm_mse": 0.3812361801876314,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.08773070950278414,
+        "terminal_cube": [
+          0.24317358130247924,
+          -0.1432908079882287,
+          0.016747863448150897
+        ]
+      },
+      {
+        "episode": 39,
+        "gap_scaled": 0.0,
+        "held_loss": 5.612731429037248,
+        "arm_mse": 0.36845051816105057,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12123807711752886,
+        "terminal_cube": [
+          0.22644961216222925,
+          -0.14687288509054194,
+          0.016747874297678406
+        ]
+      },
+      {
+        "episode": 40,
+        "gap_scaled": 0.0,
+        "held_loss": 3.932302992554473,
+        "arm_mse": 0.28645793139057235,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12762701302286597,
+        "terminal_cube": [
+          0.233901446661691,
+          -0.13110145697232936,
+          0.016747866632687246
+        ]
+      },
+      {
+        "episode": 41,
+        "gap_scaled": 0.0,
+        "held_loss": 3.6776819464047352,
+        "arm_mse": 0.2457286166415624,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11455138396253021,
+        "terminal_cube": [
+          0.20599417491321728,
+          -0.12855654029303334,
+          0.0167478831433724
+        ]
+      },
+      {
+        "episode": 42,
+        "gap_scaled": 0.0,
+        "held_loss": 4.339295680879601,
+        "arm_mse": 0.29788374874029744,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1297107593546944,
+        "terminal_cube": [
+          0.21906699691998854,
+          -0.1276782156733421,
+          0.016747874968329392
+        ]
+      },
+      {
+        "episode": 43,
+        "gap_scaled": 0.0,
+        "held_loss": 4.827571516764508,
+        "arm_mse": 0.2642858259317736,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.122643801236631,
+        "terminal_cube": [
+          0.23998878835503248,
+          -0.14060610170753826,
+          0.016747864631711618
+        ]
+      },
+      {
+        "episode": 44,
+        "gap_scaled": 1.5089082333540926,
+        "held_loss": 13.099487179170568,
+        "arm_mse": 0.3462730260382587,
+        "screen_lift_and_inside": false,
+        "lift_m": 0.0,
+        "terminal_cube": [
+          0.20395523119010164,
+          0.06318360695063908,
+          0.012747869317715278
+        ]
+      },
+      {
+        "episode": 45,
+        "gap_scaled": 0.0,
+        "held_loss": 4.858554312337946,
+        "arm_mse": 0.878799243633116,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.09919320321660474,
+        "terminal_cube": [
+          0.22992580031774232,
+          -0.13228088061833268,
+          0.016747869168413698
+        ]
+      },
+      {
+        "episode": 46,
+        "gap_scaled": 0.0,
+        "held_loss": 4.0507826137477565,
+        "arm_mse": 0.2899089212107245,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13888066596478157,
+        "terminal_cube": [
+          0.21674435044767515,
+          -0.15624054141393642,
+          0.016747881492092307
+        ]
+      },
+      {
+        "episode": 47,
+        "gap_scaled": 0.0,
+        "held_loss": 5.856031461915573,
+        "arm_mse": 0.36152474649351074,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.15430785834740757,
+        "terminal_cube": [
+          0.2462037411937142,
+          -0.14471648563272435,
+          0.016747861117759544
+        ]
+      },
+      {
+        "episode": 48,
+        "gap_scaled": 0.0,
+        "held_loss": 4.7100896924732165,
+        "arm_mse": 0.3890601926144224,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13510417691731244,
+        "terminal_cube": [
+          0.22952538834712594,
+          -0.1515204701812826,
+          0.016747872645695532
+        ]
+      },
+      {
+        "episode": 49,
+        "gap_scaled": 0.0,
+        "held_loss": 6.624409892940711,
+        "arm_mse": 0.2646125214140808,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.15324839479766544,
+        "terminal_cube": [
+          0.22529993661068545,
+          -0.11613533279058778,
+          0.01674786861991761
+        ]
+      },
+      {
+        "episode": 50,
+        "gap_scaled": 1.6705595064874004,
+        "held_loss": 13.451776849351754,
+        "arm_mse": 0.5218121949398976,
+        "screen_lift_and_inside": false,
+        "lift_m": 0.0,
+        "terminal_cube": [
+          0.1782160047367797,
+          0.13800443802940443,
+          0.012747869317715281
+        ]
+      },
+      {
+        "episode": 51,
+        "gap_scaled": 0.0,
+        "held_loss": 12.025237792113618,
+        "arm_mse": 0.37908176691404716,
+        "screen_lift_and_inside": false,
+        "lift_m": 0.0,
+        "terminal_cube": [
+          0.2723953864781814,
+          0.16269752993728848,
+          0.01274786931771528
+        ]
+      },
+      {
+        "episode": 52,
+        "gap_scaled": 0.0,
+        "held_loss": 4.529117110484598,
+        "arm_mse": 0.43899207115797073,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.16222800248933927,
+        "terminal_cube": [
+          0.21742198377632727,
+          -0.14734590252283222,
+          0.016747879196613972
+        ]
+      },
+      {
+        "episode": 53,
+        "gap_scaled": 0.0,
+        "held_loss": 1.7460906826830214,
+        "arm_mse": 0.3020239767357928,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1421539249759478,
+        "terminal_cube": [
+          0.196125815757429,
+          -0.11935117959714629,
+          0.016747886655348987
+        ]
+      },
+      {
+        "episode": 54,
+        "gap_scaled": 0.0,
+        "held_loss": 4.221427921285516,
+        "arm_mse": 0.3380702687885018,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14995618647883466,
+        "terminal_cube": [
+          0.24239059105516905,
+          -0.1428853100851671,
+          0.016747863374001346
+        ]
+      },
+      {
+        "episode": 55,
+        "gap_scaled": 0.0,
+        "held_loss": 7.822378228811491,
+        "arm_mse": 0.44058299856824007,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.14720688466138365,
+        "terminal_cube": [
+          0.25240220269406516,
+          -0.12851268876735403,
+          0.01674785415288653
+        ]
+      },
+      {
+        "episode": 56,
+        "gap_scaled": 0.0,
+        "held_loss": 4.706635745344009,
+        "arm_mse": 0.9258306694920344,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1481617876051306,
+        "terminal_cube": [
+          0.24466122497925236,
+          -0.12610326179923656,
+          0.016747858397181136
+        ]
+      },
+      {
+        "episode": 57,
+        "gap_scaled": 0.0,
+        "held_loss": 5.301329128495475,
+        "arm_mse": 0.23791165572721137,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13130358436872583,
+        "terminal_cube": [
+          0.24518500428141682,
+          -0.14340209678708365,
+          0.0167478612977401
+        ]
+      },
+      {
+        "episode": 58,
+        "gap_scaled": 0.0,
+        "held_loss": 4.086620713241417,
+        "arm_mse": 0.44429652477354564,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13843245126395456,
+        "terminal_cube": [
+          0.20390053291052568,
+          -0.15018579008143865,
+          0.016747915578104455
+        ]
+      },
+      {
+        "episode": 59,
+        "gap_scaled": 0.0,
+        "held_loss": 3.2579342930659947,
+        "arm_mse": 1.1211742068920205,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.15343331628819562,
+        "terminal_cube": [
+          0.2304006095784539,
+          -0.13658628819214993,
+          0.016747869092864336
+        ]
+      },
+      {
+        "episode": 60,
+        "gap_scaled": 0.0,
+        "held_loss": 3.7177282246430776,
+        "arm_mse": 1.2467115708810252,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1461633644727332,
+        "terminal_cube": [
+          0.21405234030630033,
+          -0.14708635581915186,
+          0.016747880851460794
+        ]
+      },
+      {
+        "episode": 61,
+        "gap_scaled": 0.0,
+        "held_loss": 5.743739915356805,
+        "arm_mse": 0.4478749558106541,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.1507842163865032,
+        "terminal_cube": [
+          0.20704915774445998,
+          -0.14623723781999923,
+          0.016747885262309956
+        ]
+      },
+      {
+        "episode": 62,
+        "gap_scaled": 0.0,
+        "held_loss": 4.911883883975906,
+        "arm_mse": 0.4112969833226594,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13682272693558484,
+        "terminal_cube": [
+          0.20917309370190038,
+          -0.12868904126860242,
+          0.016747880166311447
+        ]
+      },
+      {
+        "episode": 63,
+        "gap_scaled": 0.0,
+        "held_loss": 3.489758371358131,
+        "arm_mse": 0.4852260257562293,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.15887663416451975,
+        "terminal_cube": [
+          0.22090362452572535,
+          -0.11804602000225833,
+          0.016747872314834194
+        ]
+      },
+      {
+        "episode": 64,
+        "gap_scaled": 0.0,
+        "held_loss": 4.5008003460534916,
+        "arm_mse": 0.23635609197136642,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.12434406574267932,
+        "terminal_cube": [
+          0.25589234498851193,
+          -0.11315960706338353,
+          0.016747849838870104
+        ]
+      },
+      {
+        "episode": 65,
+        "gap_scaled": 0.0,
+        "held_loss": 3.918066846780664,
+        "arm_mse": 0.24083189489636833,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.10394018818102975,
+        "terminal_cube": [
+          0.24472144867169862,
+          -0.12768416196741408,
+          0.016747858432539092
+        ]
+      },
+      {
+        "episode": 66,
+        "gap_scaled": 0.0,
+        "held_loss": 3.9317658075715536,
+        "arm_mse": 0.3974259196193783,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.09639975242056154,
+        "terminal_cube": [
+          0.22981300510615169,
+          -0.12685792138480584,
+          0.016747868095775467
+        ]
+      },
+      {
+        "episode": 67,
+        "gap_scaled": 0.0,
+        "held_loss": 5.326724667952306,
+        "arm_mse": 0.2883404463669753,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11172798108299502,
+        "terminal_cube": [
+          0.23904294967847692,
+          -0.12588852330021585,
+          0.016747861773441893
+        ]
+      },
+      {
+        "episode": 68,
+        "gap_scaled": 0.0,
+        "held_loss": 3.575523442745339,
+        "arm_mse": 0.273190981964248,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.13831683632747566,
+        "terminal_cube": [
+          0.23193410353192642,
+          -0.153898632559959,
+          0.016747871421367053
+        ]
+      },
+      {
+        "episode": 69,
+        "gap_scaled": 0.0,
+        "held_loss": 4.860692978416245,
+        "arm_mse": 0.4730760138528806,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.15660938709661884,
+        "terminal_cube": [
+          0.23868197118777829,
+          -0.13935353051148425,
+          0.016747864908966587
+        ]
+      },
+      {
+        "episode": 70,
+        "gap_scaled": 0.0,
+        "held_loss": 1.1305423972555224,
+        "arm_mse": 0.5250530326532011,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.11761355067710684,
+        "terminal_cube": [
+          0.24192002676432212,
+          -0.13078400488721104,
+          0.016747861067734494
+        ]
+      },
+      {
+        "episode": 71,
+        "gap_scaled": 0.0,
+        "held_loss": 3.8678117359128703,
+        "arm_mse": 0.5921430871475016,
+        "screen_lift_and_inside": true,
+        "lift_m": 0.10853365945661674,
+        "terminal_cube": [
+          0.2527215302531579,
+          -0.11518804737031764,
+          0.016747853519343187
+        ]
+      }
+    ],
+    "native_actions_unchanged": true,
+    "shared_parameters_only": true,
+    "measured_dimensions_and_gripper_zero_fixed": true
+  },
+  "shared_contact_refinement": {
+    "calibration_episodes": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71
+    ],
+    "selection": {
+      "trial": 43,
+      "time_constant_s": 0.004,
+      "jaw_sliding": 1.4,
+      "table_sliding": 0.3,
+      "jaw_torsion_m": 0.005,
+      "loss": 15.154816794989706,
+      "arm_rmse_deg": 0.6824471165528769,
+      "screen_passes": 68,
+      "screen_failures": [
+        37,
+        44,
+        50,
+        51
+      ]
+    },
+    "per_episode": [
+      {
+        "episode": 0,
+        "held_loss": 4.318235124128777,
+        "arm_mse": 0.6086294357197344,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 1,
+        "held_loss": 4.136421291494078,
+        "arm_mse": 0.34853091548091353,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 2,
+        "held_loss": 4.479357081234228,
+        "arm_mse": 0.4828027502711059,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 3,
+        "held_loss": 4.464503760520087,
+        "arm_mse": 0.48394246359920906,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 4,
+        "held_loss": 4.466232474271829,
+        "arm_mse": 0.2808040124402717,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 5,
+        "held_loss": 4.324071095716467,
+        "arm_mse": 0.3850883504891545,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 6,
+        "held_loss": 4.155397262350219,
+        "arm_mse": 0.30437170727243534,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 7,
+        "held_loss": 4.025179600186815,
+        "arm_mse": 0.24526933774569276,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 8,
+        "held_loss": 3.803601227889071,
+        "arm_mse": 0.25867142388877845,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 9,
+        "held_loss": 4.455478472999177,
+        "arm_mse": 0.25309453401353854,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 10,
+        "held_loss": 4.555313706654517,
+        "arm_mse": 0.3403167639567807,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 11,
+        "held_loss": 4.313770007310804,
+        "arm_mse": 0.3028732633474193,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 12,
+        "held_loss": 4.64515741455674,
+        "arm_mse": 0.2728124023044893,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 13,
+        "held_loss": 4.128184955173015,
+        "arm_mse": 0.32442773456531593,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 14,
+        "held_loss": 3.9334458698545958,
+        "arm_mse": 0.27332712609856585,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 15,
+        "held_loss": 7.15190589298872,
+        "arm_mse": 0.4262749180331139,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 16,
+        "held_loss": 3.945982099646655,
+        "arm_mse": 0.3482936538379311,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 17,
+        "held_loss": 4.174115311735522,
+        "arm_mse": 0.32005536327768414,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 18,
+        "held_loss": 6.248688536599941,
+        "arm_mse": 0.4030292935423084,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 19,
+        "held_loss": 4.365046920160388,
+        "arm_mse": 0.5263689067310973,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 20,
+        "held_loss": 4.447962629944438,
+        "arm_mse": 1.2447235782486563,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 21,
+        "held_loss": 3.558286247640361,
+        "arm_mse": 0.2778866034282007,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 22,
+        "held_loss": 4.552555257630868,
+        "arm_mse": 0.7215747137406933,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 23,
+        "held_loss": 4.204689737885915,
+        "arm_mse": 0.8512395505178695,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 24,
+        "held_loss": 0.06015607902298961,
+        "arm_mse": 0.5436323760767398,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 25,
+        "held_loss": 4.076351780269724,
+        "arm_mse": 0.5126510677599803,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 26,
+        "held_loss": 4.128601687988609,
+        "arm_mse": 0.8574140505478826,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 27,
+        "held_loss": 3.6483264132999342,
+        "arm_mse": 0.29944409472890715,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 28,
+        "held_loss": 4.097511229130672,
+        "arm_mse": 0.27222837145840956,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 29,
+        "held_loss": 4.439371236503235,
+        "arm_mse": 0.23931270386319423,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 30,
+        "held_loss": 4.024551573336293,
+        "arm_mse": 0.26963346099588853,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 31,
+        "held_loss": 3.870227959566391,
+        "arm_mse": 0.30529576445903367,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 32,
+        "held_loss": 4.754659149246235,
+        "arm_mse": 0.2755915205017244,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 33,
+        "held_loss": 4.068670522483674,
+        "arm_mse": 2.531093285466912,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 34,
+        "held_loss": 4.599493525798296,
+        "arm_mse": 0.3695007694061954,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 35,
+        "held_loss": 4.399100426652642,
+        "arm_mse": 0.3777027160207007,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 36,
+        "held_loss": 4.375716243182629,
+        "arm_mse": 0.29128849763368325,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 37,
+        "held_loss": 13.530032365426644,
+        "arm_mse": 0.40108933099713323,
+        "screen_lift_and_inside": false
+      },
+      {
+        "episode": 38,
+        "held_loss": 3.802209866759362,
+        "arm_mse": 0.3805947791319516,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 39,
+        "held_loss": 5.273788438827929,
+        "arm_mse": 0.3684464210726372,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 40,
+        "held_loss": 3.963421162778683,
+        "arm_mse": 0.28725737753283714,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 41,
+        "held_loss": 3.7771726007929107,
+        "arm_mse": 0.2454462657933017,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 42,
+        "held_loss": 4.093129258248153,
+        "arm_mse": 0.2977603329568601,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 43,
+        "held_loss": 4.77881114637889,
+        "arm_mse": 0.26434157672772973,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 44,
+        "held_loss": 13.099404761631396,
+        "arm_mse": 0.3513453375269172,
+        "screen_lift_and_inside": false
+      },
+      {
+        "episode": 45,
+        "held_loss": 4.740296108211565,
+        "arm_mse": 1.399772789211281,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 46,
+        "held_loss": 4.027937219559621,
+        "arm_mse": 0.2919742553915992,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 47,
+        "held_loss": 5.678750003979773,
+        "arm_mse": 0.36152289149223277,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 48,
+        "held_loss": 4.591471238424171,
+        "arm_mse": 0.38824328808321495,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 49,
+        "held_loss": 6.600164902371846,
+        "arm_mse": 0.2603299826058559,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 50,
+        "held_loss": 13.45171567950843,
+        "arm_mse": 0.5350603714603216,
+        "screen_lift_and_inside": false
+      },
+      {
+        "episode": 51,
+        "held_loss": 11.67351487127519,
+        "arm_mse": 0.38032024825168337,
+        "screen_lift_and_inside": false
+      },
+      {
+        "episode": 52,
+        "held_loss": 4.1883312283514496,
+        "arm_mse": 0.43901602559422953,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 53,
+        "held_loss": 1.9590863986026923,
+        "arm_mse": 0.3017345460917657,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 54,
+        "held_loss": 4.475642418316567,
+        "arm_mse": 0.344748887981099,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 55,
+        "held_loss": 7.861107218780967,
+        "arm_mse": 0.4407634070609545,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 56,
+        "held_loss": 4.663632084846732,
+        "arm_mse": 0.9256185991548623,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 57,
+        "held_loss": 5.352359400682166,
+        "arm_mse": 0.23782523181449403,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 58,
+        "held_loss": 4.374249421237942,
+        "arm_mse": 0.44399245773360496,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 59,
+        "held_loss": 3.2323873056496732,
+        "arm_mse": 1.1211055041122364,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 60,
+        "held_loss": 3.725824854977911,
+        "arm_mse": 1.245528335605788,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 61,
+        "held_loss": 5.763022986632097,
+        "arm_mse": 0.4477728490269587,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 62,
+        "held_loss": 4.96430748027704,
+        "arm_mse": 0.41125214143541783,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 63,
+        "held_loss": 6.710811500137628,
+        "arm_mse": 0.4851502409886623,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 64,
+        "held_loss": 4.482400731933437,
+        "arm_mse": 0.23636797438316742,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 65,
+        "held_loss": 3.936427111172421,
+        "arm_mse": 0.24090295668923203,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 66,
+        "held_loss": 3.9974509157482054,
+        "arm_mse": 0.4039756502280586,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 67,
+        "held_loss": 4.996816122156112,
+        "arm_mse": 0.28816095847833156,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 68,
+        "held_loss": 3.5637974046267415,
+        "arm_mse": 0.27302613487929733,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 69,
+        "held_loss": 6.322765225834026,
+        "arm_mse": 0.4746164390768162,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 70,
+        "held_loss": 4.575062432090658,
+        "arm_mse": 0.5245690225212235,
+        "screen_lift_and_inside": true
+      },
+      {
+        "episode": 71,
+        "held_loss": 4.048846430799756,
+        "arm_mse": 0.6040227236142265,
+        "screen_lift_and_inside": true
+      }
+    ],
+    "physical_materials_are_unmeasured_estimates": true,
+    "native_actions_unchanged": true,
+    "shared_parameters_only": true
   }
 }

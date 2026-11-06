@@ -1,0 +1,74 @@
+[
+  {
+    "episode": 0,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "7.833333",
+    "nb_frames": "235",
+    "sha256": "be8bc45da2049955c294e941fb6e2177c64f79b618b6de469e2d4802742217fc"
+  },
+  {
+    "episode": 37,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "5.933333",
+    "nb_frames": "178",
+    "sha256": "493015f4ffb1ce7a7b113a8bc66f309fc53cfc86f35a50729a6e3e3aa37b6fa3"
+  },
+  {
+    "episode": 44,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "4.733333",
+    "nb_frames": "142",
+    "sha256": "8e9d1a080f65dbd3af712b0fc28f7d13bdb2a3f2e5584f88e918778eca546088"
+  },
+  {
+    "episode": 50,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "4.966667",
+    "nb_frames": "149",
+    "sha256": "a6eb37105f54dcea0c9e2187601635c8c108686c9771cf5a268e97df76a60506"
+  },
+  {
+    "episode": 51,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "6.266667",
+    "nb_frames": "188",
+    "sha256": "1046c1e5b4e76b6e0f404ef5c6e2d62e77dc4f3c46952be102651ce3cc352f4c"
+  },
+  {
+    "episode": 53,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "4.900000",
+    "nb_frames": "147",
+    "sha256": "753e78c5de2cc32d68495d94d39140406e31c31cc0b134045c77345b3d9e61bb"
+  },
+  {
+    "episode": 63,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "6.366667",
+    "nb_frames": "191",
+    "sha256": "477a912448420349af6f31d6f951f131013217095ae6cb5b27f764964cc6427b"
+  },
+  {
+    "episode": 70,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "7.933333",
+    "nb_frames": "238",
+    "sha256": "bb98e797b8a8990faae5928ec3b924a45326aaeaa173d09a723a91561e230f8b"
+  }
+]

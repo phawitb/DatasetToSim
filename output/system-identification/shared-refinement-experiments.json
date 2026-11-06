@@ -1,0 +1,81 @@
+{
+  "baseline": "output/measured-bowl-task-v7",
+  "baseline_successes": 65,
+  "currently_audited_candidate": "output/shared-calibration-v10",
+  "candidate_successes": 68,
+  "recovered": [
+    53,
+    63,
+    70
+  ],
+  "regressed": [],
+  "remaining": [
+    37,
+    44,
+    50,
+    51
+  ],
+  "experiments": [
+    {
+      "experiment": "worst-grasp-v8",
+      "evaluated_trials": 211,
+      "highest_screen_passes": 66,
+      "note": "screening lift/containment only; full strict verification required before acceptance"
+    },
+    {
+      "experiment": "shared-contacts-v8",
+      "evaluated_trials": 96,
+      "highest_screen_passes": 68,
+      "note": "screening lift/containment only; full strict verification required before acceptance"
+    },
+    {
+      "experiment": "contact-gap-v9",
+      "evaluated_trials": 389,
+      "highest_screen_passes": 68,
+      "note": "screening lift/containment only; full strict verification required before acceptance"
+    },
+    {
+      "experiment": "motor-response-v9",
+      "evaluated_trials": 15,
+      "highest_screen_passes": 68,
+      "note": "screening lift/containment only; full strict verification required before acceptance"
+    },
+    {
+      "experiment": "mat-reference-v10",
+      "evaluated_trials": 342,
+      "highest_screen_passes": 62,
+      "note": "screening lift/containment only; full strict verification required before acceptance"
+    },
+    {
+      "experiment": "local-reference-v10",
+      "evaluated_trials": 251,
+      "highest_screen_passes": 68,
+      "note": "screening lift/containment only; full strict verification required before acceptance"
+    }
+  ],
+  "rejected_stationary_wrist_fit": {
+    "source": "stationary-cube-v8.json",
+    "reason": "Image-only reference fit creates initial self/table overlap. Independent fresh-build check finds2.19mm shoulder/gripper overlap and2.07mm work-mat/gripper overlap in episode0; not accepted."
+  },
+  "mat_camera_candidate": {
+    "source": "mat-camera-v9.json",
+    "mat_corner_rmse_px_before": 4.085809505074403,
+    "mat_corner_rmse_px_after": 2.567705223758986,
+    "full_strict_task_passes": 59,
+    "note": "Recovers51 but regresses previously passing episodes; not selected."
+  },
+  "source_references": [
+    {
+      "url": "https://github.com/google-deepmind/mujoco_menagerie/issues/325",
+      "use": "Investigated source collision approximations; no collision categories disabled or unsupported geometry changes adopted."
+    }
+  ],
+  "limitations": [
+    "All72 were used for calibration and selection; no blind evaluation.",
+    "No fixed calibration found that solves all remaining cases within tested supported-base and measured-dimension constraints.",
+    "Task success alone does not establish correct real contact stiffness or friction."
+  ],
+  "final_native_arm_rmse_deg": 0.6974859344230635,
+  "final_native_gripper_rmse": 3.020941524667505,
+  "initial_overlap_m": 0.0
+}

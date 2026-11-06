@@ -4,32 +4,53 @@ Replay the real `SIMCUBE_1O1B_VF` LeRobot v3 data in a calibrated MuJoCo SO-101 
 
 ## Active workflow: unchanged real actions
 
-The current candidate uses the user-confirmed geometry and **native gripper zero at modeled fingertip contact**. The latest run is [touch-zero-v1](output/touch-zero-v1/RESULTS.md): **59/72 task passes (81.9%)**, 12 not lifted and 1 insufficient bilateral grasp. All72 complete without runtime errors. This is still an incomplete physical calibration, not a validated digital twin or sim-to-real policy result. The previous61/72 experimental calibration used a different mechanical zero and cube-yaw estimator; its higher score does not override the user's physical measurements.
+Latest confirmed geometry: **cube19.5mm**, bowl **118mm outer rim /98mm outside bottom /50mm height**, mat **405×405×2mm**; standard SO-101 fingers, base on the tabletop. Native gripper0 is modeled at first fingertip contact. Each episode starts from its actual measured state, including its nonzero gripper opening.
+
+The main shared calibration now passes **68/72 episodes (94.4%)**, versus65/72 in the previous measured-bowl run. It recovers **53,63,70** with **no previously successful episodes lost**. **Four remain unresolved:37,44,50,51.** This is an incomplete calibration-set replay, not a validated digital twin or a proven policy-transfer result.
+
+| Full72 shared profile | Task passes | Arm state RMSE | Gripper state RMSE |
+|---|---:|---:|---:|
+| Previous touch-zero-v1 |59/72|0.759degrees|3.144native units|
+| Previous measured-bowl-task-v7 |65/72|0.695degrees|3.058native units|
+| Main: shared-calibration-v10 |68/72|0.697degrees|3.021native units|
+| Alternative: measured-bowl-state-v7 |64/72|0.639degrees|2.632native units|
+
+Each row uses one fixed calibration across all72 episodes. Results are never mixed episode-by-episode. The latest profile improves task count and gripper-state error; arm-state error is slightly higher than v7 (0.0025degrees). The lower-state-error alternative remains separate. All scenes were available during development, so these are not blind generalization results.
 
 ```sh
 .venv/bin/python scripts/strict_action_replay.py --config calibration/native-action-current.json --output output/reproduction
 .venv/bin/python scripts/audit_strict_action.py --output output/reproduction
-.venv/bin/python scripts/strict_action_replay.py --output output/reproduction --render-only --episodes 0 45 50
+.venv/bin/python scripts/strict_action_replay.py --output output/reproduction --render-only --episodes 0 37 44 50 51 53 63 70
+# Alternative complete shared calibration with lower state error:
+.venv/bin/python scripts/strict_action_replay.py --config calibration/native-action-state-fit.json --output output/state-reproduction
 .venv/bin/python scripts/audit_gripper_data.py
 ```
 
-Use the explicit config/output arguments above. The script's no-argument workflow retains the historical baseline.
+Use these explicit config/output arguments. The no-argument replay workflow remains the historical baseline.
 
-All **11,661 original six-channel commands / 396,474 physics steps** are audited. Five arm channels are degrees; gripper is normalized0–100, with fixed encoder scale **1.298461538degrees/native unit**. Native0 maps to the unchanged source distal-jaw surfaces' first contact, **−11.433150°**, under the user's closure constraint. This is a model-derived reference, not a measured hardware angle.
+The latest main run independently verifies **11,661 original six-channel commands /396,474 physics steps**, original action boundaries, fixed adapter equality, zero initial overlap, archived sources/model hashes and the measured98mm bowl-bottom collision envelope. Five arm channels are degrees; gripper is normalized0–100, with fixed scale **1.298461538degrees/native unit**. Native0 maps to source distal-jaw contact at **−11.433150degrees**, a model interpretation of the user constraint rather than a measured hardware angle. Only state0 initializes the robot. No action repair, IK, command retiming/clipping, later measured-state control, object weld/teleport or external holding force is used.
 
-The initial state is never forced closed. The user's screenshot matches **episode45, frame0**: measured gripper **0.812457681**, commanded gripper **0.242326334**. All72 initial measured values lie in **0.677048–1.015572**. The model starts at each actual measured state; subsequent motion uses only the original actions. No action clipping, IK, trajectory repair, future-state following, object weld/teleport or holding force is used. No physical robot commands were sent.
+The screenshot previously supplied by the user matches episode45/frame0: measured gripper0.812457681, command0.242326334. All72 initial states are0.677048–1.015572. Replaying commands does not force subsequent simulated state to equal recorded state.
 
-Measured geometry: cube **19.5mm** each side; bowl **118mm outer rim diameter ×50mm high**; mat **405×405×2mm**; standard SO-101 fingers and robot directly on the table. Initial cube placement uses the first RGB frame only, measured-size silhouettes and top-face orientation when segmentation is consistent. Its confidence is a lighting/edge heuristic, not proof of an unobstructed face. Initial overlap is zero in this run. Source robot/self, finger/table and object collision categories remain enabled, including explicit distal jaw pairs.
+The cameras and causal2-frame observation delays are shared across episodes; actuator command times remain unchanged. Actual integrated-image comparison on the same60frames/10episodes is recorded in the linked image report. These orange-mask overlaps are silhouette proxies, not percentages of physical accuracy.
 
-Wood mass4.45g, bowl bottom diameter82.6mm, wall3mm, floor4mm, motor response, friction, historical joint references and camera distortion/timing remain estimates. Wrist camera calibration predates the latest0.568° zero-reference correction; its earlier mask-overlap figure must not be read as validation of this candidate. See the [full report](output/touch-zero-v1/RESULTS.md), [independent trace audit](output/touch-zero-v1/verification.json) and [raw gripper audit](output/system-identification/gripper-native-data-audit.json).
+[Main results](output/shared-calibration-v10/RESULTS.md) · [Before/after comparison](output/shared-calibration-v10/comparison.json) · [Command/geometry audit](output/shared-calibration-v10/verification.json) · [Image comparison](output/shared-calibration-v10/image-comparison.json) · [Alternative results](output/measured-bowl-state-v7/RESULTS.md).
 
-Full comparison videos: [episode0: success](output/touch-zero-v1/episode-00/real-vs-sim-strict.mp4), [episode45: screenshot episode, success](output/touch-zero-v1/episode-45/real-vs-sim-strict.mp4), [episode50: failure](output/touch-zero-v1/episode-50/real-vs-sim-strict.mp4). Left real/right sim; top and wrist views. Exact traces, one frozen configuration, source snapshots, dataset/model hashes and self-contained XML/shared mesh assets accompany the run. macOS rendering requires desktop graphics access.
+Full main-profile videos: [episode0](output/shared-calibration-v10/episode-00/real-vs-sim-strict.mp4), recovered [53](output/shared-calibration-v10/episode-53/real-vs-sim-strict.mp4), [63](output/shared-calibration-v10/episode-63/real-vs-sim-strict.mp4), [70](output/shared-calibration-v10/episode-70/real-vs-sim-strict.mp4), and remaining failures [37](output/shared-calibration-v10/episode-37/real-vs-sim-strict.mp4), [44](output/shared-calibration-v10/episode-44/real-vs-sim-strict.mp4), [50](output/shared-calibration-v10/episode-50/real-vs-sim-strict.mp4), [51](output/shared-calibration-v10/episode-51/real-vs-sim-strict.mp4). Left real/right sim, top and wrist views, original full frame count at30fps.
 
-The commands below are historical diagnostic workflows; some modify trajectories and must not be used as strict native-action replay.
+The latest changes are shared arm-reference offsets/baseXY, jaw sliding friction1.0→1.4, table/mat sliding friction0.6→0.3 and contact time constant6→4ms. Encoder scales, gripper0 contact, object dimensions, base support, collision categories, native actions and their timestamps remain unchanged. Material values remain estimates. Wider reference searches, motor-response alternatives and a mat-edge camera fit did not solve the remaining four without regressions; no episode-specific rescue settings are used.
+
+Contact/motor properties and camera distortion/timing remain estimated. Wooden cube mass4.45g assumes600kg/m³; bowl wall3mm and floor4mm remain unmeasured. All source collision categories and explicit distal-jaw contacts remain active. The motor-fitting helper now refreshes MuJoCo constants after in-place inertia changes; a regression verifies equality with a fresh rebuilt model. Earlier optimizer trial losses are historical evidence; reported final task/state/image metrics come from freshly rebuilt strict replays. No physical robot commands were sent.
+
+The workflows below are historical diagnostics, some with trajectory corrections, and do not implement the active strict contract.
+
+## Reusable Codex skill
+
+The reusable workflow is in [skills/dataset-to-mujoco/SKILL.md](skills/dataset-to-mujoco/SKILL.md), with calibration diagnostics and a reference for this project. Invoke `$dataset-to-mujoco` with the dataset path and robot/scene assets. It preserves native actions by default, verifies units and timing, uses shared calibration, and delivers audited real/sim comparisons. Another dataset may require loader, camera, geometry and timing adaptation; the current SO-101 calibration is not a universal preset.
 
 ## Setup
 
-The GitHub repository includes code, calibration files, the latest evaluation reports and three comparison videos. Full generated model/trace archives and historical experiments remain local and are excluded from Git. Recreate them with the explicit replay commands above. The source dataset and the reference SO-101 scene-editor assets are external dependencies; current scripts retain their original `/Users/phawit/Projects/` paths. Adjust the path constants in `scripts/episode0.py` and `scripts/benchmark72.py`, and the follower-calibration source path in the chosen calibration JSON, when using another machine. The recorded source hashes intentionally verify the exact inputs used for the reported run.
+The repository includes code, calibration files and selected evaluation reports/videos. Local refinements may be newer than the public baseline commit. Full generated model/trace archives and historical experiments remain local and are excluded from Git. Recreate them with the explicit replay commands above. The source dataset and the reference SO-101 scene-editor assets are external dependencies; current scripts retain their original `/Users/phawit/Projects/` paths. Adjust the path constants in `scripts/episode0.py` and `scripts/benchmark72.py`, and the follower-calibration source path in the chosen calibration JSON, when using another machine. The recorded source hashes intentionally verify the exact inputs used for the reported run.
 
 ```bash
 python3 -m venv --system-site-packages .venv

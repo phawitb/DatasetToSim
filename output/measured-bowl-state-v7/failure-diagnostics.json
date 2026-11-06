@@ -1,0 +1,290 @@
+[
+  {
+    "episode": 37,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 97,
+    "native_state_error_at_frame": [
+      -0.5357611851689095,
+      -0.0356583168979383,
+      -0.16209364326815745,
+      -0.08830001378098018,
+      0.5015553528128365,
+      -6.805066723781266
+    ],
+    "maximum_lift_m": 0.0,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": 0.008197713883939282,
+        "cube_to_jaw_world_vector_m": [
+          3.608224830031759e-15,
+          -4.3298697960381105e-15,
+          0.008197713883939278
+        ],
+        "first_force_frame": null
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.012198257774655682,
+        "cube_to_jaw_world_vector_m": [
+          5.384581669432009e-15,
+          -6.453171330633722e-15,
+          0.012198257774655687
+        ],
+        "first_force_frame": null
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 44,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 74,
+    "native_state_error_at_frame": [
+      0.09647460514797501,
+      -1.132136142711719,
+      -1.0468551491713427,
+      0.8067545474050419,
+      0.1359555985876355,
+      -6.725566585586392
+    ],
+    "maximum_lift_m": 0.0,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -0.00044896543085123024,
+        "cube_to_jaw_world_vector_m": [
+          7.635775777076192e-05,
+          6.91932215551444e-05,
+          -0.00043698026158909414
+        ],
+        "first_force_frame": 53
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.00411042206268464,
+        "cube_to_jaw_world_vector_m": [
+          -2.3993482531348143e-06,
+          1.2534097801650268e-05,
+          0.004110402251960861
+        ],
+        "first_force_frame": null
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 50,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 77,
+    "native_state_error_at_frame": [
+      1.3782317344235153,
+      -3.1041350122498015,
+      -1.466834880381498,
+      0.23897875404279745,
+      -0.03446534700563397,
+      -6.942078092374658
+    ],
+    "maximum_lift_m": 0.0,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -0.0006645935895361196,
+        "cube_to_jaw_world_vector_m": [
+          8.122203535299022e-07,
+          -5.385346299707772e-06,
+          -0.0006645712735258991
+        ],
+        "first_force_frame": 50
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.004079426105040919,
+        "cube_to_jaw_world_vector_m": [
+          -4.985592647249737e-06,
+          3.3056476357290476e-05,
+          0.004079289124311505
+        ],
+        "first_force_frame": null
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 51,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 105,
+    "native_state_error_at_frame": [
+      -0.5674408003625899,
+      0.03227386859836656,
+      -0.2594945051770594,
+      0.43326887623527455,
+      0.27245456992207107,
+      -6.6706176039115626
+    ],
+    "maximum_lift_m": 2.327231322390988e-05,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": 0.007546023455628299,
+        "cube_to_jaw_world_vector_m": [
+          -0.007201594007448131,
+          0.002253777660901596,
+          7.713187727409476e-13
+        ],
+        "first_force_frame": null
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.0032597218168937607,
+        "cube_to_jaw_world_vector_m": [
+          -0.002480060225178937,
+          0.0019704730393434455,
+          0.0007696256260278297
+        ],
+        "first_force_frame": 96
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 53,
+    "outcome": "missed_bowl",
+    "diagnostic_frame": 78,
+    "native_state_error_at_frame": [
+      0.5479089529824392,
+      0.2377267167811823,
+      -0.5666102319802135,
+      0.30973622313844373,
+      -0.10558966501921319,
+      -0.4419486438666089
+    ],
+    "maximum_lift_m": 0.06790843979529672,
+    "longest_secure_lift_s": 0.06066660308838622,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -0.0006269106932582965,
+        "cube_to_jaw_world_vector_m": [
+          0.0006256976813839854,
+          -3.885918820195622e-05,
+          3.064689967163803e-06
+        ],
+        "first_force_frame": 73
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": -0.000538109340011554,
+        "cube_to_jaw_world_vector_m": [
+          -0.0004969396078653154,
+          -0.00020596914201784222,
+          -1.3762284649616874e-05
+        ],
+        "first_force_frame": 72
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 63,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 108,
+    "native_state_error_at_frame": [
+      -0.31480301956965207,
+      0.012466913372193744,
+      -0.4949559703771982,
+      0.29498302897302153,
+      -0.19700357065100604,
+      -7.001558143788509
+    ],
+    "maximum_lift_m": 0.004231776934226229,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -2.054592730762724e-06,
+        "cube_to_jaw_world_vector_m": [
+          2.054347766733411e-06,
+          2.475432248072451e-08,
+          -1.9843540990938102e-08
+        ],
+        "first_force_frame": 106
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": -7.513102332627706e-06,
+        "cube_to_jaw_world_vector_m": [
+          7.679446939468093e-08,
+          -7.402214564938836e-06,
+          -1.2837557419598244e-06
+        ],
+        "first_force_frame": 86
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 66,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 104,
+    "native_state_error_at_frame": [
+      0.5048120051800851,
+      0.8539868985631891,
+      -0.5469603769291638,
+      0.33643221519069755,
+      -0.20081744607521657,
+      3.102696977498871
+    ],
+    "maximum_lift_m": 0.036879047776615215,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -0.0004307864780877435,
+        "cube_to_jaw_world_vector_m": [
+          0.00023831262047574464,
+          -0.00035880224555259743,
+          6.710678925277158e-06
+        ],
+        "first_force_frame": 97
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": -0.0005423309909272876,
+        "cube_to_jaw_world_vector_m": [
+          -0.00028606058784069743,
+          0.0004333168543101118,
+          -0.0001566165622633453
+        ],
+        "first_force_frame": 93
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  },
+  {
+    "episode": 70,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 180,
+    "native_state_error_at_frame": [
+      0.09291839889976927,
+      -0.6119875811888917,
+      0.8478317443604908,
+      -0.3597000539725599,
+      0.29312078986088963,
+      -6.723617201670422
+    ],
+    "maximum_lift_m": 0.001276956021686636,
+    "longest_secure_lift_s": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -4.888406771509329e-05,
+        "cube_to_jaw_world_vector_m": [
+          4.558964508954988e-05,
+          -1.7640703958307635e-05,
+          -2.0469694287511553e-07
+        ],
+        "first_force_frame": 169
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 2.35717399180404e-05,
+        "cube_to_jaw_world_vector_m": [
+          -8.5066136539802e-06,
+          -2.1983150262805395e-05,
+          -7.450791125220013e-08
+        ],
+        "first_force_frame": 174
+      }
+    },
+    "note": "Gap snapshot at real stable-hold frame, using simulated cube and joints; diagnostic evidence, not a proven causal explanation."
+  }
+]

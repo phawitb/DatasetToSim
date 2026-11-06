@@ -1,0 +1,32 @@
+{
+  "successes": 64,
+  "total": 72,
+  "rate": 0.8888888888888888,
+  "failed_episodes": [
+    37,
+    44,
+    50,
+    51,
+    53,
+    63,
+    66,
+    70
+  ],
+  "counts": {
+    "success": 64,
+    "not_lifted": 7,
+    "missed_bowl": 1
+  },
+  "max_contact_normal_force_N": {
+    "robot_self": 77.5518120715828,
+    "finger_table": 66.39453462281016,
+    "cube": 11.124159020794943
+  },
+  "max_contact_penetration_m": {
+    "robot_self": 0.00014098213456238586,
+    "finger_table": 0.0002401787527006455,
+    "cube": 0.0030173773815096957
+  },
+  "native_action_changed": false,
+  "physically_validated_successes": null
+}

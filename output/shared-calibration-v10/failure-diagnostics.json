@@ -1,0 +1,102 @@
+[
+  {
+    "episode": 37,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 97,
+    "native_state_error_at_frame": [
+      -0.6204109828821194,
+      0.41153684014455516,
+      -0.09400593125455714,
+      -0.46824817864759183,
+      0.442329387203948,
+      -6.4838507270568
+    ],
+    "maximum_lift_m": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": 0.007368229051569165,
+        "first_force_frame": null
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.011363501072747636,
+        "first_force_frame": null
+      }
+    },
+    "note": "Simulated pose at real stable-hold frame; diagnostic snapshot, not proof of a unique physical cause."
+  },
+  {
+    "episode": 44,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 74,
+    "native_state_error_at_frame": [
+      0.07636437727125056,
+      -0.018203377355703765,
+      -1.6242634577577846,
+      -0.19268045918500576,
+      0.15037379900639536,
+      -6.336718040862958
+    ],
+    "maximum_lift_m": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -0.00030051359830509934,
+        "first_force_frame": 53
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.004429547043552567,
+        "first_force_frame": null
+      }
+    },
+    "note": "Simulated pose at real stable-hold frame; diagnostic snapshot, not proof of a unique physical cause."
+  },
+  {
+    "episode": 50,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 77,
+    "native_state_error_at_frame": [
+      0.5356586838517785,
+      -2.4580303709161573,
+      -1.7699122203758932,
+      -0.7849744172388569,
+      -0.16655110761942726,
+      -6.510942967367934
+    ],
+    "maximum_lift_m": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": -0.00044736536032425857,
+        "first_force_frame": 50
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 0.004383594820244226,
+        "first_force_frame": null
+      }
+    },
+    "note": "Simulated pose at real stable-hold frame; diagnostic snapshot, not proof of a unique physical cause."
+  },
+  {
+    "episode": 51,
+    "outcome": "not_lifted",
+    "diagnostic_frame": 105,
+    "native_state_error_at_frame": [
+      -0.4880088720542446,
+      -0.7161294456134328,
+      -0.663145990008573,
+      0.3711002963162713,
+      0.19663596786877768,
+      -3.3523444284650896
+    ],
+    "maximum_lift_m": 0.0,
+    "jaw_diagnostics": {
+      "gripper": {
+        "surface_gap_m": 0.0009224301267553323,
+        "first_force_frame": 100
+      },
+      "moving_jaw_so101_v1": {
+        "surface_gap_m": 4.596104369460239e-05,
+        "first_force_frame": 95
+      }
+    },
+    "note": "Simulated pose at real stable-hold frame; diagnostic snapshot, not proof of a unique physical cause."
+  }
+]

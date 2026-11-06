@@ -1,0 +1,105 @@
+{
+  "episode": 71,
+  "frames": 266,
+  "settings_sha256": "e4886dcddc0b9c8fc515035f20fab537149d9d9b4c6399e215d089ee58461507",
+  "native_action_sha256": "ec4466c43b55cba8127afc5cb3c1b533b972f4f21f0c84c3a53e972f70915eac",
+  "outcome": "success",
+  "joint_state_rmse_native": [
+    0.31160349098143986,
+    0.9545283914622635,
+    0.7237088620949633,
+    0.6329954778447509,
+    0.3826668978430808,
+    1.0163323752942204
+  ],
+  "max_cube_z_m": 0.11882478167163303,
+  "bilateral_intervals": 28,
+  "final_cube": [
+    0.2207803313453325,
+    -0.1224858089435805,
+    0.016745211139820963
+  ],
+  "bowl_containment": {
+    "inside": true,
+    "max_wall_violation_m": -0.02061734466244877,
+    "lowest_corner_local_z_m": 0.0039952042617733855,
+    "highest_corner_local_z_m": 0.02349521801786854,
+    "tolerance_m": 0.0005
+  },
+  "terminal_time_s": 8.866666348775228,
+  "cube_mass_kg": 0.004448925,
+  "audit": {
+    "action_sha256": "ec4466c43b55cba8127afc5cb3c1b533b972f4f21f0c84c3a53e972f70915eac",
+    "target_clipping": false,
+    "trajectory_repair": false,
+    "control_source": "recorded action only; zero-order hold",
+    "post_initial_state_writes": 0,
+    "initial_max_penetration_m": 0.0,
+    "contact_audit": {
+      "robot_self": {
+        "contacts": 0,
+        "max_penetration_m": 0.0,
+        "max_normal_force_N": 0.0
+      },
+      "finger_table": {
+        "contacts": 631,
+        "max_penetration_m": 0.00010182244117753706,
+        "max_normal_force_N": 37.59371847419285
+      },
+      "robot_workcell": {
+        "contacts": 0,
+        "max_penetration_m": 0.0,
+        "max_normal_force_N": 0.0
+      },
+      "cube": {
+        "contacts": 38463,
+        "max_penetration_m": 0.0030173773815096957,
+        "max_normal_force_N": 8.804125353366604
+      }
+    },
+    "final_finger_contact": false,
+    "last_action_interval_seconds": 0.03333333333333333,
+    "grasp_support": {
+      "minimum_force_each_jaw_N": 0.02,
+      "maximum_jaw_penetration_m": 0.0015,
+      "lift_above_initial_m": 0.04,
+      "longest_secure_grasp_s": 0.8839996185299765,
+      "longest_secure_lift_s": 0.44033339691147816,
+      "total_secure_grasp_s": 0.8839996185299765,
+      "total_secure_lift_s": 0.44033339691147816,
+      "step_array_columns": [
+        "fixed_normal_force_N",
+        "moving_normal_force_N",
+        "jaw_cube_max_penetration_m",
+        "cube_z_m"
+      ]
+    },
+    "final_cube_linear_speed_m_s": 2.452283954182683e-11,
+    "final_cube_angular_speed_rad_s": 1.282782235370034e-07,
+    "nominal_timestep_seconds": 0.001,
+    "actuator_delay_seconds": [
+      0.02311091170319697,
+      0.006263617438246681,
+      0.015766101426473167,
+      0.0,
+      0.002824344612530099,
+      0.02788453117010168
+    ],
+    "prehistory": "initial observed joint pose; pre-recording commands unavailable",
+    "timing_note": "Dataset timestamps are nominal recording times; hardware latency is not identified."
+  },
+  "model_ctrlrange_exceedances_per_joint": [
+    0,
+    103,
+    0,
+    0,
+    0,
+    0
+  ],
+  "action_equality_verified": true,
+  "initial_collision_screen_passed": true,
+  "physical_model_validated": false,
+  "physical_validity_note": "Initial penetration screen only (1 mm threshold); passing does not validate real-world dynamics.",
+  "trace_archive_sha256": "53df33e70cc600806e94d97d1515afe9b38a3b229c63c8c5967e6a104b0fceb2",
+  "model_archive_sha256": "ddeafad7ca0310a75086de1893041c7c278680cf55a97e16dfd31124a3244877"
+}

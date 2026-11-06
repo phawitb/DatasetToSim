@@ -64,6 +64,16 @@ def main():
             np.testing.assert_allclose(np.linalg.norm(trace['cube_velocity'][-1,3:]),row['audit']['final_cube_angular_speed_rad_s'],atol=1e-12)
         for key in ['qpos','qvel','cube_pose']:assert np.isfinite(trace[key]).all()
         np.testing.assert_allclose(m.geom_size[m.geom('cube_geom').id],[.00975]*3)
+        bottom_diameter=settings['measurements']['bowl'].get('bottom_diameter')
+        if bottom_diameter is not None:
+            np.testing.assert_allclose(settings['estimates']['bowl_bottom_outer_radius_m'],bottom_diameter/2)
+        geometry=mujoco.MjData(m);mujoco.mj_kinematics(m,geometry)
+        for k in range(32):
+            g=geometry.geom(f'bowl_contact_{k}');mesh=m.geom_dataid[g.id]
+            points=m.mesh_vert[m.mesh_vertadr[mesh]:m.mesh_vertadr[mesh]+m.mesh_vertnum[mesh]]
+            points=points@g.xmat.reshape(3,3).T+g.xpos-geometry.body('bowl').xpos
+            bottom=points[np.abs(points[:,2])<1e-7]
+            np.testing.assert_allclose(np.linalg.norm(bottom[:,:2],axis=1).max(),settings['estimates']['bowl_bottom_outer_radius_m'],atol=1e-7)
         assert not m.actuator_ctrllimited.any() and not m.body_gravcomp.any()
         assert m.neq==m.nexclude==0
         assert set(m.geom_contype)>={0,1,2,4,8}
@@ -80,6 +90,8 @@ def main():
     summary={'verified_episodes':len(results['results']),'verified_frames':frames,'verified_physics_steps':steps,
              'all_native_actions_exactly_equal':True,'all_step_targets_exactly_equal_to_fixed_adapter':True,
              'all_action_boundaries_verified':True,'all_saved_sources_and_dataset_hashes_verified':True,
+             'bowl_bottom_collision_geometry_verified':True,
+             'measured_bowl_bottom_outer_diameter_m':settings['measurements']['bowl'].get('bottom_diameter'),
              'same_settings_sha256':config_hash,'outcomes':score_counts,
              'task_successes_passing_initial_collision_screen':results['task_successes_passing_initial_collision_screen'],
              'physically_validated_successes':None,

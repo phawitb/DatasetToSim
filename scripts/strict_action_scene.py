@@ -46,12 +46,12 @@ def make_configuration():
             'gripper_degrees_per_native_unit':adapter.gripper_degrees_per_native_unit,
             'wrist_camera':json.loads((ROOT/'calibration/wrist-full-contact.json').read_text()),
             'estimates':{'wood_density_kg_m3':600.,'cube_mass_kg':600.*data['world']['cube']['size']**3,
-                         'bowl_bottom_outer_radius_m':.0413,'bowl_wall_radial_thickness_m':.003,'bowl_floor_thickness_m':.004},
+                         'bowl_bottom_outer_radius_m':(measurements['bowl'].get('bottom_diameter') or .0826)/2,'bowl_wall_radial_thickness_m':.003,'bowl_floor_thickness_m':.004},
             'physical_control':{'arm_kp':150.,'arm_kv':4.,'arm_torque_limit_Nm':2.94,'gripper_kp':35.,'gripper_kv':.1,'gripper_torque_limit_Nm':.35,'gravity_compensation':False,'input_clipping':False},
             'limitations':['Current follower calibration is snapshotted; identity with the historical recording calibration is unverified.',
                            'Gripper encoder scale is known from current calibration; model closed reference of -10 degrees is the source joint lower limit, still an estimated mechanical zero.',
                            'Arm reference offsets, camera calibration, motor response and friction remain inherited estimates; no system identification performed in this run.',
-                           'Wood density, bowl bottom radius and thickness are assumptions, not user measurements.',
+                           'Wood density and bowl wall/floor thickness remain assumptions; bottom diameter uses the user measurement when available.',
                            'Dataset stores nominal observation timestamps, not exact serial-write timestamps. The final command is held for one nominal 30 Hz period.',
                            'Unit/frame conversion is continuous; raw encoder integer quantization is not emulated. The native recorded action values are preserved exactly.']}
 
@@ -105,6 +105,13 @@ def build_model(cal,config):
     root=ET.fromstring(physical_model(cal,return_xml=True))
     for body in root.findall('.//body'):body.set('gravcomp','0')
     for actuator in root.findall('actuator/position'):actuator.set('ctrllimited','false')
+    control=config.get('physical_control',{})
+    for actuator in root.findall('actuator/position'):
+        key='gripper_torque_limit_Nm' if actuator.get('name')=='gripper' else 'arm_torque_limit_Nm'
+        if key in control:
+            limit=float(control[key])
+            if not np.isfinite(limit) or limit<=0:raise ValueError('Motor force limits must be positive and finite')
+            actuator.set('forcerange',_numbers([-limit,limit]));actuator.set('forcelimited','true')
     if config.get('hardware_joint_limits',False):
         adapter=NativeJointAdapter(**config['adapter'])
         for i,actuator in enumerate(root.findall('actuator/position')):

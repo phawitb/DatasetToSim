@@ -1,0 +1,9 @@
+{
+  "note": "Rendering-only sources; simulation source snapshot is preserved separately. Binary model playback skips XML re-export.",
+  "sha256": {
+    "scripts/strict_action_replay.py": "5dba50a448510439176420a5b071f51bab6a3a3309894fc88ec0d5314917c080",
+    "scripts/episode0_physics.py": "a56a44ed038d90bff0c8aa06b9d382f963c7dcb0b41e258582ad396cdc515a2b",
+    "src/dataset_to_sim/observations.py": "e682220edb897efd95e18269d7eb6732abf1fef4bd1baa2ada6405803dab7d88",
+    "src/dataset_to_sim/archive.py": "24446d2d9db0b208db62439e55aee6d12b50e20f85a764d741d7b42d0976eec6"
+  }
+}

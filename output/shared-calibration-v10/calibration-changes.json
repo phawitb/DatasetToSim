@@ -1,0 +1,82 @@
+{
+  "arm_reference_delta_deg": [
+    0.36164727256398344,
+    0.017895294643188286,
+    -0.31629960953546465,
+    0.19186599107821678,
+    0.13545174616429012
+  ],
+  "base_xy_delta_mm": [
+    0.13316064166087743,
+    0.6886651119925536
+  ],
+  "contact_materials_before": {
+    "jaw": [
+      1.0,
+      0.005,
+      0.0001
+    ],
+    "cube": [
+      0.3,
+      0.0002,
+      0.0001
+    ],
+    "work_mat": [
+      0.6,
+      0.0002,
+      0.0001
+    ],
+    "table": [
+      0.6,
+      0.0002,
+      0.0001
+    ]
+  },
+  "contact_materials_after": {
+    "jaw": [
+      1.4,
+      0.005,
+      0.0001
+    ],
+    "cube": [
+      0.3,
+      0.0002,
+      0.0001
+    ],
+    "work_mat": [
+      0.3,
+      0.0002,
+      0.0001
+    ],
+    "table": [
+      0.3,
+      0.0002,
+      0.0001
+    ]
+  },
+  "contact_model_before": {
+    "solref": [
+      0.006,
+      1
+    ],
+    "solimp": [
+      0.95,
+      0.99,
+      0.001
+    ]
+  },
+  "contact_model_after": {
+    "solref": [
+      0.004,
+      1
+    ],
+    "solimp": [
+      0.95,
+      0.99,
+      0.001
+    ]
+  },
+  "dynamics_unchanged": true,
+  "cameras_unchanged": true,
+  "measured_dimensions_unchanged": true
+}

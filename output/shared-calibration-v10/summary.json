@@ -1,0 +1,27 @@
+{
+  "successes": 68,
+  "total": 72,
+  "rate": 0.9444444444444444,
+  "failed_episodes": [
+    37,
+    44,
+    50,
+    51
+  ],
+  "counts": {
+    "success": 68,
+    "not_lifted": 4
+  },
+  "max_contact_normal_force_N": {
+    "robot_self": 46.488499417369944,
+    "finger_table": 73.88371308459485,
+    "cube": 8.985266107705183
+  },
+  "max_contact_penetration_m": {
+    "robot_self": 6.56551374881376e-05,
+    "finger_table": 0.00012204368130373788,
+    "cube": 0.0023816979639480853
+  },
+  "native_action_changed": false,
+  "physically_validated_successes": null
+}

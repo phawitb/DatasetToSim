@@ -1,0 +1,383 @@
+{
+  "folder": "output/measured-bowl-state-v7",
+  "evaluation_episodes": [
+    0,
+    3,
+    12,
+    21,
+    24,
+    38,
+    40,
+    44,
+    66,
+    71
+  ],
+  "sampled_frames": 60,
+  "mean": {
+    "top": 0.5351270650593732,
+    "wrist": 0.7471566462077598
+  },
+  "rows": [
+    {
+      "episode": 0,
+      "frame": 0,
+      "top_orange_iou": 0.6451487458681703,
+      "wrist_orange_iou": 0.8927720413026211
+    },
+    {
+      "episode": 0,
+      "frame": 58,
+      "top_orange_iou": 0.642802450229709,
+      "wrist_orange_iou": 0.8892864241701451
+    },
+    {
+      "episode": 0,
+      "frame": 105,
+      "top_orange_iou": 0.671559633027523,
+      "wrist_orange_iou": 0.8656080557707204
+    },
+    {
+      "episode": 0,
+      "frame": 140,
+      "top_orange_iou": 0.5119989451476793,
+      "wrist_orange_iou": 0.7590195063007078
+    },
+    {
+      "episode": 0,
+      "frame": 175,
+      "top_orange_iou": 0.5208002927900451,
+      "wrist_orange_iou": 0.6852724872713558
+    },
+    {
+      "episode": 0,
+      "frame": 210,
+      "top_orange_iou": 0.44239545496879945,
+      "wrist_orange_iou": 0.7159003831417624
+    },
+    {
+      "episode": 3,
+      "frame": 0,
+      "top_orange_iou": 0.6354716981132076,
+      "wrist_orange_iou": 0.8762745098039215
+    },
+    {
+      "episode": 3,
+      "frame": 31,
+      "top_orange_iou": 0.47811023622047244,
+      "wrist_orange_iou": 0.7705580029368576
+    },
+    {
+      "episode": 3,
+      "frame": 55,
+      "top_orange_iou": 0.602113803779225,
+      "wrist_orange_iou": 0.8192966636609558
+    },
+    {
+      "episode": 3,
+      "frame": 74,
+      "top_orange_iou": 0.5699059561128527,
+      "wrist_orange_iou": 0.7148985959438378
+    },
+    {
+      "episode": 3,
+      "frame": 93,
+      "top_orange_iou": 0.4498712446351931,
+      "wrist_orange_iou": 0.6754237288135593
+    },
+    {
+      "episode": 3,
+      "frame": 111,
+      "top_orange_iou": 0.4694850948509485,
+      "wrist_orange_iou": 0.8483422459893049
+    },
+    {
+      "episode": 12,
+      "frame": 0,
+      "top_orange_iou": 0.6325042079670844,
+      "wrist_orange_iou": 0.9049837925445705
+    },
+    {
+      "episode": 12,
+      "frame": 39,
+      "top_orange_iou": 0.6376392901361948,
+      "wrist_orange_iou": 0.6165612890067306
+    },
+    {
+      "episode": 12,
+      "frame": 71,
+      "top_orange_iou": 0.6353709452949363,
+      "wrist_orange_iou": 0.8137755102040817
+    },
+    {
+      "episode": 12,
+      "frame": 95,
+      "top_orange_iou": 0.6629941672067401,
+      "wrist_orange_iou": 0.6667888563049853
+    },
+    {
+      "episode": 12,
+      "frame": 119,
+      "top_orange_iou": 0.40444274224435084,
+      "wrist_orange_iou": 0.6509595880792636
+    },
+    {
+      "episode": 12,
+      "frame": 143,
+      "top_orange_iou": 0.4170417348608838,
+      "wrist_orange_iou": 0.8341361256544503
+    },
+    {
+      "episode": 21,
+      "frame": 0,
+      "top_orange_iou": 0.6535923062417499,
+      "wrist_orange_iou": 0.900990099009901
+    },
+    {
+      "episode": 21,
+      "frame": 33,
+      "top_orange_iou": 0.570712954333644,
+      "wrist_orange_iou": 0.5320802005012532
+    },
+    {
+      "episode": 21,
+      "frame": 59,
+      "top_orange_iou": 0.5292944402892047,
+      "wrist_orange_iou": 0.7770245511176255
+    },
+    {
+      "episode": 21,
+      "frame": 79,
+      "top_orange_iou": 0.5785632839224629,
+      "wrist_orange_iou": 0.7351764277919244
+    },
+    {
+      "episode": 21,
+      "frame": 99,
+      "top_orange_iou": 0.39089564850021125,
+      "wrist_orange_iou": 0.7731428571428571
+    },
+    {
+      "episode": 21,
+      "frame": 119,
+      "top_orange_iou": 0.524258450218441,
+      "wrist_orange_iou": 0.8782755705832629
+    },
+    {
+      "episode": 24,
+      "frame": 0,
+      "top_orange_iou": 0.6216625639083507,
+      "wrist_orange_iou": 0.8973891924711597
+    },
+    {
+      "episode": 24,
+      "frame": 37,
+      "top_orange_iou": 0.5374486463710102,
+      "wrist_orange_iou": 0.7746645619573796
+    },
+    {
+      "episode": 24,
+      "frame": 67,
+      "top_orange_iou": 0.5520042194092827,
+      "wrist_orange_iou": 0.6048270313757039
+    },
+    {
+      "episode": 24,
+      "frame": 89,
+      "top_orange_iou": 0.5145744267392149,
+      "wrist_orange_iou": 0.7049820396689052
+    },
+    {
+      "episode": 24,
+      "frame": 111,
+      "top_orange_iou": 0.4164270653632356,
+      "wrist_orange_iou": 0.6220483847602492
+    },
+    {
+      "episode": 24,
+      "frame": 134,
+      "top_orange_iou": 0.44502164502164504,
+      "wrist_orange_iou": 0.4101269695579012
+    },
+    {
+      "episode": 38,
+      "frame": 0,
+      "top_orange_iou": 0.6292674253200569,
+      "wrist_orange_iou": 0.8547397585592718
+    },
+    {
+      "episode": 38,
+      "frame": 37,
+      "top_orange_iou": 0.5819601040763226,
+      "wrist_orange_iou": 0.7891637220259128
+    },
+    {
+      "episode": 38,
+      "frame": 67,
+      "top_orange_iou": 0.5525441885377611,
+      "wrist_orange_iou": 0.7406597105351733
+    },
+    {
+      "episode": 38,
+      "frame": 90,
+      "top_orange_iou": 0.532637884734559,
+      "wrist_orange_iou": 0.8109730848861284
+    },
+    {
+      "episode": 38,
+      "frame": 112,
+      "top_orange_iou": 0.48029920848917107,
+      "wrist_orange_iou": 0.6745693646971661
+    },
+    {
+      "episode": 38,
+      "frame": 135,
+      "top_orange_iou": 0.5202620184301099,
+      "wrist_orange_iou": 0.8702599062633148
+    },
+    {
+      "episode": 40,
+      "frame": 0,
+      "top_orange_iou": 0.626183844011142,
+      "wrist_orange_iou": 0.814738421151322
+    },
+    {
+      "episode": 40,
+      "frame": 38,
+      "top_orange_iou": 0.6854987684729064,
+      "wrist_orange_iou": 0.7341631060746795
+    },
+    {
+      "episode": 40,
+      "frame": 68,
+      "top_orange_iou": 0.5173326913818007,
+      "wrist_orange_iou": 0.7733785822021116
+    },
+    {
+      "episode": 40,
+      "frame": 91,
+      "top_orange_iou": 0.5126696289179776,
+      "wrist_orange_iou": 0.8454901960784313
+    },
+    {
+      "episode": 40,
+      "frame": 114,
+      "top_orange_iou": 0.4102099236641221,
+      "wrist_orange_iou": 0.8016765487630342
+    },
+    {
+      "episode": 40,
+      "frame": 137,
+      "top_orange_iou": 0.4217680697478204,
+      "wrist_orange_iou": 0.7648111332007952
+    },
+    {
+      "episode": 44,
+      "frame": 0,
+      "top_orange_iou": 0.6397849462365591,
+      "wrist_orange_iou": 0.8740740740740741
+    },
+    {
+      "episode": 44,
+      "frame": 35,
+      "top_orange_iou": 0.6041442411194833,
+      "wrist_orange_iou": 0.7705492075193513
+    },
+    {
+      "episode": 44,
+      "frame": 63,
+      "top_orange_iou": 0.5825082508250825,
+      "wrist_orange_iou": 0.7840933650313378
+    },
+    {
+      "episode": 44,
+      "frame": 84,
+      "top_orange_iou": 0.537768626946339,
+      "wrist_orange_iou": 0.3030742459396752
+    },
+    {
+      "episode": 44,
+      "frame": 105,
+      "top_orange_iou": 0.41482495599452374,
+      "wrist_orange_iou": 0.34628670120898103
+    },
+    {
+      "episode": 44,
+      "frame": 126,
+      "top_orange_iou": 0.4081422554983622,
+      "wrist_orange_iou": 0.47099199215558096
+    },
+    {
+      "episode": 66,
+      "frame": 0,
+      "top_orange_iou": 0.6287579453702113,
+      "wrist_orange_iou": 0.8666404405979544
+    },
+    {
+      "episode": 66,
+      "frame": 42,
+      "top_orange_iou": 0.5853856562922869,
+      "wrist_orange_iou": 0.720943083440781
+    },
+    {
+      "episode": 66,
+      "frame": 75,
+      "top_orange_iou": 0.4029363784665579,
+      "wrist_orange_iou": 0.8163265306122449
+    },
+    {
+      "episode": 66,
+      "frame": 100,
+      "top_orange_iou": 0.4587280108254398,
+      "wrist_orange_iou": 0.801959675899755
+    },
+    {
+      "episode": 66,
+      "frame": 126,
+      "top_orange_iou": 0.4390168970814132,
+      "wrist_orange_iou": 0.30883665575721514
+    },
+    {
+      "episode": 66,
+      "frame": 151,
+      "top_orange_iou": 0.44183142559833505,
+      "wrist_orange_iou": 0.7966205211726385
+    },
+    {
+      "episode": 71,
+      "frame": 0,
+      "top_orange_iou": 0.6311460085997382,
+      "wrist_orange_iou": 0.921644844517185
+    },
+    {
+      "episode": 71,
+      "frame": 66,
+      "top_orange_iou": 0.6348708487084871,
+      "wrist_orange_iou": 0.8612993224392188
+    },
+    {
+      "episode": 71,
+      "frame": 119,
+      "top_orange_iou": 0.4895320197044335,
+      "wrist_orange_iou": 0.8143475804933158
+    },
+    {
+      "episode": 71,
+      "frame": 159,
+      "top_orange_iou": 0.47690724302071275,
+      "wrist_orange_iou": 0.7533195020746888
+    },
+    {
+      "episode": 71,
+      "frame": 198,
+      "top_orange_iou": 0.4240680510382787,
+      "wrist_orange_iou": 0.7452242107379852
+    },
+    {
+      "episode": 71,
+      "frame": 238,
+      "top_orange_iou": 0.4725240926799262,
+      "wrist_orange_iou": 0.7879575915183037
+    }
+  ],
+  "scope": "actual integrated q/cube, frozen cameras and integer causal image delays; orange segmentation proxy, not photorealism or physical-accuracy percentage; all72 used for geometry calibration"
+}

@@ -94,6 +94,10 @@ def test_measured_cube_and_bowl_dimensions_include_collision_geometry():
     vertices=np.array(vertices)
     np.testing.assert_allclose(vertices[:,2].max(),.05,atol=1e-7)
     np.testing.assert_allclose(np.linalg.norm(vertices[:,:2],axis=1).max(),.059,atol=1e-7)
+    assert config['measurements']['bowl']['bottom_diameter']==.098
+    np.testing.assert_allclose(config['estimates']['bowl_bottom_outer_radius_m'],.049)
+    bottom=vertices[np.abs(vertices[:,2])<1e-7]
+    np.testing.assert_allclose(np.linalg.norm(bottom[:,:2],axis=1).max(),.049,atol=1e-7)
 
 
 def test_motor_latency_keeps_native_commands_and_initial_history():
@@ -156,6 +160,21 @@ def test_parent_finger_contacts_are_explicit_and_block_interpenetration():
     assert touching, 'Parent filtering must not let the two distal finger surfaces pass through each other'
     assert any(co.dist<0 for co in touching)
     assert m.nexclude==0 and m.neq==0
+
+
+def test_configured_motor_force_limits_apply_without_changing_native_targets():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0,str(Path(__file__).parents[1]/'scripts'))
+    from strict_action_scene import make_configuration,episode_scene,build_model
+    c=make_configuration();c['physical_control']['arm_torque_limit_Nm']=2.
+    c['physical_control']['gripper_torque_limit_Nm']=.75
+    s={'cube_pixel':[400,240],'bowl_pixel':[480,176],'cube_pixel_corners':[[390,230],[410,230],[410,250],[390,250]]}
+    m=build_model(episode_scene(c,s),c)
+    np.testing.assert_allclose(m.actuator_forcerange[:5],np.tile([-2,2],(5,1)))
+    np.testing.assert_allclose(m.actuator_forcerange[5],[-.75,.75])
+    assert m.actuator_forcelimited.all()
+    assert not m.actuator_ctrllimited.any()
 
 
 def test_material_calibration_changes_contacts_without_actuator_targets():

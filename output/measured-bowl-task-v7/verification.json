@@ -1,0 +1,37 @@
+{
+  "verified_episodes": 72,
+  "verified_frames": 11661,
+  "verified_physics_steps": 396474,
+  "all_native_actions_exactly_equal": true,
+  "all_step_targets_exactly_equal_to_fixed_adapter": true,
+  "all_action_boundaries_verified": true,
+  "all_saved_sources_and_dataset_hashes_verified": true,
+  "bowl_bottom_collision_geometry_verified": true,
+  "measured_bowl_bottom_outer_diameter_m": 0.098,
+  "same_settings_sha256": "05141525dab4f4e4f4be37fa63fdba5d172de4d210b82e6aaa25c75189873025",
+  "outcomes": {
+    "success": 65,
+    "not_lifted": 7
+  },
+  "task_successes_passing_initial_collision_screen": 65,
+  "physically_validated_successes": null,
+  "physical_validity_note": "Task scoring is not physical validation; initial overlap >1 mm fails a diagnostic screen.",
+  "frame_weighted_joint_rmse_native": [
+    0.5248225756127454,
+    0.8614766420983557,
+    0.715989527799838,
+    0.6441456260175009,
+    0.6854047755329885,
+    3.058108891279858
+  ],
+  "joint_rmse_units": [
+    "degree",
+    "degree",
+    "degree",
+    "degree",
+    "degree",
+    "normalized gripper 0-100"
+  ],
+  "initial_max_penetration_m": 0.0,
+  "initial_penetration_episodes_over_1mm": 0
+}

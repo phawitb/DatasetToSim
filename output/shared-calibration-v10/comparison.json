@@ -1,0 +1,426 @@
+{
+  "baseline": {
+    "folder": "output/measured-bowl-task-v7",
+    "successes": 65,
+    "counts": {
+      "success": 65,
+      "not_lifted": 7
+    },
+    "frames": 11661,
+    "joint_rmse_native": [
+      0.5248225756127454,
+      0.8614766420983557,
+      0.7159895277998379,
+      0.6441456260175009,
+      0.6854047755329885,
+      3.058108891279858
+    ],
+    "arm_pooled_rmse_deg": 0.6949712279675747,
+    "held_gripper_rmse_native": 3.6875506506554263,
+    "initial_max_penetration_m": 0.0,
+    "failed_episodes": [
+      37,
+      44,
+      50,
+      51,
+      53,
+      63,
+      70
+    ]
+  },
+  "candidate": {
+    "folder": "output/shared-calibration-v10",
+    "successes": 68,
+    "counts": {
+      "success": 68,
+      "not_lifted": 4
+    },
+    "frames": 11661,
+    "joint_rmse_native": [
+      0.5241418017713887,
+      0.8565306405096894,
+      0.7364312288792753,
+      0.6426883386360936,
+      0.6846053765539035,
+      3.020941524667505
+    ],
+    "arm_pooled_rmse_deg": 0.6974859344230635,
+    "held_gripper_rmse_native": 3.5480287224075933,
+    "initial_max_penetration_m": 0.0,
+    "failed_episodes": [
+      37,
+      44,
+      50,
+      51
+    ]
+  },
+  "recovered": [
+    53,
+    63,
+    70
+  ],
+  "regressed": [],
+  "episode_outcomes": [
+    {
+      "episode": 0,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 1,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 2,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 3,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 4,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 5,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 6,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 7,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 8,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 9,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 10,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 11,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 12,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 13,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 14,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 15,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 16,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 17,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 18,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 19,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 20,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 21,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 22,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 23,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 24,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 25,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 26,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 27,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 28,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 29,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 30,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 31,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 32,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 33,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 34,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 35,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 36,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 37,
+      "before": "not_lifted",
+      "after": "not_lifted"
+    },
+    {
+      "episode": 38,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 39,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 40,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 41,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 42,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 43,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 44,
+      "before": "not_lifted",
+      "after": "not_lifted"
+    },
+    {
+      "episode": 45,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 46,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 47,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 48,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 49,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 50,
+      "before": "not_lifted",
+      "after": "not_lifted"
+    },
+    {
+      "episode": 51,
+      "before": "not_lifted",
+      "after": "not_lifted"
+    },
+    {
+      "episode": 52,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 53,
+      "before": "not_lifted",
+      "after": "success"
+    },
+    {
+      "episode": 54,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 55,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 56,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 57,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 58,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 59,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 60,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 61,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 62,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 63,
+      "before": "not_lifted",
+      "after": "success"
+    },
+    {
+      "episode": 64,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 65,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 66,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 67,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 68,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 69,
+      "before": "success",
+      "after": "success"
+    },
+    {
+      "episode": 70,
+      "before": "not_lifted",
+      "after": "success"
+    },
+    {
+      "episode": 71,
+      "before": "success",
+      "after": "success"
+    }
+  ],
+  "scope": "same calibration dataset, not blind evaluation or validated physical transfer"
+}
