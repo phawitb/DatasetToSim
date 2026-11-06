@@ -32,7 +32,7 @@ def validate_vision_age(captured_at,now):
 
 def mask_record(mask,point,score):
     point=validate_point(point);m=np.asarray(mask).astype(bool)
-    if m.shape!=(480,640) or not 30<=m.sum()<=150000:raise ValueError('SAM did not find a usable object mask')
+    if m.shape!=(480,640) or not 30<=m.sum()<=276480:raise ValueError('SAM did not find a usable object mask')
     if not np.isfinite(score) or score<.6:raise ValueError('SAM confidence is too low; click a clearer part of the object')
     if not m[int(point[1]),int(point[0])]:raise ValueError('SAM mask does not contain the selected point')
     if not np.array_equal(prompted_component(m,point),m):raise ValueError('SAM mask contains disconnected objects; select again')

@@ -20,7 +20,9 @@ from fastapi import FastAPI,HTTPException,Request
 from fastapi.responses import FileResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from studio_history import list_runs
 from studio_sam_home import home_scene
+from studio_home_wrist import released_reference,wrist_home_scene
 from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair
 from studio_sam_geometry import load_selection,validate_pair,scene_from_masks,validate_vision_age
 from dataset_to_sim.dataset import DatasetIndex
@@ -100,6 +102,15 @@ def bootstrap():
         episodes.append({k:r.get(k) for k in ['episode','outcome','frames','joint_state_rmse_native']}|{'has_video':path.is_file()})
     return {'token':TOKEN,'dataset':DATA.name,'episodes':episodes,'successes':results['successes'],'total':results['completed'],'joints':JOINTS,'profile':'shared-calibration-v10','current':current}
 
+@app.get('/api/runs')
+def run_history():return {'runs':list_runs(WORK,jobs),'active_capture':current}
+
+
+def job_error(identifier,stage,exc):
+    value={'id':identifier,'status':'error','stage':stage,'error':str(exc)}
+    jobs[identifier]=value
+    (WORK/identifier/'job.json').write_text(json.dumps(value,indent=2))
+
 @app.get('/api/status')
 def status(request:Request):
     client=request.headers.get('x-studio-client')
@@ -120,7 +131,7 @@ def status(request:Request):
                         report=json.loads((folder/'plan.json').read_text());report['execution']=json.loads((folder/'execution.json').read_text())
                         (folder/'plan.json').write_text(json.dumps(report,indent=2))
                         jobs[identifier]={'id':identifier,'status':'complete','stage':stage,'plan':report}
-                    except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':stage,'error':str(exc)}
+                    except Exception as exc:job_error(identifier,stage,exc)
                 threading.Thread(target=finalize,daemon=True).start()
     return {'robot':robot,'job':jobs.get(current),'current':current}
 
@@ -193,14 +204,23 @@ def robot_command(command:str,request:Request):
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if command=='home':
             if hardware.call('status').get('running'):raise ValueError('Robot is executing')
+            snapshot=hardware.call('snapshot')
             references=[]
             for path in WORK.glob('*/selection.json'):
                 try:
                     load_selection(path.parent);references.append(path)
                 except (ValueError,OSError):pass
             if not references:raise ValueError('Select From and To in a capture first, or support the arm and use Torque off to clear the camera')
-            reference=max(references,key=lambda p:p.stat().st_mtime).parent
-            snapshot=hardware.call('snapshot');identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
+            references.sort(key=lambda p:json.loads((p.parent/'capture.json').read_text()).get('captured_at',0),reverse=True)
+            reference=references[0].parent
+            for candidate in references:
+                try:
+                    old=json.loads((candidate.parent/'plan.json').read_text());trace=json.loads((candidate.parent/'hardware-trace.json').read_text())
+                    if old.get('source')=='live' and old.get('purpose')!='home' and old.get('executed') and trace.get('completed'):
+                        # Never search older placements merely because their pose matches.
+                        reference=candidate.parent;break
+                except (OSError,ValueError):pass
+            identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
             for view,data in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(data))
             snapshot.update(id=identifier,purpose='home');(folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
             generation=requested_generation;owner=request.headers.get('x-studio-client')
@@ -208,7 +228,16 @@ def robot_command(command:str,request:Request):
             def return_home():
                 try:
                     cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-                    home_scene(sam,folder,reference,folder/'top.jpg',cfg)
+                    try:released_reference(reference,snapshot['initial_native'],snapshot['calibration_hash']);use_wrist=True
+                    except ValueError as exc:use_wrist=False;association_error=str(exc)
+                    if use_wrist:
+                        try:wrist_home_scene(sam,folder,reference,folder/'wrist.jpg',cfg,snapshot['initial_native'])
+                        except ValueError as wrist_error:
+                            try:home_scene(sam,folder,reference,folder/'top.jpg',cfg)
+                            except ValueError as top_error:raise ValueError(f'Wrist: {wrist_error}; Top: {top_error}') from top_error
+                    else:
+                        try:home_scene(sam,folder,reference,folder/'top.jpg',cfg)
+                        except ValueError as top_error:raise ValueError(f'Wrist recovery: {association_error}; Top: {top_error}') from top_error
                     result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_home.py'),str(folder),str(reference)],capture_output=True,text=True,timeout=120)
                     if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1])
                     report=json.loads((folder/'plan.json').read_text())
@@ -216,16 +245,16 @@ def robot_command(command:str,request:Request):
                         fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
                         verify_home_scene(folder,reference,report,fresh,cfg)
                         latest=hardware.call('snapshot');execution_gate(report,latest['initial_native'],latest['calibration_hash'])
-                        validate_vision_age(fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),time.time())
+                        validate_vision_age(fresh.get('image_captured_at',{}).get(report.get('home_view','top'),fresh['captured_at']),time.time())
                         saved=np.load(folder/'plan.npz')
-                        payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at'])}
+                        payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get(report.get('home_view','top'),fresh['captured_at'])}
                         with stop_lock:
                             if generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
                             if time.monotonic()-client_heartbeats.get(owner,0)>3:raise ValueError('Control page closed; Home cancelled')
                             hardware.call('execute',plan=payload)
                         report['executed']=True;(folder/'plan.json').write_text(json.dumps(report,indent=2))
                         jobs[identifier]={'id':identifier,'status':'executing','stage':'prepare'}
-                except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':'prepare','error':str(exc)}
+                except Exception as exc:job_error(identifier,'prepare',exc)
             threading.Thread(target=return_home,daemon=True).start()
             return {'preparing_home':True,'id':identifier}
         result=hardware.call(command)
@@ -326,9 +355,12 @@ def verify_selected_scene(folder,report,fresh):
 
 def verify_home_scene(folder,reference,report,fresh,cfg):
     from strict_action_scene import episode_scene
-    image=folder/f'home-preflight-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['top']))
-    checked=home_scene(sam,folder,reference,image,cfg,image.stem)
+    view=report.get('home_view','top')
+    image=folder/f'home-preflight-{uuid.uuid4().hex}-{view}.jpg';image.write_bytes(base64.b64decode(fresh['images'][view]))
+    if view=='wrist':checked=wrist_home_scene(sam,folder,reference,image,cfg,fresh['initial_native'],image.stem)
+    else:checked=home_scene(sam,folder,reference,image,cfg,image.stem)
     observed=episode_scene(cfg,checked['scene'])
+    if 'bowl_position_from_wrist' in checked['scene']:observed.world['bowl']['position']=checked['scene']['bowl_position_from_wrist']
     validate_scene_match(report['world'],observed.world)
 
 
@@ -369,6 +401,7 @@ def plan_operation(identifier:str,operation:str,request:Request):
             if invalid.get('executed'):raise ValueError('Capture a new scene after an execution')
             invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None)
             invalid.pop('video',None);old.write_text(json.dumps(invalid,indent=2))
+        (folder/'job.json').unlink(missing_ok=True)
         jobs[identifier]={'id':identifier,'status':'running','stage':operation}
         def run():
             try:
@@ -377,7 +410,7 @@ def plan_operation(identifier:str,operation:str,request:Request):
                 if result.returncode:
                     lines=(folder/f'{operation}.log').read_text().splitlines();raise ValueError(lines[-1] if lines else 'Planning failed')
                 jobs[identifier]={'id':identifier,'status':'complete','stage':operation,'plan':json.loads((folder/'plan.json').read_text())}
-            except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':operation,'error':str(exc)}
+            except Exception as exc:job_error(identifier,operation,exc)
         threading.Thread(target=run,daemon=True).start()
         return jobs[identifier]
 

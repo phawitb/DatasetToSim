@@ -19,6 +19,32 @@ def test_stop_latches_before_any_future_command():
     assert len(h.robot.commands)==1  # measured-position hold only
 
 
+def test_repeated_stop_does_not_ratchet_gravity_sag():
+    h=Hardware();h.robot=Robot();h.connected=True
+    h.stop();h.robot.get_observation=lambda:{f'{k}.pos':2. for k in ['shoulder_pan','shoulder_lift','elbow_flex','wrist_flex','wrist_roll','gripper']}
+    h.stop()
+    assert len(h.robot.commands)==1 and h.stop_generation==2
+
+
+def test_capture_rejects_drift_over_camera_age(monkeypatch):
+    h=Hardware();h.robot=Robot();h.connected=True
+    values=iter([np.zeros(6),np.ones(6)*2])
+    h.positions=lambda:next(values)
+    monkeypatch.setattr('studio_hardware.time.sleep',lambda _:None)
+    with pytest.raises(ValueError,match='stable'):h.snapshot()
+
+
+def test_already_uncapped_connection_does_not_rewrite_held_goal():
+    from studio_hardware import prepare_follower_speed
+    from types import SimpleNamespace
+    calls=[];bus=SimpleNamespace(read=lambda *a,**k:0)
+    prepare_follower_speed(bus,lambda bus:calls.append('reset'))
+    assert not calls
+    bus.read=lambda name,*a,**k:1 if name=='Goal_Velocity' else 0
+    prepare_follower_speed(bus,lambda bus:calls.append('reset'))
+    assert calls==['reset']
+
+
 def test_second_execution_is_rejected_and_rehearsal_cannot_move():
     h=Hardware();h.robot=Robot();h.connected=True;h.running=True
     with pytest.raises(ValueError,match='running'): h.execute({})

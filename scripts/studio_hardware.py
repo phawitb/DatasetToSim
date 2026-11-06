@@ -31,10 +31,18 @@ def open_calibrated_connection(robot):
     return True if all(v==1 for v in torque) else False if all(v==0 for v in torque) else None
 
 
+def prepare_follower_speed(bus,reset):
+    if any(bus.read('Operating_Mode',name,normalize=False)!=0 for name in JOINTS):raise ValueError('Position mode required')
+    # Re-staging a measured goal on every connection accumulates gravity sag.
+    # Preserve the existing hold when the required speed setting is already set.
+    if any(bus.read('Goal_Velocity',name,normalize=False)!=0 for name in JOINTS):reset(bus)
+
+
 class Hardware:
     def __init__(self):
         self.robot=None;self.connected=False;self.running=False;self.torque_enabled=True
         self.io=threading.RLock();self.stopped=threading.Event();self.stopped.set()
+        self.hold_latched=False
         self.frames={};self.cameras=[];self.last_heartbeat=time.monotonic()
         self.progress=0.;self.error=None;self.execution=None;self.lockfile=None
         self.config=json.loads((ROOT/'calibration/native-action-current.json').read_text())
@@ -73,8 +81,8 @@ class Hardware:
         try:
             torque=open_calibrated_connection(robot)
             spec=spec_from_file_location('studio_handoff',benchmark/'robot_handoff.py');mod=module_from_spec(spec);spec.loader.exec_module(mod)
-            mod.reset_follower_speed(robot.bus)
-            self.robot=robot;self.connected=True;self.torque_enabled=torque;self.error=None
+            prepare_follower_speed(robot.bus,mod.reset_follower_speed)
+            self.robot=robot;self.connected=True;self.torque_enabled=torque;self.error=None;self.hold_latched=False
             for name,camera in cfg.get('cameras',{}).items():
                 cap=cv2.VideoCapture(camera['index']);cap.set(cv2.CAP_PROP_FRAME_WIDTH,camera.get('w',640));cap.set(cv2.CAP_PROP_FRAME_HEIGHT,camera.get('h',480))
                 self.cameras.append(cap)
@@ -103,16 +111,22 @@ class Hardware:
     def snapshot(self):
         if self.torque_enabled is not True:raise ValueError('Torque is off; enable torque before capture')
         import cv2
-        before=self.positions();now=time.monotonic();frames={};image_times={}
+        before=self.positions();stable_since=time.monotonic();poses=[before]
+        # Cover the entire possible camera age, not just two adjacent bus reads.
+        for _ in range(10):
+            time.sleep(.1);poses.append(self.positions())
+            if np.max(np.ptp(np.asarray(poses),axis=0))>1:raise ValueError('Robot must be stable for one second before capture')
+        now=time.monotonic();frames={};image_times={}
         for name in ['top','wrist']:
             frame=self.frames.get(name)
-            if frame is None or now-frame[0]>.75:raise ValueError(f'{name} camera has no fresh frame')
+            if frame is None or now-frame[0]>.75 or frame[0]<stable_since:raise ValueError(f'{name} camera has no fresh frame')
             ok,encoded=cv2.imencode('.jpg',frame[1],[cv2.IMWRITE_JPEG_QUALITY,95])
             if not ok:raise ValueError('Camera encoding failed')
             frames[name]=base64.b64encode(encoded).decode()
             image_times[name]=time.time()-(time.monotonic()-frame[0])
         after=self.positions()
-        if np.max(np.abs(after-before))>1:raise ValueError('Robot moved during capture')
+        poses.append(after)
+        if np.max(np.ptp(np.asarray(poses),axis=0))>1:raise ValueError('Robot moved during capture')
         return {'source':'live','captured_at':time.time(),'initial_native':after.tolist(),'calibration_hash':self.calibration_hash(),'images':frames,'image_captured_at':image_times,'stop_generation':self.stop_generation}
 
     def preview(self,view):
@@ -130,15 +144,17 @@ class Hardware:
     def send(self,q):
         with self.io:
             if self.stopped.is_set():raise RuntimeError('Execution stopped')
+            self.hold_latched=False
             self.robot.send_action({f'{j}.pos':float(v) for j,v in zip(JOINTS,q)})
 
     def stop(self):
         # Latch under the same lock as sending, then hold actual measured pose.
         with self.io:
             self.stopped.set();self.stop_generation+=1
-            if self.connected and self.torque_enabled:
+            if self.connected and self.torque_enabled and not self.hold_latched:
                 q=self.positions()
                 self.robot.send_action({f'{j}.pos':float(v) for j,v in zip(JOINTS,q)})
+                self.hold_latched=True
         return {'stopped':True,'note':'Software stop; holds measured pose with torque enabled'}
 
     def torque_off(self):

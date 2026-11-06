@@ -179,6 +179,12 @@ def build_model(cal,config):
         vertices=[[radius*np.cos(a),radius*np.sin(a),z]for z,outer in [(0,r0),(h,r1)] for radius in [outer,outer-wall] for a in edges]
         name=f'bowl_contact_{j}';ET.SubElement(asset,'mesh',name=name+'_mesh',vertex=_numbers(vertices))
         ET.SubElement(bowl,'geom',name=name,type='mesh',mesh=name+'_mesh',group='3',contype='4',conaffinity='15',solref='.002 1',solimp='.99 .999 .0001')
+    clearance=config.get('home_bowl_clearance_m',0.)
+    if clearance:
+        if not np.isfinite(clearance) or not 0<clearance<=.05:raise ValueError('Invalid Home bowl clearance')
+        # Keep every original bowl wall. A solid cylinder encloses the entire
+        # bowl and a margin; only robot bits 2/8 collide with this Home proxy.
+        ET.SubElement(bowl,'geom',name='home_bowl_clearance',type='cylinder',size=_numbers([r1+clearance,h/2+clearance]),pos=_numbers([0,0,h/2]),rgba='.8 .55 .15 .18',contype='0',conaffinity='10',group='3',solref='.002 1',solimp='.99 .999 .0001')
     if 'contact_model' in config:
         for geom in root.findall('.//worldbody//geom'):
             if int(geom.get('contype','0'))>0:

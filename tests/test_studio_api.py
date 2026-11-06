@@ -129,6 +129,7 @@ def test_stop_during_home_snapshot_prevents_dispatch(tmp_path,monkeypatch):
     import json,threading,time,base64,numpy as np
     from types import SimpleNamespace
     reference=tmp_path/('e'*32);reference.mkdir();(reference/'scene.xml').write_text('model')
+    (reference/'capture.json').write_text(json.dumps({'captured_at':time.time()}))
     (reference/'plan.json').write_text(json.dumps({'source':'live'}))
     entered=threading.Event();release=threading.Event();sent=[];snapshots=[]
     def hardware(command,**kwargs):
@@ -156,3 +157,17 @@ def test_stop_during_home_snapshot_prevents_dispatch(tmp_path,monkeypatch):
     deadline=time.monotonic()+2
     while time.monotonic()<deadline and server.jobs.get(server.current,{}).get('status')!='error':time.sleep(.01)
     assert not sent and 'Stop requested' in server.jobs[server.current]['error']
+
+
+def test_opening_history_does_not_activate_archived_run(tmp_path,monkeypatch):
+    import json
+    identifier='f'*32;folder=tmp_path/identifier;folder.mkdir()
+    (folder/'capture.json').write_text(json.dumps({'id':identifier,'source':'live','captured_at':1}))
+    monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current','a'*32);monkeypatch.setattr(server,'jobs',{})
+    class NoHardware:
+        def call(self,*a,**k):raise AssertionError('History must not access robot')
+    monkeypatch.setattr(server,'hardware',NoHardware())
+    rows=client.get('/api/runs').json()
+    assert rows['runs'][0]['id']==identifier and rows['active_capture']=='a'*32
+    assert client.get('/api/plans/'+identifier).json()['id']==identifier
+    assert server.current=='a'*32

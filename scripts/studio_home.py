@@ -1,5 +1,5 @@
 """Validate a camera-clear return from measured pose using the last known workcell."""
-import json,sys,time
+import copy,json,sys,time
 from pathlib import Path
 from studio_planner import ROOT,interpolate_native,render_trace
 import mujoco,numpy as np,cv2
@@ -32,9 +32,13 @@ def prepare(folder,reference):
     selection=json.loads((folder/'home-selection.json').read_text())
     scene=selection['scene']
     cube_source='prior SAM mask retained as simulation geometry; Home does not target cube'
-    bowl_source='current SAM bowl mask'
+    bowl_source=selection.get('method','current Top SAM bowl mask')
     cal=episode_scene(cfg,scene)
-    m=build_model(cal,cfg)
+    if 'bowl_position_from_wrist' in scene:cal.world['bowl']['position']=scene['bowl_position_from_wrist']
+    world=copy.deepcopy(cal.world)
+    margin=selection.get('fit',{}).get('clearance_margin_m',0.)
+    home_cfg=copy.deepcopy(cfg);home_cfg['home_bowl_clearance_m']=margin
+    m=build_model(cal,home_cfg)
     adapter=NativeJointAdapter(**cfg['adapter'])
     ep=Episode(-1,np.arange(len(actions)),np.arange(len(actions)),ts,np.tile(q,(len(actions),1)),actions,{})
     trace=integrate_actions(m,ep,adapter)
@@ -47,7 +51,7 @@ def prepare(folder,reference):
     np.savez_compressed(folder/'trace.npz',**{k:v for k,v in trace.items() if isinstance(v,np.ndarray)})
     mujoco.mj_saveLastXML(str(folder/'scene.xml'),m)
     render_trace(m,trace,folder)
-    report=capture|{'purpose':'home','frames':len(actions),'duration':len(actions)/30,'action_hash':array_hash(actions),'simulated_action_hash':array_hash(actions),'outcome':'success','transfer_checks_passed':True,'executed':False,'max_ik_error_mm':0,'video':'simulation.mp4','collision_audit':collision,'geometry_reference':reference.name,'geometry_note':'Current SAM masks; fixed calibrated home corridor','scene':scene,'world':cal.world,'selection_revision':selection['reference_selection_revision'],'cube_pose_source':cube_source,'bowl_position':cal.world['bowl']['position'],'bowl_pixel':scene['bowl_pixel'],'bowl_source':bowl_source,'reference_captured_at':capture.get('captured_at',0),'home_native':home['home']}
+    report=capture|{'purpose':'home','frames':len(actions),'duration':len(actions)/30,'action_hash':array_hash(actions),'simulated_action_hash':array_hash(actions),'outcome':'success','transfer_checks_passed':True,'executed':False,'max_ik_error_mm':0,'video':'simulation.mp4','collision_audit':collision,'geometry_reference':reference.name,'geometry_note':'Current SAM bowl; Home-only expanded bowl clearance envelope; fixed calibrated home corridor','scene':scene,'world':world,'home_view':selection.get('view','top'),'home_clearance_margin_m':margin,'selection_revision':selection['reference_selection_revision'],'cube_pose_source':cube_source,'bowl_position':cal.world['bowl']['position'],'bowl_pixel':scene['bowl_pixel'],'bowl_source':bowl_source,'reference_captured_at':capture.get('captured_at',0),'home_native':home['home']}
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     return report
 

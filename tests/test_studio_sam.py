@@ -105,3 +105,10 @@ def test_home_after_transfer_only_prompts_bowl_and_handles_partial_occlusion(tmp
     assert len(prompts)>1 and np.linalg.norm(np.array(result['scene']['bowl_pixel'])-[200,180])<1
     with pytest.raises(ValueError,match='clear the camera'):
         home.home_scene(SimpleNamespace(predict=lambda *a:(_ for _ in ()).throw(ValueError('fully hidden'))),folder,reference,'fresh.jpg',{'follower_calibration_sha256':'cal'})
+
+
+def test_wrist_bowl_may_fill_most_of_frame_but_not_entire_background():
+    mask=np.zeros((480,640),np.uint8);cv2.ellipse(mask,(320,180),(275,245),0,0,360,1,-1)
+    assert mask.sum()>150000
+    assert mask_record(mask,[150,180],.95)['area']==int(mask.sum())
+    with pytest.raises(ValueError):mask_record(np.ones((480,640),np.uint8),[100,100],.95)
