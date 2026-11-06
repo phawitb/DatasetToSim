@@ -39,7 +39,7 @@ def test_scene_rotation_requires_new_plan():
 def test_stop_during_preflight_cancels_pending_dispatch(tmp_path,monkeypatch):
     import base64,json,threading,time,numpy as np,cv2
     from types import SimpleNamespace
-    import strict_action_scene,studio_scene
+    import strict_action_scene
     identifier='a'*32;folder=tmp_path/identifier;folder.mkdir()
     world={'cube':{'position':[.2,0,.01],'quaternion':[1,0,0,0]},'bowl':{'position':[.3,0,.003]}}
     report={'id':identifier,'source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'world':world}
@@ -51,10 +51,11 @@ def test_stop_during_preflight_cancels_pending_dispatch(tmp_path,monkeypatch):
             if command=='stop':return {'stopped':True}
             if command=='snapshot':
                 entered.set();assert release.wait(3)
-                return {'initial_native':[0]*6,'calibration_hash':'abc','stop_generation':0,'images':{'top':base64.b64encode(cv2.imencode('.jpg',np.zeros((2,2,3),np.uint8))[1]).decode()}}
+                return {'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','stop_generation':0,'images':{'top':base64.b64encode(cv2.imencode('.jpg',np.zeros((2,2,3),np.uint8))[1]).decode()}}
             if command=='execute':sent.append(kwargs);return {'running':True}
     monkeypatch.setattr(server,'hardware',FakeHardware());monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',identifier);monkeypatch.setattr(server,'jobs',{})
-    monkeypatch.setattr(studio_scene,'estimate_live_scene',lambda *a: {})
+    monkeypatch.setattr(server,'load_selection',lambda *a: ({'revision':None},[]))
+    monkeypatch.setattr(server,'verify_selected_scene',lambda *a: None)
     monkeypatch.setattr(strict_action_scene,'episode_scene',lambda *a:SimpleNamespace(world=world))
     headers={'X-Studio-Token':server.TOKEN,'X-Studio-Client':'owner'};result=[]
     thread=threading.Thread(target=lambda:result.append(client.post(f'/api/plans/{identifier}/execute',json={},headers=headers)))
@@ -142,8 +143,11 @@ def test_stop_during_home_snapshot_prevents_dispatch(tmp_path,monkeypatch):
         folder=Path(args[2]);report=json.loads((folder/'capture.json').read_text())|{'outcome':'success','transfer_checks_passed':True,'executed':False,'bowl_pixel':[0,0]}
         (folder/'plan.json').write_text(json.dumps(report));np.savez(folder/'plan.npz',actions=np.zeros((2,6)),timestamps=[0,.1])
         return SimpleNamespace(returncode=0)
-    import studio_scene
-    monkeypatch.setattr(studio_scene,'detect_bowl',lambda rgb:[0,0])
+    (reference/'selection.json').write_text('{}')
+    monkeypatch.setattr(server,'load_selection',lambda *a: ({'revision':None},[]))
+    monkeypatch.setattr(server,'home_scene',lambda *a: None)
+    monkeypatch.setattr(server,'verify_home_scene',lambda *a: None)
+    monkeypatch.setattr(server,'verify_selected_scene',lambda *a: None)
     monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',None);monkeypatch.setattr(server,'jobs',{});monkeypatch.setattr(server,'stop_generation',0)
     monkeypatch.setattr(server,'hardware',SimpleNamespace(call=hardware));monkeypatch.setattr(server.subprocess,'run',simulation)
     headers={'X-Studio-Token':server.TOKEN,'X-Studio-Client':'owner'}

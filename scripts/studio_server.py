@@ -20,6 +20,9 @@ from fastapi import FastAPI,HTTPException,Request
 from fastapi.responses import FileResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from studio_sam_home import home_scene
+from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair
+from studio_sam_geometry import load_selection,validate_pair,scene_from_masks,validate_vision_age
 from dataset_to_sim.dataset import DatasetIndex
 from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,JOINTS
 
@@ -68,6 +71,7 @@ class HardwareClient:
             except OSError:pass
 
 hardware=HardwareClient();atexit.register(hardware.close)
+sam=SAMClient();atexit.register(sam.close)
 
 @app.middleware('http')
 async def protect(request:Request,call_next):
@@ -173,7 +177,7 @@ def frame(index:int,frame:int):
 @app.get('/media/{area}/{path:path}')
 def media(area:str,path:str):
     root={'benchmark':RUN,'studio':WORK}.get(area)
-    if root is None or Path(path).suffix not in ['.jpg','.mp4','.json','.npz']:raise ValueError('Media unavailable')
+    if root is None or Path(path).suffix not in ['.jpg','.png','.mp4','.json','.npz']:raise ValueError('Media unavailable')
     return FileResponse(safe_file(root,path))
 
 @app.post('/api/robot/{command}')
@@ -190,12 +194,11 @@ def robot_command(command:str,request:Request):
         if command=='home':
             if hardware.call('status').get('running'):raise ValueError('Robot is executing')
             references=[]
-            for path in WORK.glob('*/plan.json'):
+            for path in WORK.glob('*/selection.json'):
                 try:
-                    data=json.loads(path.read_text())
-                    if data.get('source')=='live' and data.get('purpose')!='home' and (path.parent/'scene.xml').exists():references.append(path)
+                    load_selection(path.parent);references.append(path)
                 except (ValueError,OSError):pass
-            if not references:raise ValueError('Home needs a previously captured workcell model')
+            if not references:raise ValueError('Select From and To in a capture first, or support the arm and use Torque off to clear the camera')
             reference=max(references,key=lambda p:p.stat().st_mtime).parent
             snapshot=hardware.call('snapshot');identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
             for view,data in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(data))
@@ -204,22 +207,18 @@ def robot_command(command:str,request:Request):
             current=identifier;jobs[identifier]={'id':identifier,'status':'running','stage':'prepare'}
             def return_home():
                 try:
+                    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+                    home_scene(sam,folder,reference,folder/'top.jpg',cfg)
                     result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_home.py'),str(folder),str(reference)],capture_output=True,text=True,timeout=120)
                     if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1])
                     report=json.loads((folder/'plan.json').read_text())
                     with operation_lock:
                         fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
-                        from studio_scene import detect_bowl,verify_bowl_occlusion
-                        rgb=cv2.cvtColor(cv2.imdecode(np.frombuffer(base64.b64decode(fresh['images']['top']),np.uint8),cv2.IMREAD_COLOR),cv2.COLOR_BGR2RGB)
-                        try:observed_bowl=detect_bowl(rgb)
-                        except ValueError:
-                            if report.get('bowl_source')!='recent verified capture; currently occluded':raise
-                            if not 0<=time.time()-report.get('reference_captured_at',0)<=600:raise ValueError('Hidden bowl reference expired')
-                            verify_bowl_occlusion(rgb,report['bowl_pixel'])
-                            observed_bowl=report['bowl_pixel']
-                        if np.linalg.norm(np.array(observed_bowl)-report['bowl_pixel'])>5:raise ValueError('Bowl moved during Home preparation; try Home again')
+                        verify_home_scene(folder,reference,report,fresh,cfg)
+                        latest=hardware.call('snapshot');execution_gate(report,latest['initial_native'],latest['calibration_hash'])
+                        validate_vision_age(fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),time.time())
                         saved=np.load(folder/'plan.npz')
-                        payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation']}
+                        payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at'])}
                         with stop_lock:
                             if generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
                             if time.monotonic()-client_heartbeats.get(owner,0)>3:raise ValueError('Control page closed; Home cancelled')
@@ -276,7 +275,62 @@ def capture(body:dict):
 @app.get('/api/plans/{identifier}')
 def get_plan(identifier:str):
     folder=folder_for(identifier);path=folder/'plan.json'
-    return json.loads(path.read_text()) if path.exists() else json.loads((folder/'capture.json').read_text())
+    result=json.loads(path.read_text()) if path.exists() else json.loads((folder/'capture.json').read_text())
+    if (folder/'selection.json').exists():result['selection']=json.loads((folder/'selection.json').read_text())
+    return result
+
+@app.post('/api/captures/{identifier}/select')
+def select_object(identifier:str,body:dict):
+    folder=folder_for(identifier);role=body.get('role')
+    if role not in ['from','to']:raise ValueError('Choose From or To')
+    with operation_lock:
+        if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
+        if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
+        if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
+        capture=json.loads((folder/'capture.json').read_text())
+        if capture.get('source')!='live' or capture.get('purpose')=='home':raise ValueError('Capture a live scene to select objects')
+        plan=folder/'plan.json'
+        if plan.exists() and json.loads(plan.read_text()).get('executed'):raise ValueError('Capture a new scene after execution')
+        path=folder/'selection.json';selection=json.loads(path.read_text()) if path.exists() else {}
+        result=sam.predict(folder/'top.jpg',body.get('point'))
+        if result['image_sha256']!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed during segmentation')
+        if selection and selection['model']!=result['model']:raise ValueError('SAM model changed; capture a new scene')
+        revision=uuid.uuid4().hex
+        selected=save_role(folder,role,result,revision)
+        other='to' if role=='from' else 'from'
+        if other in selection:
+            mask=cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)
+            if mask is None:raise ValueError('Previous mask missing; capture again')
+            validate_pair(decode_mask(result),mask>0)
+        selection.update({role:selected,'revision':revision,'image_sha256':result['image_sha256'],'model':result['model']})
+        path.write_text(json.dumps(selection,indent=2))
+        # A new selection invalidates every old trajectory and simulation.
+        for name in ['plan.json','plan.npz']:
+            (folder/name).unlink(missing_ok=True)
+        jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':capture}
+        return selection
+
+
+def verify_selected_scene(folder,report,fresh):
+    from strict_action_scene import episode_scene
+    selection,_=load_selection(folder)
+    if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
+    image=folder/f'preflight-{uuid.uuid4().hex}.jpg'
+    image.write_bytes(base64.b64decode(fresh['images']['top']))
+    checked,masks=refresh_pair(sam,folder,selection,image,image.stem)
+    if checked['model']!=selection['model']:raise ValueError('SAM model changed; capture and select again')
+    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+    observed=episode_scene(cfg,scene_from_masks(cfg,*masks))
+    validate_scene_match(report['world'],observed.world)
+
+
+def verify_home_scene(folder,reference,report,fresh,cfg):
+    from strict_action_scene import episode_scene
+    image=folder/f'home-preflight-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['top']))
+    checked=home_scene(sam,folder,reference,image,cfg,image.stem)
+    observed=episode_scene(cfg,checked['scene'])
+    validate_scene_match(report['world'],observed.world)
+
 
 @app.post('/api/plans/{identifier}/{operation}')
 def plan_operation(identifier:str,operation:str,request:Request):
@@ -289,17 +343,19 @@ def plan_operation(identifier:str,operation:str,request:Request):
         if current!=identifier:raise ValueError('This capture was replaced; use the current capture')
         if jobs.get(identifier,{}).get('status')=='running':raise ValueError('Operation already running')
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
+        if json.loads((folder/'capture.json').read_text()).get('source')=='live':
+            selection,_=load_selection(folder)
+            if operation!='plan' and (folder/'plan.json').exists():
+                if json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
         if operation=='execute':
             report=json.loads((folder/'plan.json').read_text())
             fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
-            # Re-detect the live scene just before dispatch; no stale object coordinates.
-            from strict_action_scene import episode_scene
-            from studio_scene import estimate_live_scene
-            cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-            image=cv2.imdecode(np.frombuffer(base64.b64decode(fresh['images']['top']),np.uint8),cv2.IMREAD_COLOR)
-            observed=episode_scene(cfg,estimate_live_scene(cfg,cv2.cvtColor(image,cv2.COLOR_BGR2RGB)))
-            validate_scene_match(report['world'],observed.world)
-            saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'owner':request.headers.get('x-studio-client')}
+            verify_selected_scene(folder,report,fresh)
+            # SAM may take several seconds; re-check robot state immediately before dispatch.
+            latest=hardware.call('snapshot');execution_gate(report,latest['initial_native'],latest['calibration_hash'])
+            validate_vision_age(fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),time.time())
+            if latest['stop_generation']!=fresh['stop_generation']:raise ValueError('Stop requested during segmentation')
+            saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
             with stop_lock:
                 if requested_generation!=stop_generation:raise ValueError('Stop requested during preflight; execution cancelled')
                 result=hardware.call('execute',plan=payload)

@@ -103,16 +103,17 @@ class Hardware:
     def snapshot(self):
         if self.torque_enabled is not True:raise ValueError('Torque is off; enable torque before capture')
         import cv2
-        before=self.positions();now=time.monotonic();frames={}
+        before=self.positions();now=time.monotonic();frames={};image_times={}
         for name in ['top','wrist']:
             frame=self.frames.get(name)
             if frame is None or now-frame[0]>.75:raise ValueError(f'{name} camera has no fresh frame')
             ok,encoded=cv2.imencode('.jpg',frame[1],[cv2.IMWRITE_JPEG_QUALITY,95])
             if not ok:raise ValueError('Camera encoding failed')
             frames[name]=base64.b64encode(encoded).decode()
+            image_times[name]=time.time()-(time.monotonic()-frame[0])
         after=self.positions()
         if np.max(np.abs(after-before))>1:raise ValueError('Robot moved during capture')
-        return {'source':'live','captured_at':time.time(),'initial_native':after.tolist(),'calibration_hash':self.calibration_hash(),'images':frames,'stop_generation':self.stop_generation}
+        return {'source':'live','captured_at':time.time(),'initial_native':after.tolist(),'calibration_hash':self.calibration_hash(),'images':frames,'image_captured_at':image_times,'stop_generation':self.stop_generation}
 
     def preview(self,view):
         if view not in ['top','wrist']:raise ValueError('Unknown camera')
@@ -183,6 +184,8 @@ class Hardware:
             if actual_hash!=plan['action_hash'] or actual_hash!=plan.get('simulated_action_hash'):
                 raise ValueError('Commands do not match the simulated trajectory')
             if np.max(np.abs(actions[0]-plan['initial_native']))>1e-6:raise ValueError('First command must equal captured pose')
+            from studio_sam_geometry import validate_vision_age
+            validate_vision_age(plan.get('verified_image_captured_at',0),time.time())
             recorder=Recording(ROOT/'output/studio'/plan['id'],self.frames,self.stopped)
             self.running=True;self.recording_error=None;self.stopped.clear();self.error=None;self.progress=0.;self.last_heartbeat=time.monotonic();self.execution=plan['id'];self.history=[];self.execution_owner=plan['owner'];self.consumed.add(plan['id'])
         def run():

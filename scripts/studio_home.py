@@ -3,7 +3,6 @@ import json,sys,time
 from pathlib import Path
 from studio_planner import ROOT,interpolate_native,render_trace
 import mujoco,numpy as np,cv2
-from studio_scene import detect_bowl,estimate_live_scene,verify_bowl_occlusion
 from strict_action_scene import episode_scene,build_model
 from dataset_to_sim.strict_replay import NativeJointAdapter,integrate_actions,array_hash
 from dataset_to_sim.dataset import Episode
@@ -30,22 +29,10 @@ def prepare(folder,reference):
         waypoints += [(closed,1.5),(home['raised'],3.),(home['unfolded'],6.),(home['home'],2.5)]
     else:waypoints.append((home['home'],1.5))
     actions,ts=interpolate_native(waypoints);validate_trajectory(actions,ts,native_limits(cfg))
-    old=json.loads((reference/'plan.json').read_text())
-    scene=dict(old['scene'])
-    rgb=cv2.cvtColor(cv2.imread(str(folder/'top.jpg')),cv2.COLOR_BGR2RGB)
-    cube_source='last known capture (currently occluded)'
-    bowl_source='current top camera'
-    try:
-        scene=estimate_live_scene(cfg,rgb);cube_source='current top camera'
-    except ValueError:
-        try:scene['bowl_pixel']=detect_bowl(rgb)
-        except ValueError:
-            # Home exists to clear occlusion. Only reuse a recent verified scene
-            # while encoders still match the actual end of that same execution.
-            validate_occluded_reference(old,json.loads((reference/'hardware-trace.json').read_text()) if (reference/'hardware-trace.json').exists() else {},q)
-            verify_bowl_occlusion(rgb,scene['bowl_pixel'])
-            bowl_source='recent verified capture; currently occluded'
-
+    selection=json.loads((folder/'home-selection.json').read_text())
+    scene=selection['scene']
+    cube_source='prior SAM mask retained as simulation geometry; Home does not target cube'
+    bowl_source='current SAM bowl mask'
     cal=episode_scene(cfg,scene)
     m=build_model(cal,cfg)
     adapter=NativeJointAdapter(**cfg['adapter'])
@@ -60,7 +47,7 @@ def prepare(folder,reference):
     np.savez_compressed(folder/'trace.npz',**{k:v for k,v in trace.items() if isinstance(v,np.ndarray)})
     mujoco.mj_saveLastXML(str(folder/'scene.xml'),m)
     render_trace(m,trace,folder)
-    report=capture|{'purpose':'home','frames':len(actions),'duration':len(actions)/30,'action_hash':array_hash(actions),'simulated_action_hash':array_hash(actions),'outcome':'success','transfer_checks_passed':True,'executed':False,'max_ik_error_mm':0,'video':'simulation.mp4','collision_audit':collision,'geometry_reference':reference.name,'geometry_note':'Current bowl detection; fixed calibrated home corridor','cube_pose_source':cube_source,'bowl_position':cal.world['bowl']['position'],'bowl_pixel':scene['bowl_pixel'],'bowl_source':bowl_source,'reference_captured_at':old.get('captured_at',0),'home_native':home['home']}
+    report=capture|{'purpose':'home','frames':len(actions),'duration':len(actions)/30,'action_hash':array_hash(actions),'simulated_action_hash':array_hash(actions),'outcome':'success','transfer_checks_passed':True,'executed':False,'max_ik_error_mm':0,'video':'simulation.mp4','collision_audit':collision,'geometry_reference':reference.name,'geometry_note':'Current SAM masks; fixed calibrated home corridor','scene':scene,'world':cal.world,'selection_revision':selection['reference_selection_revision'],'cube_pose_source':cube_source,'bowl_position':cal.world['bowl']['position'],'bowl_pixel':scene['bowl_pixel'],'bowl_source':bowl_source,'reference_captured_at':capture.get('captured_at',0),'home_native':home['home']}
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     return report
 

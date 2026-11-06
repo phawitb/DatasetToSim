@@ -38,7 +38,7 @@ def test_unrelated_status_poll_does_not_keep_execution_alive():
 def test_execution_requires_fresh_camera_and_matching_stop_generation():
     h=Hardware();h.robot=Robot();h.connected=True
     h.calibration_hash=lambda:'abc'
-    plan={'id':'x','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner'}
+    plan={'id':'x','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'verified_image_captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner'}
     with pytest.raises(ValueError,match='camera'):h.execute(plan)
     h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
     h.stop()
@@ -57,7 +57,7 @@ def test_camera_drops_mid_execution_and_prevents_remaining_targets(tmp_path,monk
     h.robot.send_action=send
     actions=np.zeros((3,6));actions[:,0]=[0,1,2]
     digest=hashlib.sha256(np.ascontiguousarray(actions,dtype='<f8').tobytes()).hexdigest()
-    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),
+    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'verified_image_captured_at':time.time(),
           'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner',
           'actions':actions.tolist(),'timestamps':[0,.1,.2],'action_hash':digest,'simulated_action_hash':digest}
     h.execute(plan)
@@ -78,7 +78,7 @@ def test_recorder_finalization_failure_still_releases_running_state(tmp_path,mon
         def finish(self):raise OSError('disk full')
     monkeypatch.setattr(studio_hardware,'Recording',BrokenRecording)
     actions=np.zeros((2,6));digest=hashlib.sha256(actions.astype('<f8').tobytes()).hexdigest()
-    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner','actions':actions.tolist(),'timestamps':[0,.0333333333],'action_hash':digest,'simulated_action_hash':digest}
+    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'verified_image_captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner','actions':actions.tolist(),'timestamps':[0,.0333333333],'action_hash':digest,'simulated_action_hash':digest}
     h.execute(plan)
     deadline=time.monotonic()+1
     while h.running and time.monotonic()<deadline:time.sleep(.01)
@@ -146,3 +146,13 @@ def test_connect_preserves_existing_motor_torque(torque,expected):
     robot=SimpleNamespace(bus=bus,is_calibrated=True,connect=lambda **kw:pytest.fail('Must not reconfigure or toggle torque on connect'))
     assert open_calibrated_connection(robot) is expected
     assert calls==['serial-only']
+
+
+def test_hardware_rejects_scene_that_expired_while_waiting_for_dispatch():
+    import hashlib
+    h=Hardware();h.robot=Robot();h.connected=True;h.calibration_hash=lambda:'abc'
+    h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
+    actions=np.zeros((2,6));digest=hashlib.sha256(actions.astype('<f8').tobytes()).hexdigest()
+    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'verified_image_captured_at':time.time()-6,'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner','actions':actions.tolist(),'timestamps':[0,.0333333333],'action_hash':digest,'simulated_action_hash':digest}
+    with pytest.raises(ValueError,match='expired'):h.execute(plan)
+    assert not h.robot.commands and not h.running and not h.consumed
