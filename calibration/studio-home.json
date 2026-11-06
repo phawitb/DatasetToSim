@@ -1,0 +1,29 @@
+{
+  "description": "Compact camera-clear rest and elevated return corridor for the calibrated SO-101 workcell. Validate every return from measured joints in MuJoCo before dispatch.",
+  "calibration_sha256": "c32fea21643b67564fe1c571b326ecf50f1e571d754aa1677f7e5de37b8a61c2",
+  "source": "Measured rest and elevated raise from successful live run f191aaf0562f44dcbe7076f52379f6f6; native arm degrees / gripper 0\u2013100",
+  "raised": [
+    -6.73,
+    -23.49,
+    -5.1,
+    101.18,
+    5.01,
+    1.0
+  ],
+  "unfolded": [
+    -6.9010989,
+    -98.3296703,
+    96.4835165,
+    4.2307692,
+    -1.5384615,
+    1.0
+  ],
+  "home": [
+    -6.9010989,
+    -98.3296703,
+    96.4835165,
+    49.2307692,
+    -1.5384615,
+    1.0
+  ]
+}

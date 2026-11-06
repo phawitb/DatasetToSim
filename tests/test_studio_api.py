@@ -39,7 +39,7 @@ def test_scene_rotation_requires_new_plan():
 def test_stop_during_preflight_cancels_pending_dispatch(tmp_path,monkeypatch):
     import base64,json,threading,time,numpy as np,cv2
     from types import SimpleNamespace
-    import strict_action_scene
+    import strict_action_scene,studio_scene
     identifier='a'*32;folder=tmp_path/identifier;folder.mkdir()
     world={'cube':{'position':[.2,0,.01],'quaternion':[1,0,0,0]},'bowl':{'position':[.3,0,.003]}}
     report={'id':identifier,'source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'world':world}
@@ -54,7 +54,7 @@ def test_stop_during_preflight_cancels_pending_dispatch(tmp_path,monkeypatch):
                 return {'initial_native':[0]*6,'calibration_hash':'abc','stop_generation':0,'images':{'top':base64.b64encode(cv2.imencode('.jpg',np.zeros((2,2,3),np.uint8))[1]).decode()}}
             if command=='execute':sent.append(kwargs);return {'running':True}
     monkeypatch.setattr(server,'hardware',FakeHardware());monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',identifier);monkeypatch.setattr(server,'jobs',{})
-    monkeypatch.setattr(strict_action_scene,'estimate_scene',lambda *a: {})
+    monkeypatch.setattr(studio_scene,'estimate_live_scene',lambda *a: {})
     monkeypatch.setattr(strict_action_scene,'episode_scene',lambda *a:SimpleNamespace(world=world))
     headers={'X-Studio-Token':server.TOKEN,'X-Studio-Client':'owner'};result=[]
     thread=threading.Thread(target=lambda:result.append(client.post(f'/api/plans/{identifier}/execute',json={},headers=headers)))
@@ -108,3 +108,47 @@ def test_completed_run_finalizes_even_after_another_capture_is_selected(tmp_path
     while server.jobs[old]['status']!='complete' and time.monotonic()<deadline:time.sleep(.01)
     assert server.jobs[old]['status']=='complete'
     assert server.current==new and server.jobs[new]['status']=='captured'
+
+
+def test_torque_change_invalidates_previous_capture(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(server,'current','old-capture')
+    monkeypatch.setattr(server,'jobs',{})
+    monkeypatch.setattr(server,'hardware',SimpleNamespace(call=lambda *a,**k:{'connected':True,'running':False,'torque_enabled':False}))
+    response=client.post('/api/robot/torque_off',json={},headers={'X-Studio-Token':server.TOKEN})
+    assert response.status_code==200 and server.current is None
+
+
+def test_home_requires_control_page_owner(monkeypatch):
+    response=client.post('/api/robot/home',json={},headers={'X-Studio-Token':server.TOKEN})
+    assert response.status_code==409 and 'page' in response.json()['error'].lower()
+
+
+def test_stop_during_home_snapshot_prevents_dispatch(tmp_path,monkeypatch):
+    import json,threading,time,base64,numpy as np
+    from types import SimpleNamespace
+    reference=tmp_path/('e'*32);reference.mkdir();(reference/'scene.xml').write_text('model')
+    (reference/'plan.json').write_text(json.dumps({'source':'live'}))
+    entered=threading.Event();release=threading.Event();sent=[];snapshots=[]
+    def hardware(command,**kwargs):
+        if command=='status':return {'running':False}
+        if command=='snapshot':
+            if not snapshots:entered.set();release.wait(2)
+            snapshots.append(1)
+            return {'source':'live','captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'x','stop_generation':0,'images':{'top':base64.b64encode(__import__('cv2').imencode('.jpg',np.zeros((2,2,3),np.uint8))[1]).decode()}}
+        if command=='execute':sent.append(kwargs)
+        return {}
+    def simulation(args,**kwargs):
+        folder=Path(args[2]);report=json.loads((folder/'capture.json').read_text())|{'outcome':'success','transfer_checks_passed':True,'executed':False,'bowl_pixel':[0,0]}
+        (folder/'plan.json').write_text(json.dumps(report));np.savez(folder/'plan.npz',actions=np.zeros((2,6)),timestamps=[0,.1])
+        return SimpleNamespace(returncode=0)
+    import studio_scene
+    monkeypatch.setattr(studio_scene,'detect_bowl',lambda rgb:[0,0])
+    monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',None);monkeypatch.setattr(server,'jobs',{});monkeypatch.setattr(server,'stop_generation',0)
+    monkeypatch.setattr(server,'hardware',SimpleNamespace(call=hardware));monkeypatch.setattr(server.subprocess,'run',simulation)
+    headers={'X-Studio-Token':server.TOKEN,'X-Studio-Client':'owner'}
+    result=[];thread=threading.Thread(target=lambda:result.append(client.post('/api/robot/home',json={},headers=headers)));thread.start();assert entered.wait(2)
+    client.post('/api/robot/stop',json={},headers=headers);release.set();thread.join(3)
+    deadline=time.monotonic()+2
+    while time.monotonic()<deadline and server.jobs.get(server.current,{}).get('status')!='error':time.sleep(.01)
+    assert not sent and 'Stop requested' in server.jobs[server.current]['error']

@@ -83,3 +83,66 @@ def test_recorder_finalization_failure_still_releases_running_state(tmp_path,mon
     deadline=time.monotonic()+1
     while h.running and time.monotonic()<deadline:time.sleep(.01)
     assert not h.running and h.stopped.is_set() and 'disk full' in h.error
+
+class Bus:
+    def __init__(self):self.calls=[];self.goals={};self.torque=1
+    def disable_torque(self):self.calls.append('off');self.torque=0
+    def enable_torque(self):self.calls.append('on');self.torque=1
+    def sync_read(self,name,**kwargs):return {k:2048 for k in ['shoulder_pan','shoulder_lift','elbow_flex','wrist_flex','wrist_roll','gripper']}
+    def write(self,name,motor,value,**kwargs):self.calls.append((name,motor,value));self.goals[motor]=value
+    def read(self,name,motor,**kwargs):return self.goals.get(motor,0) if name=='Goal_Position' else self.torque if name=='Torque_Enable' else 0
+
+
+def test_torque_off_blocks_motion_and_stop_does_not_reenable():
+    h=Hardware();h.robot=Robot();h.robot.bus=Bus();h.connected=True
+    h.torque_off()
+    assert h.torque_enabled is False and h.stopped.is_set()
+    h.stop()
+    assert h.robot.bus.calls==['off'] and not h.robot.commands
+    with pytest.raises(ValueError,match='Torque'):h.execute({})
+    with pytest.raises(ValueError,match='Torque'):h.snapshot()
+
+
+def test_torque_on_sets_current_position_before_enable():
+    h=Hardware();h.robot=Robot();h.robot.bus=Bus();h.connected=True;h.torque_enabled=False
+    h.torque_on()
+    assert h.robot.bus.calls[0][0]=='Goal_Position'
+    assert all(c[2]==2048 for c in h.robot.bus.calls[:6])
+    assert h.robot.bus.calls[6]=='on' and h.torque_enabled
+
+
+def test_torque_changes_are_rejected_during_motion():
+    h=Hardware();h.robot=Robot();h.robot.bus=Bus();h.connected=True;h.running=True
+    for operation in [h.torque_off,h.torque_on]:
+        with pytest.raises(ValueError,match='running'):operation()
+    assert not h.robot.bus.calls
+
+
+def test_failed_torque_hold_verification_never_enables():
+    h=Hardware();h.robot=Robot();h.robot.bus=Bus();h.connected=True;h.torque_enabled=False
+    original=h.robot.bus.read
+    h.robot.bus.read=lambda name,*a,**kw:0 if name=='Goal_Position' else original(name,*a,**kw)
+    with pytest.raises(ValueError,match='verify'):h.torque_on()
+    assert 'on' not in h.robot.bus.calls and h.torque_enabled is None
+    with pytest.raises(ValueError,match='Torque'):h.snapshot()
+    with pytest.raises(ValueError,match='Torque'):h.execute({})
+
+
+def test_partial_torque_failure_is_unknown_and_blocks_motion():
+    h=Hardware();h.robot=Robot();h.robot.bus=Bus();h.connected=True
+    def broken():raise OSError('partial bus failure')
+    h.robot.bus.disable_torque=broken
+    with pytest.raises(OSError):h.torque_off()
+    assert h.torque_enabled is None
+    with pytest.raises(ValueError,match='Torque'):h.execute({})
+
+
+@pytest.mark.parametrize('torque,expected',[(0,False),(1,True),(2,None)])
+def test_connect_preserves_existing_motor_torque(torque,expected):
+    from studio_hardware import open_calibrated_connection
+    from types import SimpleNamespace
+    calls=[]
+    bus=SimpleNamespace(connect=lambda:calls.append('serial-only'),read=lambda *a,**k:torque)
+    robot=SimpleNamespace(bus=bus,is_calibrated=True,connect=lambda **kw:pytest.fail('Must not reconfigure or toggle torque on connect'))
+    assert open_calibrated_connection(robot) is expected
+    assert calls==['serial-only']

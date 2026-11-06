@@ -22,9 +22,18 @@ from studio_recording import Recording
 from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits
 
 
+def open_calibrated_connection(robot):
+    # LeRobot robot.connect() configures motors inside torque_disabled().
+    # This workcell is already configured: preserve torque across handoffs.
+    robot.bus.connect()
+    if not robot.is_calibrated:raise ValueError('Motor calibration does not match the saved calibration')
+    torque=[robot.bus.read('Torque_Enable',name,normalize=False) for name in JOINTS]
+    return True if all(v==1 for v in torque) else False if all(v==0 for v in torque) else None
+
+
 class Hardware:
     def __init__(self):
-        self.robot=None;self.connected=False;self.running=False
+        self.robot=None;self.connected=False;self.running=False;self.torque_enabled=True
         self.io=threading.RLock();self.stopped=threading.Event();self.stopped.set()
         self.frames={};self.cameras=[];self.last_heartbeat=time.monotonic()
         self.progress=0.;self.error=None;self.execution=None;self.lockfile=None
@@ -62,11 +71,10 @@ class Hardware:
         fcntl.flock(self.lockfile,fcntl.LOCK_EX|fcntl.LOCK_NB)
         robot=make_robot_from_config(SOFollowerRobotConfig(port=cfg['port'],id=cfg['id'],cameras={},use_degrees=True))
         try:
-            robot.connect(calibrate=False)
-            if not robot.is_calibrated:raise ValueError('Motor calibration does not match the saved calibration')
+            torque=open_calibrated_connection(robot)
             spec=spec_from_file_location('studio_handoff',benchmark/'robot_handoff.py');mod=module_from_spec(spec);spec.loader.exec_module(mod)
             mod.reset_follower_speed(robot.bus)
-            self.robot=robot;self.connected=True;self.error=None
+            self.robot=robot;self.connected=True;self.torque_enabled=torque;self.error=None
             for name,camera in cfg.get('cameras',{}).items():
                 cap=cv2.VideoCapture(camera['index']);cap.set(cv2.CAP_PROP_FRAME_WIDTH,camera.get('w',640));cap.set(cv2.CAP_PROP_FRAME_HEIGHT,camera.get('h',480))
                 self.cameras.append(cap)
@@ -86,13 +94,14 @@ class Hardware:
 
     def status(self,client_id=None):
         if client_id and client_id==self.execution_owner:self.last_heartbeat=time.monotonic()
-        result={'connected':self.connected,'running':self.running,'stopped':self.stopped.is_set(),'progress':self.progress,'error':self.error,'execution':self.execution,'elapsed':time.monotonic()-self.started_at if self.running and self.started_at else None,'recording_error':self.recording_error}
+        result={'connected':self.connected,'torque_enabled':self.torque_enabled,'running':self.running,'stopped':self.stopped.is_set(),'progress':self.progress,'error':self.error,'execution':self.execution,'elapsed':time.monotonic()-self.started_at if self.running and self.started_at else None,'recording_error':self.recording_error}
         if self.connected:
             result['positions']=self.positions().tolist()
             result['cameras']={name:time.monotonic()-stamp<.75 for name,(stamp,_) in self.frames.items()}
         return result
 
     def snapshot(self):
+        if self.torque_enabled is not True:raise ValueError('Torque is off; enable torque before capture')
         import cv2
         before=self.positions();now=time.monotonic();frames={}
         for name in ['top','wrist']:
@@ -126,13 +135,42 @@ class Hardware:
         # Latch under the same lock as sending, then hold actual measured pose.
         with self.io:
             self.stopped.set();self.stop_generation+=1
-            if self.connected:
+            if self.connected and self.torque_enabled:
                 q=self.positions()
                 self.robot.send_action({f'{j}.pos':float(v) for j,v in zip(JOINTS,q)})
         return {'stopped':True,'note':'Software stop; holds measured pose with torque enabled'}
 
+    def torque_off(self):
+        with self.io:
+            if not self.connected:raise ValueError('Robot is not connected')
+            if self.running:raise ValueError('Stop the running motion first')
+            self.stopped.set();self.stop_generation+=1
+            self.torque_enabled=None
+            self.robot.bus.disable_torque()
+            if any(self.robot.bus.read('Torque_Enable',name,normalize=False)!=0 for name in JOINTS):raise ValueError('Torque state unknown; retry Torque off or Torque on')
+            self.torque_enabled=False
+        return self.status()
+
+    def torque_on(self):
+        with self.io:
+            if not self.connected:raise ValueError('Robot is not connected')
+            if self.running:raise ValueError('Stop the running motion first')
+            self.torque_enabled=None
+            bus=self.robot.bus
+            q=bus.sync_read('Present_Position',normalize=False)
+            if set(q)!=set(JOINTS) or any(not isinstance(x,(int,float)) or not np.isfinite(x) or not 0<=x<=4095 or int(x)!=x for x in q.values()):raise ValueError('Invalid raw encoder positions')
+            if any(bus.read('Operating_Mode',name,normalize=False)!=0 for name in JOINTS):raise ValueError('Position mode required')
+            for name in JOINTS:bus.write('Goal_Position',name,int(q[name]),normalize=False)
+            if any(bus.read('Goal_Position',name,normalize=False)!=q[name] for name in JOINTS):raise ValueError('Could not verify hold positions; torque state unknown')
+            bus.enable_torque()
+            if any(bus.read('Torque_Enable',name,normalize=False)!=1 for name in JOINTS):raise ValueError('Torque state unknown; retry Torque on')
+            self.torque_enabled=True
+            self.stopped.set();self.stop_generation+=1
+        return self.status()
+
     def execute(self,plan):
         with self.io:
+            if self.torque_enabled is not True:raise ValueError('Torque is off; enable torque first')
             if self.running:raise ValueError('Robot execution already running')
             execution_gate(plan,self.positions(),self.calibration_hash())
             if plan.get('stop_generation')!=self.stop_generation:raise ValueError('A stop was requested; start a new execution explicitly')
@@ -196,7 +234,7 @@ def main():
         for line in sys.stdin:
             try:
                 request=json.loads(line);command=request['command']
-                if command not in ['connect','status','snapshot','preview','execute','stop','disconnect']:raise ValueError('Unknown command')
+                if command not in ['connect','status','snapshot','preview','execute','stop','disconnect','torque_off','torque_on']:raise ValueError('Unknown command')
                 result=hardware.execute(request['plan']) if command=='execute' else hardware.status(request.get('client_id')) if command=='status' else hardware.preview(request.get('view')) if command=='preview' else getattr(hardware,command)()
                 response={'ok':True,'result':result}
             except Exception as exc:response={'ok':False,'error':str(exc)}

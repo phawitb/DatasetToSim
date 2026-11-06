@@ -37,7 +37,8 @@ def load_scene(folder):
     config=json.loads((ROOT/'calibration/native-action-current.json').read_text())
     rgb=cv2.cvtColor(cv2.imread(str(folder/'top.jpg')),cv2.COLOR_BGR2RGB)
     if rgb.shape != (480,640,3): raise ValueError('Calibrated top camera requires 640 × 480 images')
-    scene=estimate_scene(config,rgb)
+    from studio_scene import estimate_live_scene
+    scene=estimate_live_scene(config,rgb) if capture.get('source')=='live' else estimate_scene(config,rgb)
     cal=episode_scene(config,scene)
     return capture,config,scene,cal,build_model(cal,config)
 

@@ -26,6 +26,7 @@ from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,
 RUN=ROOT/'output/shared-calibration-v10';WORK=ROOT/'output/studio';WORK.mkdir(exist_ok=True)
 DATA=Path(os.environ.get('STUDIO_DATASET','/Users/phawit/Projects/VLA-Benchmark/data/SIMCUBE_1O1B_VF'))
 TOKEN=secrets.token_urlsafe(32);jobs={};current=None;operation_lock=threading.Lock();frames_lock=threading.Lock();stop_lock=threading.Lock();stop_generation=0
+client_heartbeats={}
 video_jobs={};video_lock=threading.Lock();video_pool=ThreadPoolExecutor(max_workers=1)
 app=FastAPI(title='Real / Sim Studio')
 app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
@@ -97,6 +98,8 @@ def bootstrap():
 
 @app.get('/api/status')
 def status(request:Request):
+    client=request.headers.get('x-studio-client')
+    if client:client_heartbeats[client]=time.monotonic()
     try:robot=hardware.call('status',client_id=request.headers.get('x-studio-client'))
     except ValueError as exc:robot={'connected':False,'running':False,'error':str(exc)}
     finished_id=robot.get('execution')
@@ -104,15 +107,16 @@ def status(request:Request):
         with operation_lock:
             if jobs.get(finished_id,{}).get('status')=='executing':
                 identifier=finished_id;folder=folder_for(identifier)
-                jobs[identifier]={'id':identifier,'status':'recording','stage':'execute'}
+                stage=jobs[identifier].get('stage','execute')
+                jobs[identifier]={'id':identifier,'status':'recording','stage':stage}
                 def finalize():
                     try:
                         result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_recording.py'),str(folder)],capture_output=True,text=True,timeout=120)
                         if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1])
                         report=json.loads((folder/'plan.json').read_text());report['execution']=json.loads((folder/'execution.json').read_text())
                         (folder/'plan.json').write_text(json.dumps(report,indent=2))
-                        jobs[identifier]={'id':identifier,'status':'complete','stage':'execute','plan':report}
-                    except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':'execute','error':str(exc)}
+                        jobs[identifier]={'id':identifier,'status':'complete','stage':stage,'plan':report}
+                    except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':stage,'error':str(exc)}
                 threading.Thread(target=finalize,daemon=True).start()
     return {'robot':robot,'job':jobs.get(current),'current':current}
 
@@ -173,15 +177,61 @@ def media(area:str,path:str):
     return FileResponse(safe_file(root,path))
 
 @app.post('/api/robot/{command}')
-def robot_command(command:str):
-    global stop_generation
-    if command not in ['connect','stop','disconnect']:raise ValueError('Unsupported robot command')
+def robot_command(command:str,request:Request):
+    global stop_generation,current
+    requested_generation=stop_generation
+    if command not in ['connect','stop','disconnect','torque_off','torque_on','home']:raise ValueError('Unsupported robot command')
+    if command=='home' and not request.headers.get('x-studio-client'):raise ValueError('Home requires an owning control page')
     if command=='stop':
         with stop_lock:stop_generation+=1
         return hardware.call(command)
     with operation_lock:
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
-        return hardware.call(command)
+        if command=='home':
+            if hardware.call('status').get('running'):raise ValueError('Robot is executing')
+            references=[]
+            for path in WORK.glob('*/plan.json'):
+                try:
+                    data=json.loads(path.read_text())
+                    if data.get('source')=='live' and data.get('purpose')!='home' and (path.parent/'scene.xml').exists():references.append(path)
+                except (ValueError,OSError):pass
+            if not references:raise ValueError('Home needs a previously captured workcell model')
+            reference=max(references,key=lambda p:p.stat().st_mtime).parent
+            snapshot=hardware.call('snapshot');identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
+            for view,data in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(data))
+            snapshot.update(id=identifier,purpose='home');(folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
+            generation=requested_generation;owner=request.headers.get('x-studio-client')
+            current=identifier;jobs[identifier]={'id':identifier,'status':'running','stage':'prepare'}
+            def return_home():
+                try:
+                    result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_home.py'),str(folder),str(reference)],capture_output=True,text=True,timeout=120)
+                    if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1])
+                    report=json.loads((folder/'plan.json').read_text())
+                    with operation_lock:
+                        fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
+                        from studio_scene import detect_bowl,verify_bowl_occlusion
+                        rgb=cv2.cvtColor(cv2.imdecode(np.frombuffer(base64.b64decode(fresh['images']['top']),np.uint8),cv2.IMREAD_COLOR),cv2.COLOR_BGR2RGB)
+                        try:observed_bowl=detect_bowl(rgb)
+                        except ValueError:
+                            if report.get('bowl_source')!='recent verified capture; currently occluded':raise
+                            if not 0<=time.time()-report.get('reference_captured_at',0)<=600:raise ValueError('Hidden bowl reference expired')
+                            verify_bowl_occlusion(rgb,report['bowl_pixel'])
+                            observed_bowl=report['bowl_pixel']
+                        if np.linalg.norm(np.array(observed_bowl)-report['bowl_pixel'])>5:raise ValueError('Bowl moved during Home preparation; try Home again')
+                        saved=np.load(folder/'plan.npz')
+                        payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation']}
+                        with stop_lock:
+                            if generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
+                            if time.monotonic()-client_heartbeats.get(owner,0)>3:raise ValueError('Control page closed; Home cancelled')
+                            hardware.call('execute',plan=payload)
+                        report['executed']=True;(folder/'plan.json').write_text(json.dumps(report,indent=2))
+                        jobs[identifier]={'id':identifier,'status':'executing','stage':'prepare'}
+                except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':'prepare','error':str(exc)}
+            threading.Thread(target=return_home,daemon=True).start()
+            return {'preparing_home':True,'id':identifier}
+        result=hardware.call(command)
+        if command in ['torque_off','torque_on']:current=None
+        return result
 
 @app.get('/api/live/{view}')
 def live(view:str):
@@ -233,6 +283,7 @@ def plan_operation(identifier:str,operation:str,request:Request):
     global current
     if operation not in ['plan','simulate','execute']:raise ValueError('Unknown operation')
     folder=folder_for(identifier)
+    if json.loads((folder/'capture.json').read_text()).get('purpose')=='home':raise ValueError('Capture a new scene after Home')
     requested_generation=stop_generation
     with operation_lock:
         if current!=identifier:raise ValueError('This capture was replaced; use the current capture')
@@ -242,10 +293,11 @@ def plan_operation(identifier:str,operation:str,request:Request):
             report=json.loads((folder/'plan.json').read_text())
             fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
             # Re-detect the live scene just before dispatch; no stale object coordinates.
-            from strict_action_scene import estimate_scene,episode_scene
+            from strict_action_scene import episode_scene
+            from studio_scene import estimate_live_scene
             cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
             image=cv2.imdecode(np.frombuffer(base64.b64decode(fresh['images']['top']),np.uint8),cv2.IMREAD_COLOR)
-            observed=episode_scene(cfg,estimate_scene(cfg,cv2.cvtColor(image,cv2.COLOR_BGR2RGB)))
+            observed=episode_scene(cfg,estimate_live_scene(cfg,cv2.cvtColor(image,cv2.COLOR_BGR2RGB)))
             validate_scene_match(report['world'],observed.world)
             saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'owner':request.headers.get('x-studio-client')}
             with stop_lock:
