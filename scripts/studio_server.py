@@ -26,6 +26,7 @@ from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,
 RUN=ROOT/'output/shared-calibration-v10';WORK=ROOT/'output/studio';WORK.mkdir(exist_ok=True)
 DATA=Path(os.environ.get('STUDIO_DATASET','/Users/phawit/Projects/VLA-Benchmark/data/SIMCUBE_1O1B_VF'))
 TOKEN=secrets.token_urlsafe(32);jobs={};current=None;operation_lock=threading.Lock();frames_lock=threading.Lock();stop_lock=threading.Lock();stop_generation=0
+video_jobs={};video_lock=threading.Lock();video_pool=ThreadPoolExecutor(max_workers=1)
 app=FastAPI(title='Real / Sim Studio')
 app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
 app.mount('/assets',StaticFiles(directory=ROOT/'web'),name='assets')
@@ -98,6 +99,21 @@ def bootstrap():
 def status(request:Request):
     try:robot=hardware.call('status',client_id=request.headers.get('x-studio-client'))
     except ValueError as exc:robot={'connected':False,'running':False,'error':str(exc)}
+    finished_id=robot.get('execution')
+    if finished_id and jobs.get(finished_id,{}).get('status')=='executing' and not robot.get('running'):
+        with operation_lock:
+            if jobs.get(finished_id,{}).get('status')=='executing':
+                identifier=finished_id;folder=folder_for(identifier)
+                jobs[identifier]={'id':identifier,'status':'recording','stage':'execute'}
+                def finalize():
+                    try:
+                        result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_recording.py'),str(folder)],capture_output=True,text=True,timeout=120)
+                        if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1])
+                        report=json.loads((folder/'plan.json').read_text());report['execution']=json.loads((folder/'execution.json').read_text())
+                        (folder/'plan.json').write_text(json.dumps(report,indent=2))
+                        jobs[identifier]={'id':identifier,'status':'complete','stage':'execute','plan':report}
+                    except Exception as exc:jobs[identifier]={'id':identifier,'status':'error','stage':'execute','error':str(exc)}
+                threading.Thread(target=finalize,daemon=True).start()
     return {'robot':robot,'job':jobs.get(current),'current':current}
 
 @app.get('/api/episodes/{index}')
@@ -107,8 +123,33 @@ def episode(index:int):
     ep=ds.episode(index);folder=RUN/f'episode-{index:02d}'
     report=json.loads((folder/'report.json').read_text())
     with np.load(folder/'strict_trace.npz') as trace:sim=trace['simulated_native_state'][:ep.frame_count].tolist()
-    video=f'/media/benchmark/episode-{index:02d}/real-vs-sim-strict.mp4' if (folder/'real-vs-sim-strict.mp4').exists() else None
+    video=episode_video_status(index).get('video')
     return {'episode':index,'frames':ep.frame_count,'duration':ep.frame_count/30,'timestamps':ep.timestamps.tolist(),'real':ep.state_deg.tolist(),'sim':sim,'actions':ep.action_deg.tolist(),'report':report,'video':video}
+
+def episode_video_status(index):
+    folder=RUN/f'episode-{index:02d}'
+    if index<0 or not (folder/'report.json').is_file():raise ValueError('Episode not found')
+    if (folder/'real-vs-sim-strict.mp4').is_file():return {'status':'ready','video':f'/media/benchmark/episode-{index:02d}/real-vs-sim-strict.mp4'}
+    if (WORK/f'replay-{index:02d}'/'comparison.mp4').is_file():return {'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison.mp4'}
+    return video_jobs.get(index,{'status':'idle'})
+
+@app.get('/api/episodes/{index}/video')
+def video_status(index:int):return episode_video_status(index)
+
+@app.post('/api/episodes/{index}/video')
+def prepare_video(index:int):
+    with video_lock:
+        status=episode_video_status(index)
+        if status['status'] in ['ready','rendering']:return status
+        video_jobs[index]={'status':'rendering'}
+        def render():
+            try:
+                result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_video.py'),str(index)],capture_output=True,text=True,timeout=240)
+                if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1] if result.stderr else 'Render failed')
+                video_jobs[index]={'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison.mp4'}
+            except Exception as exc:video_jobs[index]={'status':'error','error':str(exc)}
+        video_pool.submit(render)
+        return video_jobs[index]
 
 @app.get('/api/episodes/{index}/frame/{frame}')
 def frame(index:int,frame:int):
@@ -145,9 +186,9 @@ def robot_command(command:str):
 @app.get('/api/live/{view}')
 def live(view:str):
     if view not in ['top','wrist']:raise ValueError('Unknown camera')
-    snapshot=hardware.call('snapshot')
+    snapshot=hardware.call('preview',view=view)
     from fastapi.responses import Response
-    return Response(base64.b64decode(snapshot['images'][view]),media_type='image/jpeg')
+    return Response(base64.b64decode(snapshot['image']),media_type='image/jpeg')
 
 
 def folder_for(identifier):

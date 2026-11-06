@@ -18,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 import cv2  # Load OpenCV before LeRobot/Torch to avoid duplicate OpenMP on macOS.
 import numpy as np
+from studio_recording import Recording
 from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits
 
 
@@ -28,7 +29,7 @@ class Hardware:
         self.frames={};self.cameras=[];self.last_heartbeat=time.monotonic()
         self.progress=0.;self.error=None;self.execution=None;self.lockfile=None
         self.config=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-        self.history=[];self.stop_generation=0;self.execution_owner=None;self.consumed=set()
+        self.started_at=None;self.recording_error=None;self.history=[];self.stop_generation=0;self.execution_owner=None;self.consumed=set()
 
     def positions(self):
         if not self.connected:raise ValueError('Robot is not connected')
@@ -85,7 +86,7 @@ class Hardware:
 
     def status(self,client_id=None):
         if client_id and client_id==self.execution_owner:self.last_heartbeat=time.monotonic()
-        result={'connected':self.connected,'running':self.running,'stopped':self.stopped.is_set(),'progress':self.progress,'error':self.error,'execution':self.execution}
+        result={'connected':self.connected,'running':self.running,'stopped':self.stopped.is_set(),'progress':self.progress,'error':self.error,'execution':self.execution,'elapsed':time.monotonic()-self.started_at if self.running and self.started_at else None,'recording_error':self.recording_error}
         if self.connected:
             result['positions']=self.positions().tolist()
             result['cameras']={name:time.monotonic()-stamp<.75 for name,(stamp,_) in self.frames.items()}
@@ -103,6 +104,13 @@ class Hardware:
         after=self.positions()
         if np.max(np.abs(after-before))>1:raise ValueError('Robot moved during capture')
         return {'source':'live','captured_at':time.time(),'initial_native':after.tolist(),'calibration_hash':self.calibration_hash(),'images':frames,'stop_generation':self.stop_generation}
+
+    def preview(self,view):
+        if view not in ['top','wrist']:raise ValueError('Unknown camera')
+        self.check_cameras()
+        ok,image=cv2.imencode('.jpg',self.frames[view][1],[cv2.IMWRITE_JPEG_QUALITY,80])
+        if not ok:raise ValueError('Camera encoding failed')
+        return {'image':base64.b64encode(image).decode()}
 
     def check_cameras(self):
         for name in ['top','wrist']:
@@ -137,10 +145,12 @@ class Hardware:
             if actual_hash!=plan['action_hash'] or actual_hash!=plan.get('simulated_action_hash'):
                 raise ValueError('Commands do not match the simulated trajectory')
             if np.max(np.abs(actions[0]-plan['initial_native']))>1e-6:raise ValueError('First command must equal captured pose')
-            self.running=True;self.stopped.clear();self.error=None;self.progress=0.;self.last_heartbeat=time.monotonic();self.execution=plan['id'];self.history=[];self.execution_owner=plan['owner'];self.consumed.add(plan['id'])
+            recorder=Recording(ROOT/'output/studio'/plan['id'],self.frames,self.stopped)
+            self.running=True;self.recording_error=None;self.stopped.clear();self.error=None;self.progress=0.;self.last_heartbeat=time.monotonic();self.execution=plan['id'];self.history=[];self.execution_owner=plan['owner'];self.consumed.add(plan['id'])
         def run():
-            start=time.monotonic()
+            start=time.monotonic();self.started_at=start
             try:
+                recorder.start(start)
                 for i,(q,t) in enumerate(zip(actions,ts)):
                     if self.stopped.wait(max(0,start+float(t)-time.monotonic())):break
                     if time.monotonic()-self.last_heartbeat>3:raise RuntimeError('Control page heartbeat lost')
@@ -156,10 +166,15 @@ class Hardware:
             finally:
                 try:self.stop()
                 except Exception as exc:self.error=f'Hold failed: {exc}'
+                try:
+                    recording=recorder.finish();self.recording_error=recording['error']
+                except Exception as exc:self.recording_error=str(exc)
+                if self.recording_error and not self.error:self.error='camera recording failed: '+self.recording_error
                 path=ROOT/'output/studio'/plan['id']/'hardware-trace.json'
-                try:path.write_text(json.dumps({'error':self.error,'samples':self.history,'completed':self.progress==1.}))
-                except OSError:pass
-                self.running=False
+                try:path.write_text(json.dumps({'error':self.error,'samples':self.history,'completed':self.progress==1. and self.error is None}))
+                except OSError as exc:
+                    if not self.error:self.error='Could not save hardware trace: '+str(exc)
+                finally:self.running=False
         threading.Thread(target=run,daemon=True).start()
         return {'running':True,'id':self.execution}
 
@@ -181,8 +196,8 @@ def main():
         for line in sys.stdin:
             try:
                 request=json.loads(line);command=request['command']
-                if command not in ['connect','status','snapshot','execute','stop','disconnect']:raise ValueError('Unknown command')
-                result=hardware.execute(request['plan']) if command=='execute' else hardware.status(request.get('client_id')) if command=='status' else getattr(hardware,command)()
+                if command not in ['connect','status','snapshot','preview','execute','stop','disconnect']:raise ValueError('Unknown command')
+                result=hardware.execute(request['plan']) if command=='execute' else hardware.status(request.get('client_id')) if command=='status' else hardware.preview(request.get('view')) if command=='preview' else getattr(hardware,command)()
                 response={'ok':True,'result':result}
             except Exception as exc:response={'ok':False,'error':str(exc)}
             protocol.write(json.dumps(response)+'\n');protocol.flush()

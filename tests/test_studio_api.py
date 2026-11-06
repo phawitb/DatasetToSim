@@ -82,3 +82,29 @@ def test_failed_resimulation_invalidates_old_success(tmp_path,monkeypatch):
     deadline=time.monotonic()+2
     while server.jobs[identifier]['status']=='running' and time.monotonic()<deadline:time.sleep(.01)
     assert server.jobs[identifier]['status']=='error'
+
+
+def test_every_episode_can_request_a_playable_comparison(monkeypatch):
+    import time
+    assert client.post('/api/episodes/0/video',json={},headers={'X-Studio-Token':server.TOKEN}).json()['status']=='ready'
+    result=client.get('/api/episodes/1/video').json()
+    assert result['status'] in ['idle','rendering','ready']
+    assert client.post('/api/episodes/999/video',json={},headers={'X-Studio-Token':server.TOKEN}).status_code==409
+
+
+def test_completed_run_finalizes_even_after_another_capture_is_selected(tmp_path,monkeypatch):
+    import json,time
+    from types import SimpleNamespace
+    old='c'*32;new='d'*32;folder=tmp_path/old;folder.mkdir()
+    (folder/'capture.json').write_text('{}');(folder/'plan.json').write_text(json.dumps({'id':old,'executed':True}))
+    monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',new);monkeypatch.setattr(server,'jobs',{old:{'status':'executing'},new:{'status':'captured'}})
+    monkeypatch.setattr(server,'hardware',SimpleNamespace(call=lambda *a,**k:{'running':False,'execution':old}))
+    def finalize(*a,**k):
+        (folder/'execution.json').write_text(json.dumps({'video':'hardware-comparison.mp4','completed':True}))
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(server.subprocess,'run',finalize)
+    assert client.get('/api/status').json()['current']==new
+    deadline=time.monotonic()+2
+    while server.jobs[old]['status']!='complete' and time.monotonic()<deadline:time.sleep(.01)
+    assert server.jobs[old]['status']=='complete'
+    assert server.current==new and server.jobs[new]['status']=='captured'

@@ -40,7 +40,7 @@ def test_execution_requires_fresh_camera_and_matching_stop_generation():
     h.calibration_hash=lambda:'abc'
     plan={'id':'x','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner'}
     with pytest.raises(ValueError,match='camera'):h.execute(plan)
-    h.frames={v:(time.monotonic(),np.zeros((1,1,3))) for v in ['top','wrist']}
+    h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
     h.stop()
     with pytest.raises(ValueError,match='stop'):h.execute(plan)
 
@@ -49,7 +49,7 @@ def test_camera_drops_mid_execution_and_prevents_remaining_targets(tmp_path,monk
     import hashlib,studio_hardware
     h=Hardware();h.robot=Robot();h.connected=True;h.calibration_hash=lambda:'abc'
     monkeypatch.setattr(studio_hardware,'ROOT',tmp_path)
-    h.frames={v:(time.monotonic(),np.zeros((1,1,3))) for v in ['top','wrist']}
+    h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
     original=h.robot.send_action
     def send(action):
         original(action)
@@ -65,3 +65,21 @@ def test_camera_drops_mid_execution_and_prevents_remaining_targets(tmp_path,monk
     while h.running and time.monotonic()<deadline:time.sleep(.01)
     assert not h.running and 'camera' in h.error
     assert all(c['shoulder_pan.pos']==0 for c in h.robot.commands)
+
+
+def test_recorder_finalization_failure_still_releases_running_state(tmp_path,monkeypatch):
+    import hashlib,studio_hardware
+    h=Hardware();h.robot=Robot();h.connected=True;h.calibration_hash=lambda:'abc'
+    monkeypatch.setattr(studio_hardware,'ROOT',tmp_path)
+    h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
+    class BrokenRecording:
+        def __init__(self,*a):pass
+        def start(self,*a):pass
+        def finish(self):raise OSError('disk full')
+    monkeypatch.setattr(studio_hardware,'Recording',BrokenRecording)
+    actions=np.zeros((2,6));digest=hashlib.sha256(actions.astype('<f8').tobytes()).hexdigest()
+    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner','actions':actions.tolist(),'timestamps':[0,.0333333333],'action_hash':digest,'simulated_action_hash':digest}
+    h.execute(plan)
+    deadline=time.monotonic()+1
+    while h.running and time.monotonic()<deadline:time.sleep(.01)
+    assert not h.running and h.stopped.is_set() and 'disk full' in h.error
