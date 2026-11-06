@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "status": "strict native-action pipeline implemented and all-episode command integrity audited; physical model and historical recording calibration identity remain unvalidated",
+  "purpose": "Identify simulation parameters while keeping recorded native actions unchanged, for policy transfer to the real SO-101.",
+  "native_action": {
+    "features": [
+      "shoulder_pan.pos",
+      "shoulder_lift.pos",
+      "elbow_flex.pos",
+      "wrist_flex.pos",
+      "wrist_roll.pos",
+      "gripper.pos"
+    ],
+    "body_joint_units": "degrees when use_degrees=True, as in the currently installed default",
+    "gripper_units": "normalized RANGE_0_100, NOT degrees",
+    "semantics": "absolute position targets, not torques or target velocities",
+    "dataset_nominal_fps": 30
+  },
+  "local_evidence": {
+    "record_launcher": "/Users/phawit/Projects/VLA-Benchmark/main.py",
+    "record_python": "/opt/miniconda3/envs/lerobot/bin/python",
+    "installed_lerobot_root": "/Users/phawit/Projects/SO101-V2/lerobot/src/lerobot",
+    "follower_calibration": "/Users/phawit/.cache/huggingface/lerobot/calibration/robots/so_follower/my_awesome_follower_arm.json",
+    "use_degrees_override_in_current_launcher": false,
+    "current_default_use_degrees": true,
+    "current_default_max_relative_target": null,
+    "recording_order": "observe state; obtain/process action; send action; store observation and action_values",
+    "recording_caveat": "The current recorder saves action_values, not the returned _sent_action. Identity processors and no relative-target clipping imply the same targets, but historical configuration is not embedded in this dataset."
+  },
+  "strict_replay_invariants": [
+    "Keep native recorded action arrays unchanged; save their hash and a copy of the applied native action stream.",
+    "Use a documented fixed hardware-to-model coordinate/unit conversion, including gripper normalization, encoder calibration and model joint reference frames.",
+    "Apply action at its recorded frame interval; do not use future actions for interpolation. Model physical actuator latency explicitly.",
+    "Use observation.state only for initial conditions and calibration/evaluation losses; never as the subsequent arm command stream.",
+    "Do not use IK, tabletop-clearance target changes, object-conditioned waypoints, grasp/release retiming or hidden action clipping.",
+    "Only integrate dynamic object states after initialization; no object teleports, welds or external object forces.",
+    "Keep collision detection enabled; correct measured geometry/model parameters when observed real motions intersect simulated geometry.",
+    "Export simulated observations in the real robot's native observation convention and camera interfaces."
+  ],
+  "fit_parameters": [
+    "joint reference offsets/signs established by physical frame calibration",
+    "actuator gains, passive damping, reflected inertia, friction and torque/speed limits",
+    "command latency and motor response using fixed recorded action timing",
+    "link geometry/inertia, gripper surfaces and measured object dimensions",
+    "contact friction/compliance and camera geometry"
+  ],
+  "evaluation": "Joint/state trajectory error, lag, gripper aperture and object motion on withheld whole episodes, as well as pick/place success. Calibration changes must be shared across episodes.",
+  "previous_results": {
+    "39_of_72": "Measured-state arm targets with tabletop-clearance corrections; NOT strict action replay.",
+    "72_of_72": "Additional trajectory and gripper-timing repair; NOT evidence of direct sim-to-real action compatibility. Archived only."
+  },
+  "implementation": {
+    "entrypoint": "scripts/strict_action_replay.py",
+    "verification": "scripts/audit_strict_action.py",
+    "results": "output/strict-action/results.json",
+    "frozen_configuration": "output/strict-action/settings.json",
+    "gripper_mapping": "(range_max-range_min)*360/4095/100 degrees per native unit; model closed reference -10 degrees remains provisional",
+    "success_interpretation": "Task criteria only; physical fidelity unvalidated. Initial penetration screen reported separately."
+  }
+}

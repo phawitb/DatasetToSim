@@ -1,0 +1,26 @@
+[
+  {
+    "episode": 0,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "7.833333",
+    "nb_frames": "235"
+  },
+  {
+    "episode": 45,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "5.000000",
+    "nb_frames": "150"
+  },
+  {
+    "episode": 50,
+    "width": 1280,
+    "height": 1024,
+    "r_frame_rate": "30/1",
+    "duration": "4.966667",
+    "nb_frames": "149"
+  }
+]

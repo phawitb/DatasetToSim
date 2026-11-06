@@ -1,0 +1,36 @@
+{
+  "verified_episodes": 72,
+  "verified_frames": 11661,
+  "verified_physics_steps": 396474,
+  "all_native_actions_exactly_equal": true,
+  "all_step_targets_exactly_equal_to_fixed_adapter": true,
+  "all_action_boundaries_verified": true,
+  "all_saved_sources_and_dataset_hashes_verified": true,
+  "same_settings_sha256": "e9b94c1a140cada631234ca25429c6b2e7b6fbda47e9f1c114b5ba7a7757e046",
+  "outcomes": {
+    "success": 59,
+    "not_lifted": 12,
+    "no_bilateral_grasp": 1
+  },
+  "task_successes_passing_initial_collision_screen": 59,
+  "physically_validated_successes": null,
+  "physical_validity_note": "Task scoring is not physical validation; initial overlap >1 mm fails a diagnostic screen.",
+  "frame_weighted_joint_rmse_native": [
+    0.6789515449609667,
+    0.902315017565978,
+    0.7919463620959917,
+    0.7258383641324158,
+    0.6709669733945862,
+    3.144348223943437
+  ],
+  "joint_rmse_units": [
+    "degree",
+    "degree",
+    "degree",
+    "degree",
+    "degree",
+    "normalized gripper 0-100"
+  ],
+  "initial_max_penetration_m": 0.0,
+  "initial_penetration_episodes_over_1mm": 0
+}

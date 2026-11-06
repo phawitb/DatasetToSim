@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "status": "draft",
+  "dataset": "SIMCUBE_1O1B_VF",
+  "joint_convention": {
+    "sign": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "offset_deg": [
+      4.61992760192528,
+      0.9190773601103938,
+      -3.8629622337232807,
+      -8.875911113580434,
+      0,
+      0
+    ]
+  },
+  "world": {
+    "robot_base": {
+      "position": [
+        -0.03615383746366345,
+        0.0010727390935524775,
+        0
+      ],
+      "quaternion": [
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    "table": {
+      "size": [
+        1.2,
+        1.2
+      ],
+      "height": 0.001
+    },
+    "mat": {
+      "position": [
+        0.23,
+        0,
+        0.003
+      ],
+      "size": [
+        0.4,
+        0.4,
+        0.004
+      ]
+    },
+    "cube": {
+      "position": [
+        0.17751809797490478,
+        -0.056139164123786375,
+        0.01100000000000001
+      ],
+      "size": 0.022
+    },
+    "bowl": {
+      "position": [
+        0.23867943654661122,
+        -0.1326900365760499,
+        0
+      ],
+      "outer_radius": 0.06,
+      "height": 0.05
+    }
+  },
+  "cameras": {
+    "top": {
+      "position": [
+        -0.04823444567159029,
+        -0.00311664832486185,
+        0.5974450080902467
+      ],
+      "target": [
+        0.3137154235467967,
+        0.03671388080968158,
+        -0.33390123317647724
+      ],
+      "fovy": 40.53139494189501,
+      "quaternion": [
+        0.701334729693538,
+        0.14346297500156796,
+        -0.11724015596346456,
+        -0.6883332895909174
+      ]
+    },
+    "wrist": {
+      "camera_name": "wrist_cam",
+      "position": [
+        -0.04295999999999999,
+        0.05390134435675437,
+        -0.06870370310268135
+      ],
+      "quaternion": [
+        0.9216253628046375,
+        -0.3375883610919182,
+        -0.1734116936860127,
+        0.08105043851480108
+      ],
+      "fovy": 66.97835601790389
+    }
+  },
+  "acceptance": {
+    "top_rmse_max": 0.1,
+    "wrist_rmse_max": 0.1,
+    "top_mask_iou_min": 0.8
+  },
+  "calibration_notes": {
+    "method": "manual mat corner correspondences, solvePnP; dimensions estimated",
+    "mat_world_points": [
+      [
+        0.43,
+        0.2,
+        0.0
+      ],
+      [
+        0.43,
+        -0.2,
+        0.0
+      ],
+      [
+        0.03,
+        -0.2,
+        0.0
+      ],
+      [
+        0.03,
+        0.2,
+        0.0
+      ]
+    ],
+    "mat_image_points": [
+      [
+        175.0,
+        34.0
+      ],
+      [
+        524.0,
+        35.0
+      ],
+      [
+        565.0,
+        402.0
+      ],
+      [
+        119.0,
+        400.0
+      ]
+    ],
+    "intrinsics": [
+      [
+        650.0,
+        0.0,
+        320.0
+      ],
+      [
+        0.0,
+        650.0,
+        240.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "object_motion": "Initial/final from top image; frames 168..213 inferred from TCP and release interpolation. Kinematic reconstruction, contact physics not validated."
+  },
+  "arm_fit": {
+    "frames": [
+      0,
+      130,
+      190
+    ],
+    "before_mean_iou": 0.41653582391908317,
+    "after_mean_iou": 0.6105352648263433,
+    "evaluations": 277,
+    "method": "orange silhouette IoU / Powell",
+    "held_out_frame": 230
+  },
+  "wrist_fit": {
+    "frames": [
+      0,
+      190
+    ],
+    "manual_pixel_points": [
+      [
+        255,
+        365
+      ],
+      [
+        281,
+        371
+      ],
+      [
+        431,
+        369
+      ]
+    ],
+    "point_order": [
+      "fixed_jaw_tip",
+      "moving_jaw_tip",
+      "cube_center"
+    ],
+    "landmark_rmse_px": 82.00636103319606,
+    "bowl_bbox_target_190": [
+      80,
+      60,
+      485,
+      440
+    ],
+    "bowl_bbox_projected_190": [
+      65.56111850588943,
+      73.47495505118363,
+      479.45901794626684,
+      430.8273692329252
+    ],
+    "limitation": "manual approximate landmarks and estimated dimensions, not a measured intrinsic calibration"
+  }
+}

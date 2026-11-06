@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "source": "Dimensions reported directly by the user on 2026-11-06",
+  "units": "m",
+  "cube": {
+    "size_xyz": [
+      0.0195,
+      0.0195,
+      0.0195
+    ],
+    "mass_kg": null,
+    "material": "wood (reported by user); species and density unknown",
+    "status": "measured dimensions; mass unknown"
+  },
+  "bowl": {
+    "top_rim_diameter": 0.118,
+    "top_rim_measurement_surface": "outer rim (confirmed by user)",
+    "height": 0.05,
+    "bottom_diameter": null,
+    "wall_thickness": null
+  },
+  "integration_status": "Applied to output/strict-action cube and bowl visual/contact geometry. Historical simulations are preserved with their original dimensions.",
+  "historical_estimates": {
+    "cube_size": 0.022,
+    "bowl_top_outer_diameter": 0.12,
+    "cube_mass_kg": 0.012,
+    "bowl_height": 0.05
+  },
+  "robot": {
+    "gripper": "standard SO-101; no finger extension or replacement (user confirmed)",
+    "base_support": "robot rests directly on tabletop (user confirmed)",
+    "additional_base_riser_height_m": 0.0,
+    "confirmation_date": "2026-11-06",
+    "gripper_native_zero": "Inner fingertip surfaces touch with no cube when commanded native gripper=0 (user confirmed 2026-11-06)"
+  },
+  "mat": {
+    "size_xy": [
+      0.405,
+      0.405
+    ],
+    "thickness": 0.002,
+    "source": "User confirmed 40.5 x 40.5 cm and 2mm thickness on 2026-11-06"
+  }
+}

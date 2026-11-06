@@ -1,0 +1,510 @@
+{
+  "schema_version": 1,
+  "mode": "strict_native_action",
+  "base_calibration": {
+    "schema_version": 1,
+    "status": "draft",
+    "dataset": "SIMCUBE_1O1B_VF",
+    "joint_convention": {
+      "sign": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "offset_deg": [
+        4.61992760192528,
+        0.9190773601103938,
+        -3.8629622337232807,
+        -8.875911113580434,
+        0,
+        0
+      ]
+    },
+    "world": {
+      "robot_base": {
+        "position": [
+          -0.03615383746366345,
+          0.0010727390935524775,
+          0
+        ],
+        "quaternion": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "table": {
+        "size": [
+          1.2,
+          1.2
+        ],
+        "height": 0.001
+      },
+      "mat": {
+        "position": [
+          0.23,
+          0,
+          0.003
+        ],
+        "size": [
+          0.4,
+          0.4,
+          0.004
+        ]
+      },
+      "cube": {
+        "position": [
+          0.17751809797490478,
+          -0.056139164123786375,
+          0.01100000000000001
+        ],
+        "size": 0.0195
+      },
+      "bowl": {
+        "position": [
+          0.23867943654661122,
+          -0.1326900365760499,
+          0
+        ],
+        "outer_radius": 0.059,
+        "height": 0.05
+      }
+    },
+    "cameras": {
+      "top": {
+        "position": [
+          -0.04823444567159029,
+          -0.00311664832486185,
+          0.5974450080902467
+        ],
+        "target": [
+          0.3137154235467967,
+          0.03671388080968158,
+          -0.33390123317647724
+        ],
+        "fovy": 40.53139494189501,
+        "quaternion": [
+          0.701334729693538,
+          0.14346297500156796,
+          -0.11724015596346456,
+          -0.6883332895909174
+        ]
+      },
+      "wrist": {
+        "camera_name": "wrist_cam",
+        "position": [
+          -0.04295999999999999,
+          0.05390134435675437,
+          -0.06870370310268135
+        ],
+        "quaternion": [
+          0.9216253628046375,
+          -0.3375883610919182,
+          -0.1734116936860127,
+          0.08105043851480108
+        ],
+        "fovy": 66.97835601790389
+      }
+    },
+    "acceptance": {
+      "top_rmse_max": 0.1,
+      "wrist_rmse_max": 0.1,
+      "top_mask_iou_min": 0.8
+    },
+    "calibration_notes": {
+      "method": "manual mat corner correspondences, solvePnP; dimensions estimated",
+      "mat_world_points": [
+        [
+          0.43,
+          0.2,
+          0.0
+        ],
+        [
+          0.43,
+          -0.2,
+          0.0
+        ],
+        [
+          0.03,
+          -0.2,
+          0.0
+        ],
+        [
+          0.03,
+          0.2,
+          0.0
+        ]
+      ],
+      "mat_image_points": [
+        [
+          175.0,
+          34.0
+        ],
+        [
+          524.0,
+          35.0
+        ],
+        [
+          565.0,
+          402.0
+        ],
+        [
+          119.0,
+          400.0
+        ]
+      ],
+      "intrinsics": [
+        [
+          650.0,
+          0.0,
+          320.0
+        ],
+        [
+          0.0,
+          650.0,
+          240.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "object_motion": "Initial/final from top image; frames 168..213 inferred from TCP and release interpolation. Kinematic reconstruction, contact physics not validated."
+    },
+    "arm_fit": {
+      "frames": [
+        0,
+        130,
+        190
+      ],
+      "before_mean_iou": 0.41653582391908317,
+      "after_mean_iou": 0.6105352648263433,
+      "evaluations": 277,
+      "method": "orange silhouette IoU / Powell",
+      "held_out_frame": 230
+    },
+    "wrist_fit": {
+      "frames": [
+        0,
+        190
+      ],
+      "manual_pixel_points": [
+        [
+          255,
+          365
+        ],
+        [
+          281,
+          371
+        ],
+        [
+          431,
+          369
+        ]
+      ],
+      "point_order": [
+        "fixed_jaw_tip",
+        "moving_jaw_tip",
+        "cube_center"
+      ],
+      "landmark_rmse_px": 82.00636103319606,
+      "bowl_bbox_target_190": [
+        80,
+        60,
+        485,
+        440
+      ],
+      "bowl_bbox_projected_190": [
+        65.56111850588943,
+        73.47495505118363,
+        479.45901794626684,
+        430.8273692329252
+      ],
+      "limitation": "manual approximate landmarks and estimated dimensions, not a measured intrinsic calibration"
+    },
+    "physics": {
+      "gripper_joint_damping": 0.1,
+      "gripper_armature": 0.003,
+      "gripper_servo_kv": 0.1
+    }
+  },
+  "adapter": {
+    "arm_offset_deg": [
+      4.61992760192528,
+      0.9190773601103938,
+      -3.8629622337232807,
+      -8.875911113580434,
+      0
+    ],
+    "arm_sign": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "gripper_range_min": 2037,
+    "gripper_range_max": 3514,
+    "encoder_max_tick": 4095,
+    "gripper_closed_model_deg": -10.0,
+    "gripper_sign": 1.0
+  },
+  "follower_calibration": {
+    "shoulder_pan": {
+      "id": 1,
+      "drive_mode": 0,
+      "homing_offset": 824,
+      "range_min": 799,
+      "range_max": 3424
+    },
+    "shoulder_lift": {
+      "id": 2,
+      "drive_mode": 0,
+      "homing_offset": 739,
+      "range_min": 858,
+      "range_max": 3123
+    },
+    "elbow_flex": {
+      "id": 3,
+      "drive_mode": 0,
+      "homing_offset": 682,
+      "range_min": 898,
+      "range_max": 3109
+    },
+    "wrist_flex": {
+      "id": 4,
+      "drive_mode": 0,
+      "homing_offset": -80,
+      "range_min": 899,
+      "range_max": 3201
+    },
+    "wrist_roll": {
+      "id": 5,
+      "drive_mode": 0,
+      "homing_offset": -980,
+      "range_min": 0,
+      "range_max": 4095
+    },
+    "gripper": {
+      "id": 6,
+      "drive_mode": 0,
+      "homing_offset": -1434,
+      "range_min": 2037,
+      "range_max": 3514
+    }
+  },
+  "follower_calibration_sha256": "c32fea21643b67564fe1c571b326ecf50f1e571d754aa1677f7e5de37b8a61c2",
+  "follower_calibration_source": "/Users/phawit/.cache/huggingface/lerobot/calibration/robots/so_follower/my_awesome_follower_arm.json",
+  "measurements": {
+    "schema_version": 1,
+    "source": "Dimensions reported directly by the user on 2026-11-06",
+    "units": "m",
+    "cube": {
+      "size_xyz": [
+        0.0195,
+        0.0195,
+        0.0195
+      ],
+      "mass_kg": null,
+      "material": "wood (reported by user); species and density unknown",
+      "status": "measured dimensions; mass unknown"
+    },
+    "bowl": {
+      "top_rim_diameter": 0.118,
+      "top_rim_measurement_surface": "outer rim (confirmed by user)",
+      "height": 0.05,
+      "bottom_diameter": null,
+      "wall_thickness": null
+    },
+    "integration_status": "Applied to output/strict-action cube and bowl visual/contact geometry. Historical simulations are preserved with their original dimensions.",
+    "historical_estimates": {
+      "cube_size": 0.022,
+      "bowl_top_outer_diameter": 0.12,
+      "cube_mass_kg": 0.012,
+      "bowl_height": 0.05
+    }
+  },
+  "gripper_degrees_per_native_unit": 1.2984615384615383,
+  "wrist_camera": {
+    "position": [
+      -0.0005595465535460165,
+      0.06385982322311977,
+      -0.046022767193539454
+    ],
+    "quaternion": [
+      0.9565316727958552,
+      -0.29109074412163743,
+      -0.017159883047395078,
+      -0.0043446563585859185
+    ],
+    "fovy": 51.36198661779859,
+    "mean_mask_iou_before": 0.3234101772083411,
+    "mean_mask_iou_after": 0.3932721883057073,
+    "fit_frames": [
+      0,
+      110,
+      145,
+      175,
+      190,
+      220
+    ],
+    "evaluations": 439
+  },
+  "estimates": {
+    "wood_density_kg_m3": 600.0,
+    "cube_mass_kg": 0.004448925,
+    "bowl_bottom_outer_radius_m": 0.0413,
+    "bowl_wall_radial_thickness_m": 0.003,
+    "bowl_floor_thickness_m": 0.004
+  },
+  "physical_control": {
+    "arm_kp": 150.0,
+    "arm_kv": 4.0,
+    "arm_torque_limit_Nm": 2.94,
+    "gripper_kp": 35.0,
+    "gripper_kv": 0.1,
+    "gripper_torque_limit_Nm": 0.35,
+    "gravity_compensation": false,
+    "input_clipping": false
+  },
+  "limitations": [
+    "Current follower calibration is snapshotted; identity with the historical recording calibration is unverified.",
+    "Gripper encoder scale is known from current calibration; model closed reference of -10 degrees is the source joint lower limit, still an estimated mechanical zero.",
+    "Arm reference offsets, camera calibration, motor response and friction remain inherited estimates; no system identification performed in this run.",
+    "Wood density, bowl bottom radius and thickness are assumptions, not user measurements.",
+    "Dataset stores nominal observation timestamps, not exact serial-write timestamps. The final command is held for one nominal 30 Hz period.",
+    "Unit/frame conversion is continuous; raw encoder integer quantization is not emulated. The native recorded action values are preserved exactly."
+  ],
+  "source_sha256": {
+    "scripts/strict_action_replay.py": "d244489b2c95d69812edeb26e7f607450068169ac319255be5326db1d9978fc4",
+    "scripts/strict_action_scene.py": "f69cff8c1a973ff14031297562489eafed062cde0933408d51a1fd215d1f3af5",
+    "scripts/benchmark72.py": "ba103c230faa41beee7ce6e96c6668367358ffd1dfc60a928022ab635666524c",
+    "src/dataset_to_sim/strict_replay.py": "3fc1fc45951349698466f51b6e68fc3f6ab3e74dc8b7b51e9629fb022f3e2ec7",
+    "scripts/episode0_physics.py": "f11e7f22db65414cc81d38cec21893007d50b69337ba041dac2a3c401596ea81",
+    "scripts/episode0.py": "cf466df5a1cf96b8166f4ad918d0cabd2ef9cd0c7a3cb2249dbcebb1644df7a3",
+    "src/dataset_to_sim/scene.py": "c8c7c672117abf44a2dd80935586cee91ab50e7ea6292749047a9ca5adb22029",
+    "src/dataset_to_sim/dataset.py": "27d48cdf44f1dfaaf71c889d0d8dbb62cba0f1a5162f5b69b807532798886dc4"
+  },
+  "dataset_input_sha256": {
+    "meta/info.json": "9b3a26e679fde46ef78c8438d8530bcf52c0c0aca218c84ef572e6672edb1647",
+    "data/chunk-000/file-000.parquet": "74d3e14124fbfbb4ab895c2dcda185607d384b6e6f999a0abd2c495bb2908f9b",
+    "data/chunk-000/file-002.parquet": "8ae038862cdbaa293023027a2962c9c39dd134d709a3ff557478a939fc789f2f",
+    "meta/episodes/chunk-000/file-000.parquet": "484631113496eeb2753318646c2a858f3eec2f250cf74137684b2b4baec74fd0",
+    "meta/episodes/chunk-000/file-002.parquet": "1f89bb3d2032ed312e0490ffe5cba4f02e8b998176b1b2eabfc62277406448d0",
+    "videos/observation.images.top/chunk-000/file-000.mp4": "d206c7e920f2ff3432b24d880f4ac168b3d38be11253ecd739cf65ef382dbc7d",
+    "videos/observation.images.top/chunk-000/file-001.mp4": "4ac7b40627cb75c4f111d22e73fa52f6861427fa241f4b2b091393535ff67fa8",
+    "videos/observation.images.top/chunk-000/file-002.mp4": "0ee091053bffd2ce5486f0806305146476eef3affd7098222bb82a763b8b411f",
+    "videos/observation.images.wrist/chunk-000/file-000.mp4": "32a73e173439a470d2cbcb35bbc70620a31ac91ad22e2712e4afcecad017f57a",
+    "videos/observation.images.wrist/chunk-000/file-001.mp4": "0b4e2764e43e66bc23504ea4cb9b3fdc20980eaa5ff3b66608b1c658a77b2b2c",
+    "videos/observation.images.wrist/chunk-000/file-002.mp4": "94712906fd5c919c59f1f25a0dd1ded2ceef9913a9fb7164aacebbb7c56e12a2"
+  },
+  "robot_asset_sha256": {
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/so101.xml": "982c02c027ec0c62d3459d0a6eb00dfb7dc13a451992e72ce99addc71f209805",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/base_motor_holder_so101_v1.stl": "8cd2f241037ea377af1191fffe0dd9d9006beea6dcc48543660ed41647072424",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/base_so101_v2.stl": "bb12b7026575e1f70ccc7240051f9d943553bf34e5128537de6cd86fae33924d",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/motor_holder_so101_base_v1.stl": "31242ae6fb59d8b15c66617b88ad8e9bded62d57c35d11c0c43a70d2f4caa95b",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/motor_holder_so101_wrist_v1.stl": "887f92e6013cb64ea3a1ab8675e92da1e0beacfd5e001f972523540545e08011",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/moving_jaw_so101_gripper_part0_v1.stl": "3a92e115d1934d4c45cff808c4eff2ea10361a137a7f89940033a1f8a821b88c",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/moving_jaw_so101_gripper_part1_v1.stl": "d10f6c671d26f62988ec95efee9370a0657b5833b3c5f8aad59fd69a87ef2aee",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/moving_jaw_so101_gripper_v1.stl": "e8a5dc040b98e27453a5b74f9087d1dbca14589cf9a17c4de7868d5ab98413cd",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/moving_jaw_so101_v1.stl": "785a9dded2f474bc1d869e0d3dae398a3dcd9c0c345640040472210d2861fa9d",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/rotation_pitch_so101_v1.stl": "9be900cc2a2bf718102841ef82ef8d2873842427648092c8ed2ca1e2ef4ffa34",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/sts3215_03a_no_horn_v1.stl": "75ef3781b752e4065891aea855e34dc161a38a549549cd0970cedd07eae6f887",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/sts3215_03a_v1.stl": "a37c871fb502483ab96c256baf457d36f2e97afc9205313d9c5ab275ef941cd0",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/under_arm_so101_v1.stl": "d01d1f2de365651dcad9d6669e94ff87ff7652b5bb2d10752a66a456a86dbc71",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/upper_arm_so101_v1.stl": "475056e03a17e71919b82fd88ab9a0b898ab50164f2a7943652a6b2941bb2d4f",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/waveshare_mounting_plate_so101_v2.stl": "e197e24005a07d01bbc06a8c42311664eaeda415bf859f68fa247884d0f1a6e9",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/wrist_roll_follower_so101_camera_mount.stl": "58c457b33a26d9c9bb337aa351173e7123f84719a93f486541adef6eba57ae21",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/wrist_roll_follower_so101_gripper_part0_v1.stl": "370eb470a6ab48b08febcaeb5274d2bcc91246692532ce12c795fb82977def72",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/wrist_roll_follower_so101_gripper_v1.stl": "65f32debcf265420c0160afe004f8befc5df4b3e578fd59ebaa62eade0371224",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/wrist_roll_follower_so101_v1.stl": "4b17b410a12d64ec39554abc3e8054d8a97384b2dc4a8d95a5ecb2a93670f5f4",
+    "/Users/phawit/Projects/SO-101 MuJoCo 3D Manipulation Scene Editor/assets/so101/assets/wrist_roll_pitch_so101_v2.stl": "6c7ec5525b4d8b9e397a30ab4bb0037156a5d5f38a4adf2c7d943d6c56eda5ae"
+  },
+  "runtime_versions": {
+    "python": "3.14.6",
+    "mujoco": "3.17.0",
+    "numpy": "2.4.6",
+    "scipy": "1.18.0",
+    "cv2": "5.0.0",
+    "pyarrow": "24.0.0"
+  },
+  "requested_episodes": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71
+  ]
+}

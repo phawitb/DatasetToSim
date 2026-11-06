@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "status": "draft",
+  "dataset": "SIMCUBE_1O1B_VF",
+  "joint_convention": {"sign": [1, 1, 1, 1, 1, 1], "offset_deg": [0, 0, -2.5, -5, 0, 0]},
+  "world": {
+    "robot_base": {"position": [0, -0.34, 0.768], "quaternion": [1, 0, 0, 0]},
+    "table": {"size": [0.85, 0.65], "height": 0.75},
+    "mat": {"position": [0.05, -0.04, 0.772], "size": [0.6, 0.45, 0.004]},
+    "cube": {"position": [0.13, -0.08, 0.797], "size": 0.04},
+    "bowl": {"position": [0.28, 0.05, 0.775], "outer_radius": 0.075, "height": 0.055}
+  },
+  "cameras": {
+    "top": {"position": [0.30, -1.10, 1.60], "target": [0.06, -0.04, 0.78], "fovy": 62},
+    "wrist": {"camera_name": "wrist_cam"}
+  },
+  "acceptance": {"top_rmse_max": 0.10, "wrist_rmse_max": 0.10, "top_mask_iou_min": 0.80}
+}
