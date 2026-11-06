@@ -136,3 +136,24 @@ The repaired mode modifies arm waypoints, wrist heading and gripper timing, so t
 ```
 
 `calibration/shared72.json` is fitted on these same demonstrations, not a held-out set. Each run freezes its settings and detected scenes. `repaired/runtime_sources/` archives the exact simulation sources matching the recorded hashes; subsequent scoring and video-label changes are documented in the results. The loader resolves compacted trajectory shards using `episode_index` while preserving each video's original slice timestamps.
+
+## Real / Sim Studio (local website)
+
+```sh
+.venv/bin/python -m pip install -e '.[studio]'
+.venv/bin/python scripts/studio_server.py
+```
+
+Open **http://127.0.0.1:8765**. The server binds only to this computer. No hardware is connected when the website starts.
+
+- **Dataset comparison:** browse all 72 episodes, select top/wrist views, inspect recorded and simulated joint positions on the same timeline. Eight existing full comparison videos play at 0.5×/1×/2×; other episodes render selected frames from their archived integrated states. The original camera delays are retained.
+- **Rehearsal:** select an episode and capture its first recorded frame. Generate a bounded IK plan, then run actual MuJoCo contact physics. This is a newly planned trajectory, separate from the unchanged-action benchmark. Rehearsals cannot be sent to hardware.
+- **Live:** connect SO-101, select Live robot cameras, then Capture → Generate plan → Run simulation → Execute on SO-101. The current scene detector supports the calibrated red 19.5 mm cube and green bowl, with the original 640×480 fixed top camera. It is not a general object detector or an automatic camera calibration system.
+
+Hardware runs in the existing `/opt/miniconda3/envs/lerobot/bin/python` environment, using only the robot/camera section of `VLA-Benchmark/config.yaml`, the saved follower calibration and its torque-preserving handoff helper. Set `STUDIO_HARDWARE_PYTHON` or `STUDIO_VLA_ROOT` before launch if those locations differ. Disconnect an active VLA-Benchmark robot session before connecting Studio; do not start another controller while Studio owns the serial port.
+
+Execution requires a live capture less than 180 seconds old, unchanged calibration, matching starting joints, a successful physics verdict and transfer checks, and a fresh scene check including cube orientation. Commands retain their simulated native units and timing. Initial encoder readings up to 2 degrees outside the calibrated arm interval may only move back into range; the gripper always stays within 0–100. Runs stop if camera data becomes stale, the initiating page stops sending its heartbeat, command timing slips, encoder tracking exceeds limits, or Stop/Escape is pressed. Stop holds the measured position with torque retained; this is a **software stop, not a hardware emergency stop**. A completed/attempted hardware plan is single use.
+
+Generated captures, immutable command arrays, scene models, simulation traces/videos, reports and hardware target/encoder traces are under `output/studio/<capture-id>/`. Existing benchmark evidence is never overwritten. The included tests use fake hardware; a successful simulation does not establish real grasp performance. The frozen camera, contact and dynamics estimates remain subject to the limitations documented above.
+
+The website is served directly from `web/` without a JavaScript build step. Optional Google fonts have local font fallbacks. Run `.venv/bin/python -m pytest -q` to validate the full project.

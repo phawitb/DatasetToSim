@@ -9,6 +9,9 @@ description = "Traceable MuJoCo replay and calibration for a real SO-101 LeRobot
 requires-python = ">=3.11"
 dependencies = ["mujoco==3.17.0", "numpy>=2.0", "pyarrow>=18", "opencv-python>=4.10", "scipy>=1.14"]
 
+[project.optional-dependencies]
+studio = ["fastapi>=0.115", "uvicorn>=0.32"]
+
 [project.scripts]
 dataset-to-sim = "dataset_to_sim.cli:main"
 
