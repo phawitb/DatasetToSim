@@ -1,0 +1,2 @@
+# Ruckig 0.17.3 uses the pre-0.10 scikit-build-core configuration.
+scikit-build-core<0.10

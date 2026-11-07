@@ -438,10 +438,13 @@ def verify_home_scene(folder,reference,report,fresh,cfg):
 
 
 @app.post('/api/plans/{identifier}/{operation}')
-def plan_operation(identifier:str,operation:str,request:Request):
+def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=None):
     global current
     if restarting:raise ValueError('Server restarting')
     if operation not in ['plan','simulate','execute']:raise ValueError('Unknown operation')
+    from studio_motion import validate_technique
+    body=body or {}
+    technique=validate_technique(body.get('motion_technique','classic'))
     folder=folder_for(identifier)
     if json.loads((folder/'capture.json').read_text()).get('purpose')=='home':raise ValueError('Capture a new scene after Home')
     requested_generation=stop_generation
@@ -454,6 +457,9 @@ def plan_operation(identifier:str,operation:str,request:Request):
             selection,_=load_selection(folder)
             if operation!='plan' and (folder/'plan.json').exists():
                 if json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
+        if operation!='plan' and 'motion_technique' in body:
+            saved_technique=json.loads((folder/'plan.json').read_text()).get('motion_technique','classic')
+            if technique!=saved_technique:raise ValueError('Motion technique changed; generate and simulate a new plan')
         if operation=='execute':
             report=json.loads((folder/'plan.json').read_text())
             fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
@@ -477,6 +483,7 @@ def plan_operation(identifier:str,operation:str,request:Request):
             if invalid.get('executed'):raise ValueError('Capture a new scene after an execution')
             invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None)
             invalid.pop('video',None);old.write_text(json.dumps(invalid,indent=2))
+        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique}))
         (folder/'job.json').unlink(missing_ok=True)
         jobs[identifier]={'id':identifier,'status':'running','stage':operation}
         def run():

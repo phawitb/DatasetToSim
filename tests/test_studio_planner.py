@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import json
 import mujoco
+import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 from studio_planner import interpolate_native
 from dataset_to_sim.studio import validate_trajectory
@@ -17,7 +18,8 @@ def test_interpolation_preserves_endpoints_and_obeys_speed_limits():
     assert t[-1]>3
 
 
-def test_open_approach_centers_cube_between_both_jaws(tmp_path,monkeypatch):
+@pytest.mark.parametrize('technique',['classic','gentle','flow'])
+def test_open_approach_centers_cube_between_both_jaws(tmp_path,monkeypatch,technique):
     """Regression: fixed jaw had only 2.2 mm clearance while moving jaw had 32 mm."""
     import studio_planner as planner
     from strict_action_scene import episode_scene,build_model
@@ -30,7 +32,12 @@ def test_open_approach_centers_cube_between_both_jaws(tmp_path,monkeypatch):
     capture={'source':'live','initial_native':[-.747253,-98.153846,96.395604,40.879121,-8.923077,.947867]}
     monkeypatch.setattr(planner,'load_scene',lambda folder:(capture,cfg,scene,cal,model))
     monkeypatch.setattr(planner,'render_preview',lambda *args:None)
-    planner.plan(tmp_path)
+    report=planner.plan(tmp_path,technique=technique)
+    if technique!="classic":
+        motion=report["motion"];release_start=motion["waypoints"].index("Transfer")
+        k=motion["knot_indices"][release_start]
+        commands=np.load(tmp_path/'plan.npz')['actions']
+        assert np.max(np.abs(np.diff(commands[k-1:k+2,:5],axis=0))*30)<.15,"Stop over the bowl before opening"
     actions=np.load(tmp_path/'plan.npz')['actions']
     closing=np.flatnonzero((actions[1:,5]<34.99)&(actions[:-1,5]>=34.99))[0]
     data=mujoco.MjData(model);data.qpos[:6]=NativeJointAdapter(**cfg['adapter']).to_model(actions[closing]);mujoco.mj_forward(model,data)

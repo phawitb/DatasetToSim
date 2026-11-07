@@ -19,6 +19,7 @@ from strict_action_replay import score
 from dataset_to_sim.strict_replay import NativeJointAdapter, integrate_actions, array_hash
 from dataset_to_sim.dataset import Episode
 from dataset_to_sim.studio import native_limits, validate_trajectory, SPEED_LIMITS
+from studio_motion import interpolate_flow, interpolate_ruckig, validate_technique, TECHNIQUES
 
 
 def interpolate_native(waypoints):
@@ -48,7 +49,8 @@ def load_scene(folder):
     return capture,config,scene,cal,build_model(cal,config)
 
 
-def plan(folder,stack_offset=None,preview=True):
+def plan(folder,stack_offset=None,preview=True,technique="classic"):
+    validate_technique(technique)
     capture,config,scene,cal,m=load_scene(folder)
     adapter=NativeJointAdapter(**config['adapter']); limits=native_limits(config)
     initial=np.array(capture['initial_native'],float); current=adapter.to_model(initial)
@@ -79,7 +81,9 @@ def plan(folder,stack_offset=None,preview=True):
     roll_offset=reference[4]-reference[0]
     grasp_z=max(cube[2]+.010, .024)
     hover=max(.12,grasp_z+.09,bowl[2]+cal.world['bowl']['height']+.065)
-    errors=[]; waypoints=[(initial,0)]; stages=[]
+    errors=[]; waypoints=[(initial,0)]; names=['Start']; stages=[]
+    def waypoint(name,q,seconds):
+        waypoints.append((q,seconds));names.append(name)
     def add(name,xyz,grip,seed=None,seconds=1.):
         nonlocal current
         prior=current.copy(); seed=prior if seed is None else seed
@@ -92,12 +96,12 @@ def plan(folder,stack_offset=None,preview=True):
         err=float(np.linalg.norm(center(current)-xyz)); errors.append(err)
         if err>.004: raise ValueError(f'{name}: IK target unreachable ({err*1000:.1f} mm error)')
         q=adapter.to_native(current);q[5]=grip
-        waypoints.append((q,seconds));stages.append({'name':name,'target_m':np.asarray(xyz).tolist(),'ik_error_mm':err*1000})
+        waypoint(name,q,seconds);stages.append({'name':name,'target_m':np.asarray(xyz).tolist(),'ik_error_mm':err*1000})
     # Unfold the distal joint before a vertical lift from the compact rest pose.
     # Otherwise an IK solution can drive the jaws through the shoulder housing.
     if start[2] < .08 and start[0] < cube[0]:
         unfolded=initial.copy();unfolded[3]=max(limits[3,0],initial[3]-45.)
-        waypoints.append((unfolded,2.5));current=adapter.to_model(unfolded)
+        waypoint('Unfold from rest',unfolded,2.5);current=adapter.to_model(unfolded)
         start=center(current).copy()
         stages.append({'name':'Unfold from rest','target_m':start.tolist(),'ik_error_mm':0.})
     add('Raise',np.r_[start[:2],max(hover,start[2])],initial[5],seconds=1.5)
@@ -109,26 +113,41 @@ def plan(folder,stack_offset=None,preview=True):
     if stacking:
         place_z=grasp_z+(placement[2]-cube[2])+cal.world['target_cube']['size']+.005
         add('Lower onto cube',np.r_[placement[:2],place_z],0.,seconds=2.)
-        waypoints.append((waypoints[-1][0].copy(),.7))
-        placement_index=len(interpolate_native(waypoints)[0])-1
+        waypoint('Placement settle',waypoints[-1][0].copy(),.7)
+        placement_knot=len(waypoints)-1
         add('Release on cube',np.r_[placement[:2],place_z],40.,seconds=1.5)
         add('Retreat',np.r_[placement[:2],hover],40.,seconds=2.)
         home=json.loads((ROOT/'calibration/studio-home.json').read_text())
         if capture['calibration_hash']!=home['calibration_sha256']:raise ValueError('Home calibration changed')
         closed=waypoints[-1][0].copy();closed[5]=1.
-        waypoints.extend([(closed,1.5),(home['raised'],3.),(home['unfolded'],6.),(home['home'],2.5)])
+        for name,q,seconds in [('Close after retreat',closed,1.5),('Return raised',home['raised'],3.),('Return unfolded',home['unfolded'],6.),('Home',home['home'],2.5)]:waypoint(name,q,seconds)
         stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
-        waypoints.append((waypoints[-1][0].copy(),2.))
+        waypoint('Final settle',waypoints[-1][0].copy(),2.)
     else:
         add('Release',np.r_[bowl[:2],hover],40.,seconds=1.)
-        waypoints.append((waypoints[-1][0].copy(),1.5))
-    actions,timestamps=interpolate_native(waypoints)
+        waypoint('Final settle',waypoints[-1][0].copy(),1.5)
+    classic_actions,classic_times=interpolate_native(waypoints)
+    motion={'technique':technique,'label':TECHNIQUES[technique],'classic_duration':float(classic_times[-1]+1/30)}
+    if technique!='classic':
+        travel={'Unfold from rest','Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded','Home'}
+        flowing=[(q,seconds*.55 if name in travel else seconds) for (q,seconds),name in zip(waypoints,names)]
+        blend={i for i,name in enumerate(names) if name in {'Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded'}}
+        if not stacking:blend.discard(names.index('Transfer'))
+        actions,timestamps,detail=(interpolate_ruckig if technique=='flow' else interpolate_flow)(flowing,blend)
+        motion.update(detail)
+        if stacking:placement_index=detail['knot_indices'][placement_knot]
+    else:
+        actions,timestamps=classic_actions,classic_times
+        if stacking:placement_index=len(interpolate_native(waypoints[:placement_knot+1])[0])-1
+    motion['waypoints']=names
+    motion['duration']=float(timestamps[-1]+1/30)
+    motion['time_saved_seconds']=motion['classic_duration']-motion['duration']
     validate_trajectory(actions,timestamps,limits)
     np.savez_compressed(folder/'plan.npz',actions=actions,timestamps=timestamps)
     report={**capture,'scene':scene,'world':cal.world,'stages':stages,'frames':len(actions),'duration':float(timestamps[-1]+1/30),
             'action_hash':array_hash(actions),'outcome':'not_simulated','transfer_checks_passed':False,'executed':False,
             'method':'Aperture-aware IK centers the open jaws on descent; smooth closing waypoints; contact-driven MuJoCo validation required',
-            'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist()}
+            'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist(),'motion_technique':technique,'motion':motion}
     if stacking:report.update(placement_index=placement_index,placement_offset_m=np.asarray(stack_offset if stack_offset is not None else [0,0,0]).tolist())
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     (folder/'scene.json').write_text(json.dumps(cal.data,indent=2))
@@ -144,10 +163,12 @@ def render_preview(model,q,path):
         cv2.imwrite(str(path),cv2.cvtColor(renderer.render(),cv2.COLOR_RGB2BGR))
 
 
-def prepare_plan(folder):
+def prepare_plan(folder,technique=None):
     """Plan stack placement against the predicted held object, not pad center alone."""
     from studio_stack import predicted_held_position
-    report=plan(folder,preview=False)
+    options=folder/'planning-options.json'
+    technique=validate_technique(technique if technique is not None else json.loads(options.read_text()).get('motion_technique','classic') if options.exists() else 'classic')
+    report=plan(folder,preview=False,technique=technique)
     if report.get('task')=='stack':
         offset=np.zeros(3);iterations=[]
         goal=np.asarray(report['world']['target_cube']['position'],float).copy()
@@ -160,7 +181,7 @@ def prepare_plan(folder):
             candidate=offset+error*.85
             if np.any(np.abs(candidate)>.020):raise ValueError('Stack placement correction exceeds 20 mm; reposition the cubes and capture again')
             if attempt==4:raise ValueError('Stack placement did not converge; reposition the cubes and capture again')
-            offset=candidate;report=plan(folder,stack_offset=offset,preview=False)
+            offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique)
         report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':.004}
         (folder/'plan.json').write_text(json.dumps(report,indent=2))
     capture,config,scene,cal,model=load_scene(folder)
