@@ -55,10 +55,13 @@ def plan(folder):
     bounds=adapter.to_model(np.array([limits[:,0],limits[:,1]]))[:,:5]
     lo,hi=np.min(bounds,axis=0)+1e-6,np.max(bounds,axis=0)-1e-6
     cube=np.array(cal.world['cube']['position']); bowl=np.array(cal.world['bowl']['position'])
-    # Center of the jaw pads at the nominal cube aperture, independent of command opening.
+    # Center the OPEN mouth over the cube during descent. Only one jaw moves:
+    # using the closed-grasp center while open leaves the fixed jaw on the cube's
+    # edge, so small real tracking errors make it land on top instead of straddle.
+    # For closing/holding, retain the nominal occupied aperture, not empty closure.
     aperture=.15
     def center(q):
-        d.qpos[:6]=q;d.qpos[5]=aperture;mujoco.mj_forward(m,d)
+        d.qpos[:6]=q;d.qpos[5]=max(aperture,q[5]);mujoco.mj_forward(m,d)
         return (d.geom('fixed_pad').xpos+d.geom('moving_pad').xpos)/2
     start=center(current).copy()
     reference=np.array([0.,-20.,65.,45.,0.,0.])
@@ -75,11 +78,12 @@ def plan(folder):
     def add(name,xyz,grip,seed=None,seconds=1.):
         nonlocal current
         prior=current.copy(); seed=prior if seed is None else seed
+        opening=adapter.to_model(np.array([0,0,0,0,0,grip]))[5]
         def residual(x):
-            q=np.r_[x,aperture]
+            q=np.r_[x,opening]
             return np.r_[center(q)-xyz,.012*(x[1:4].sum()-np.pi/2),.008*(x[4]-x[0]-roll_offset),.00003*(x-prior[:5])]
         fit=least_squares(residual,np.clip(seed[:5],lo,hi),bounds=(lo,hi),max_nfev=180,gtol=1e-10)
-        current=np.r_[fit.x,adapter.to_model(np.array([0,0,0,0,0,grip]))[5]]
+        current=np.r_[fit.x,opening]
         err=float(np.linalg.norm(center(current)-xyz)); errors.append(err)
         if err>.004: raise ValueError(f'{name}: IK target unreachable ({err*1000:.1f} mm error)')
         q=adapter.to_native(current);q[5]=grip
@@ -104,7 +108,7 @@ def plan(folder):
     np.savez_compressed(folder/'plan.npz',actions=actions,timestamps=timestamps)
     report={**capture,'scene':scene,'world':cal.world,'stages':stages,'frames':len(actions),'duration':float(timestamps[-1]+1/30),
             'action_hash':array_hash(actions),'outcome':'not_simulated','transfer_checks_passed':False,'executed':False,
-            'method':'Bounded IK + smooth native joint waypoints; contact-driven MuJoCo validation required',
+            'method':'Aperture-aware IK centers the open jaws on descent; smooth closing waypoints; contact-driven MuJoCo validation required',
             'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist()}
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     (folder/'scene.json').write_text(json.dumps(cal.data,indent=2))
