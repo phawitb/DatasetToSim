@@ -168,6 +168,6 @@ def test_opening_history_does_not_activate_archived_run(tmp_path,monkeypatch):
         def call(self,*a,**k):raise AssertionError('History must not access robot')
     monkeypatch.setattr(server,'hardware',NoHardware())
     rows=client.get('/api/runs').json()
-    assert rows['runs'][0]['id']==identifier and rows['active_capture']=='a'*32
+    assert rows['runs']==[] and rows['active_capture']=='a'*32
     assert client.get('/api/plans/'+identifier).json()['id']==identifier
     assert server.current=='a'*32

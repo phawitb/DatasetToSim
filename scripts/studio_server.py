@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from studio_history import list_runs
+from studio_runtime import request_restart,supervise
 from studio_sam_home import home_scene
 from studio_home_wrist import released_reference,wrist_home_scene
 from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair
@@ -30,7 +31,7 @@ from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,
 
 RUN=ROOT/'output/shared-calibration-v10';WORK=ROOT/'output/studio';WORK.mkdir(exist_ok=True)
 DATA=Path(os.environ.get('STUDIO_DATASET','/Users/phawit/Projects/VLA-Benchmark/data/SIMCUBE_1O1B_VF'))
-TOKEN=secrets.token_urlsafe(32);jobs={};current=None;operation_lock=threading.Lock();frames_lock=threading.Lock();stop_lock=threading.Lock();stop_generation=0
+TOKEN=secrets.token_urlsafe(32);jobs={};current=None;operation_lock=threading.Lock();frames_lock=threading.Lock();stop_lock=threading.Lock();stop_generation=0;restarting=False
 client_heartbeats={}
 video_jobs={};video_lock=threading.Lock();video_pool=ThreadPoolExecutor(max_workers=1)
 app=FastAPI(title='Real / Sim Studio')
@@ -81,6 +82,7 @@ async def protect(request:Request,call_next):
         origin=request.headers.get('origin')
         if request.headers.get('x-studio-token')!=TOKEN or (origin and origin!=str(request.base_url).rstrip('/')):
             return JSONResponse({'error':'Open Studio on this computer to use controls'},status_code=403)
+        if restarting and request.url.path!='/api/server/restart':return JSONResponse({'error':'Server restarting; reconnect after reload'},status_code=409)
     response=await call_next(request)
     response.headers['Cache-Control']='no-store' if request.url.path.startswith('/api') else 'no-cache'
     response.headers['X-Content-Type-Options']='nosniff'
@@ -100,7 +102,51 @@ def bootstrap():
     for r in results['results']:
         path=RUN/f"episode-{r['episode']:02d}"/'real-vs-sim-strict.mp4'
         episodes.append({k:r.get(k) for k in ['episode','outcome','frames','joint_state_rmse_native']}|{'has_video':path.is_file()})
-    return {'token':TOKEN,'dataset':DATA.name,'episodes':episodes,'successes':results['successes'],'total':results['completed'],'joints':JOINTS,'profile':'shared-calibration-v10','current':current}
+    return {'token':TOKEN,'dataset':DATA.name,'episodes':episodes,'successes':results['successes'],'total':results['completed'],'joints':JOINTS,'profile':'shared-calibration-v10','current':current,'instance':os.environ.get('STUDIO_INSTANCE',TOKEN),'restart_available':bool(os.environ.get('STUDIO_RESTART_FILE'))}
+
+@app.get('/api/datasets')
+def datasets():
+    data=bootstrap()
+    return {'datasets':[{'id':DATA.name,'name':DATA.name,'episode_count':data['total'],'successes':data['successes'],'fps':30,'profile':data['profile']}]}
+
+@app.get('/api/datasets/{identifier}')
+def selected_dataset(identifier:str):
+    if identifier!=DATA.name:raise ValueError('Dataset not found')
+    data=bootstrap()
+    return {k:data[k] for k in ['dataset','episodes','successes','total','profile']}
+
+@app.post('/api/session/new')
+def new_session():
+    global current
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if current and jobs.get(current,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the active run to finish')
+        if hardware.call('status').get('running'):raise ValueError('Stop the robot before starting a new run')
+        current=None
+    return {'current':None}
+
+def schedule_restart():
+    if not os.environ.get('STUDIO_RESTART_FILE'):raise ValueError('Restart unavailable: launch Studio with scripts/studio_server.py')
+    def restart():
+        # Give an active executor a normal hold first. A stuck worker must not
+        # prevent the requested full restart; the supervisor kills its group.
+        done=threading.Event()
+        def stop_worker():
+            try:hardware.call('stop')
+            except Exception:pass
+            finally:done.set()
+        threading.Thread(target=stop_worker,daemon=True).start();done.wait(2)
+        time.sleep(.3);request_restart()
+    threading.Thread(target=restart,daemon=True).start()
+
+@app.post('/api/server/restart')
+def restart_server():
+    global restarting,stop_generation
+    if restarting:return {'restarting':True}
+    with stop_lock:
+        stop_generation+=1
+        schedule_restart();restarting=True
+    return {'restarting':True}
 
 @app.get('/api/runs')
 def run_history():return {'runs':list_runs(WORK,jobs),'active_capture':current}
@@ -195,12 +241,14 @@ def media(area:str,path:str):
 def robot_command(command:str,request:Request):
     global stop_generation,current
     requested_generation=stop_generation
+    if restarting and command!='stop':raise ValueError('Server restarting')
     if command not in ['connect','stop','disconnect','torque_off','torque_on','home']:raise ValueError('Unsupported robot command')
     if command=='home' and not request.headers.get('x-studio-client'):raise ValueError('Home requires an owning control page')
     if command=='stop':
         with stop_lock:stop_generation+=1
         return hardware.call(command)
     with operation_lock:
+        if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if command=='home':
             if hardware.call('status').get('running'):raise ValueError('Robot is executing')
@@ -249,6 +297,7 @@ def robot_command(command:str,request:Request):
                         saved=np.load(folder/'plan.npz')
                         payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get(report.get('home_view','top'),fresh['captured_at'])}
                         with stop_lock:
+                            if restarting:raise ValueError('Server restarting; Home cancelled')
                             if generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
                             if time.monotonic()-client_heartbeats.get(owner,0)>3:raise ValueError('Control page closed; Home cancelled')
                             hardware.call('execute',plan=payload)
@@ -257,7 +306,11 @@ def robot_command(command:str,request:Request):
                 except Exception as exc:job_error(identifier,'prepare',exc)
             threading.Thread(target=return_home,daemon=True).start()
             return {'preparing_home':True,'id':identifier}
-        result=hardware.call(command)
+        if command in ['torque_on','torque_off','disconnect']:
+            with stop_lock:
+                if restarting:raise ValueError('Server restarting')
+                result=hardware.call(command)
+        else:result=hardware.call(command)
         if command in ['torque_off','torque_on']:current=None
         return result
 
@@ -279,6 +332,7 @@ def folder_for(identifier):
 def capture(body:dict):
     global current
     with operation_lock:
+        if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if hardware.call('status').get('running'):raise ValueError('Stop the robot before capturing')
         identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
@@ -313,6 +367,7 @@ def select_object(identifier:str,body:dict):
     folder=folder_for(identifier);role=body.get('role')
     if role not in ['from','to']:raise ValueError('Choose From or To')
     with operation_lock:
+        if restarting:raise ValueError('Server restarting')
         if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
         if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
         if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
@@ -367,11 +422,13 @@ def verify_home_scene(folder,reference,report,fresh,cfg):
 @app.post('/api/plans/{identifier}/{operation}')
 def plan_operation(identifier:str,operation:str,request:Request):
     global current
+    if restarting:raise ValueError('Server restarting')
     if operation not in ['plan','simulate','execute']:raise ValueError('Unknown operation')
     folder=folder_for(identifier)
     if json.loads((folder/'capture.json').read_text()).get('purpose')=='home':raise ValueError('Capture a new scene after Home')
     requested_generation=stop_generation
     with operation_lock:
+        if restarting:raise ValueError('Server restarting')
         if current!=identifier:raise ValueError('This capture was replaced; use the current capture')
         if jobs.get(identifier,{}).get('status')=='running':raise ValueError('Operation already running')
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
@@ -389,6 +446,7 @@ def plan_operation(identifier:str,operation:str,request:Request):
             if latest['stop_generation']!=fresh['stop_generation']:raise ValueError('Stop requested during segmentation')
             saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
             with stop_lock:
+                if restarting:raise ValueError('Server restarting; execution cancelled')
                 if requested_generation!=stop_generation:raise ValueError('Stop requested during preflight; execution cancelled')
                 result=hardware.call('execute',plan=payload)
             report['executed']=True;(folder/'plan.json').write_text(json.dumps(report,indent=2))
@@ -416,6 +474,8 @@ def plan_operation(identifier:str,operation:str,request:Request):
 
 if __name__=='__main__':
     import argparse,uvicorn
-    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8765);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=8765);parser.add_argument('--worker',action='store_true');args=parser.parse_args()
+    if not args.worker:
+        supervise(args.port);sys.exit(0)
     print(f'Real / Sim Studio: http://127.0.0.1:{args.port}',flush=True)
     uvicorn.run(app,host='127.0.0.1',port=args.port,log_level='warning')

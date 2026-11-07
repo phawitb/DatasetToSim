@@ -182,3 +182,27 @@ def test_hardware_rejects_scene_that_expired_while_waiting_for_dispatch():
     plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'verified_image_captured_at':time.time()-6,'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner','actions':actions.tolist(),'timestamps':[0,.0333333333],'action_hash':digest,'simulated_action_hash':digest}
     with pytest.raises(ValueError,match='expired'):h.execute(plan)
     assert not h.robot.commands and not h.running and not h.consumed
+
+
+def test_journal_failure_cannot_skip_motor_hold_or_release_running_state(tmp_path,monkeypatch):
+    import hashlib,studio_hardware
+    h=Hardware();h.robot=Robot();h.connected=True;h.calibration_hash=lambda:'abc'
+    monkeypatch.setattr(studio_hardware,'ROOT',tmp_path)
+    h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
+    class RecordingStub:
+        def __init__(self,*a):pass
+        def start(self,*a):pass
+        def finish(self):return {'error':None}
+    class BrokenJournal:
+        def write(self,*a):raise OSError('disk full')
+        def close(self):raise OSError('journal close failed')
+    original=Path.open
+    monkeypatch.setattr(Path,'open',lambda self,*a,**k:BrokenJournal() if self.name=='hardware-commands.jsonl' else original(self,*a,**k))
+    monkeypatch.setattr(studio_hardware,'Recording',RecordingStub)
+    actions=np.zeros((2,6));digest=hashlib.sha256(actions.astype('<f8').tobytes()).hexdigest()
+    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),'verified_image_captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner','actions':actions.tolist(),'timestamps':[0,1/30],'action_hash':digest,'simulated_action_hash':digest}
+    h.execute(plan)
+    deadline=time.monotonic()+2
+    while h.running and time.monotonic()<deadline:time.sleep(.01)
+    assert not h.running and h.stopped.is_set() and len(h.robot.commands)>=2
+    assert 'disk full' in h.error

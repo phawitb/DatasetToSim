@@ -205,9 +205,12 @@ class Hardware:
             recorder=Recording(ROOT/'output/studio'/plan['id'],self.frames,self.stopped)
             self.running=True;self.recording_error=None;self.stopped.clear();self.error=None;self.progress=0.;self.last_heartbeat=time.monotonic();self.execution=plan['id'];self.history=[];self.execution_owner=plan['owner'];self.consumed.add(plan['id'])
         def run():
-            start=time.monotonic();self.started_at=start
+            start=time.monotonic();self.started_at=start;journal=None
             try:
                 recorder.start(start)
+                journal_path=ROOT/'output/studio'/plan['id']/'hardware-commands.jsonl'
+                journal_path.parent.mkdir(parents=True,exist_ok=True)
+                journal=journal_path.open('a',buffering=1)
                 for i,(q,t) in enumerate(zip(actions,ts)):
                     if self.stopped.wait(max(0,start+float(t)-time.monotonic())):break
                     if time.monotonic()-self.last_heartbeat>3:raise RuntimeError('Control page heartbeat lost')
@@ -218,11 +221,16 @@ class Hardware:
                     if np.any(np.abs(measured-previous)>np.array([10.]*5+[25.])):raise RuntimeError('Robot deviated from planned motion')
                     self.send(q);self.progress=(i+1)/len(actions)
                     self.history.append({'time':time.monotonic()-start,'target':q.tolist(),'measured':measured.tolist()})
+                    journal.write(json.dumps(self.history[-1])+'\n')
                 if not self.stopped.is_set():self.stopped.wait(1/30)
             except Exception as exc:self.error=str(exc)
             finally:
                 try:self.stop()
                 except Exception as exc:self.error=f'Hold failed: {exc}'
+                try:
+                    if journal:journal.close()
+                except Exception as exc:
+                    if not self.error:self.error=f'Command journal failed: {exc}'
                 try:
                     recording=recorder.finish();self.recording_error=recording['error']
                 except Exception as exc:self.recording_error=str(exc)

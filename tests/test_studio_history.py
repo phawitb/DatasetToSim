@@ -8,25 +8,38 @@ def save(folder,name,value):
     folder.mkdir(exist_ok=True);(folder/name).write_text(json.dumps(value))
 
 
-def test_catalog_lists_capture_sim_home_and_real_without_conflating_success(tmp_path):
-    a=tmp_path/('a'*32);b=tmp_path/('b'*32);c=tmp_path/('c'*32)
-    save(a,'capture.json',{'captured_at':1,'source':'live'});save(a,'plan.json',{'outcome':'success','frames':10,'duration':1,'executed':True});save(a,'execution.json',{'completed':True});save(a,'physical-review.json',{'assessment':'failed'})
-    save(b,'capture.json',{'captured_at':3,'source':'live','purpose':'home'});save(b,'job.json',{'status':'error','stage':'prepare','error':'Cannot verify camera'})
-    save(c,'capture.json',{'captured_at':2,'source':'dataset'})
-    save(tmp_path/'sam-smoke','capture.json',{})
+def test_only_executed_robot_runs_are_kept_in_history():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        root=Path(d);a=root/('a'*32);b=root/('b'*32);c=root/('c'*32)
+        save(a,'capture.json',{'captured_at':1,'source':'live'});save(a,'plan.json',{'outcome':'success','executed':True});save(a,'hardware-trace.json',{'samples':[{'target':[0]*6}],'completed':True});save(a,'physical-review.json',{'task_outcome':'not_transferred'})
+        save(b,'capture.json',{'captured_at':3,'source':'live','purpose':'home'});save(b,'job.json',{'status':'error','error':'Before dispatch'})
+        save(c,'capture.json',{'captured_at':2,'source':'dataset'});save(c,'plan.json',{'outcome':'success'})
+        rows=list_runs(root,{})
+        assert len(rows)==1 and rows[0]['id']==a.name
+        assert rows[0]['hardware_completed'] and rows[0]['physical_outcome']=='failed'
+        save(a,'job.json',{'status':'error','error':'Recording failed'})
+        assert len(list_runs(root,{}))==1
+
+
+def test_partial_execution_survives_restart_and_truncated_journal(tmp_path):
+    a=tmp_path/('a'*32);save(a,'capture.json',{'captured_at':1,'source':'live'})
+    (a/'hardware-commands.jsonl').write_text(json.dumps({'target':[0]*6,'time':0})+'\n{"truncated')
     rows=list_runs(tmp_path,{})
-    assert [r['id'] for r in rows]==['b'*32,'c'*32,'a'*32]
-    assert rows[0]['error']=='Cannot verify camera' and rows[0]['purpose']=='home'
-    assert rows[-1]['hardware_completed'] is True and rows[-1]['physical_outcome']=='failed' and rows[-1]['simulation_outcome']=='success'
-    assert rows[1]['status']=='captured'
-    save(a,'physical-review.json',{'task_outcome':'not_transferred'})
-    assert list_runs(tmp_path,{})[-1]['physical_outcome']=='failed'
+    assert len(rows)==1 and rows[0]['command_count']==1 and rows[0]['hardware_completed'] is False
+    assert 'interrupted' in rows[0]['error'].lower()
 
 
-def test_bad_old_report_does_not_hide_other_runs_and_active_status_is_read_only(tmp_path):
+def test_corrupt_plan_does_not_hide_executed_run(tmp_path):
     a=tmp_path/('a'*32);save(a,'capture.json',{'captured_at':1,'source':'live'});(a/'plan.json').write_text('{broken')
-    b=tmp_path/('b'*32);save(b,'capture.json',{'captured_at':2,'source':'live'})
-    jobs={'b'*32:{'status':'running','stage':'simulate'}}
-    rows=list_runs(tmp_path,jobs)
-    assert len(rows)==2 and rows[0]['status']=='running' and rows[1]['status']=='error'
-    assert jobs=={'b'*32:{'status':'running','stage':'simulate'}}
+    save(a,'hardware-trace.json',{'samples':[{'target':[0]*6}],'completed':False,'error':'Stop requested'})
+    jobs={'a'*32:{'status':'error','error':'Stopped'}}
+    assert list_runs(tmp_path,jobs)[0]['status']=='error'
+    assert jobs=={'a'*32:{'status':'error','error':'Stopped'}}
+
+
+def test_active_command_journal_is_not_reported_as_restarted(tmp_path):
+    a=tmp_path/('a'*32);save(a,'capture.json',{'captured_at':1,'source':'live'})
+    (a/'hardware-commands.jsonl').write_text(json.dumps({'target':[0]*6,'time':0})+'\n')
+    rows=list_runs(tmp_path,{a.name:{'status':'executing','stage':'execute'}})
+    assert rows[0]['status']=='executing' and rows[0]['hardware_completed'] is None and rows[0]['error'] is None
