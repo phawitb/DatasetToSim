@@ -13,7 +13,8 @@ import cv2
 import mujoco
 import numpy as np
 from scipy.optimize import least_squares, brentq
-from strict_action_scene import estimate_scene, episode_scene, build_model, containment
+from strict_action_scene import estimate_scene, containment
+from studio_stack import scene_calibration as episode_scene,build_scene_model as build_model,stack_verdict
 from strict_action_replay import score
 from dataset_to_sim.strict_replay import NativeJointAdapter, integrate_actions, array_hash
 from dataset_to_sim.dataset import Episode
@@ -41,13 +42,13 @@ def load_scene(folder):
         from studio_sam_geometry import load_selection,scene_from_masks
         selection,masks=load_selection(folder)
         capture.update(selection_revision=selection['revision'],selection=selection)
-        scene=scene_from_masks(config,*masks)
+        scene=scene_from_masks(config,*masks,task=capture.get('task','bowl'),bowl_present=capture.get('bowl_present',True))
     else:scene=estimate_scene(config,rgb)
     cal=episode_scene(config,scene)
     return capture,config,scene,cal,build_model(cal,config)
 
 
-def plan(folder):
+def plan(folder,stack_offset=None,preview=True):
     capture,config,scene,cal,m=load_scene(folder)
     adapter=NativeJointAdapter(**config['adapter']); limits=native_limits(config)
     initial=np.array(capture['initial_native'],float); current=adapter.to_model(initial)
@@ -55,6 +56,10 @@ def plan(folder):
     bounds=adapter.to_model(np.array([limits[:,0],limits[:,1]]))[:,:5]
     lo,hi=np.min(bounds,axis=0)+1e-6,np.max(bounds,axis=0)-1e-6
     cube=np.array(cal.world['cube']['position']); bowl=np.array(cal.world['bowl']['position'])
+    stacking=capture.get('task')=='stack'
+    destination=np.array(cal.world['target_cube']['position']) if stacking else bowl
+    placement=destination.copy()
+    if stack_offset is not None:placement+=np.asarray(stack_offset,float)
     # Center the OPEN mouth over the cube during descent. Only one jaw moves:
     # using the closed-grasp center while open leaves the fixed jaw on the cube's
     # edge, so small real tracking errors make it land on top instead of straddle.
@@ -100,9 +105,23 @@ def plan(folder):
     add('Approach',np.r_[cube[:2],grasp_z],35.,seconds=1.5)
     add('Grasp',np.r_[cube[:2],grasp_z],0.,seconds=1.)
     add('Lift',np.r_[cube[:2],hover],0.,seconds=1.5)
-    add('Transfer',np.r_[bowl[:2],hover],0.,seconds=2.)
-    add('Release',np.r_[bowl[:2],hover],40.,seconds=1.)
-    waypoints.append((waypoints[-1][0].copy(),1.5))
+    add('Transfer',np.r_[placement[:2],hover],0.,seconds=2.)
+    if stacking:
+        place_z=grasp_z+(placement[2]-cube[2])+cal.world['target_cube']['size']+.005
+        add('Lower onto cube',np.r_[placement[:2],place_z],0.,seconds=2.)
+        waypoints.append((waypoints[-1][0].copy(),.7))
+        placement_index=len(interpolate_native(waypoints)[0])-1
+        add('Release on cube',np.r_[placement[:2],place_z],40.,seconds=1.5)
+        add('Retreat',np.r_[placement[:2],hover],40.,seconds=2.)
+        home=json.loads((ROOT/'calibration/studio-home.json').read_text())
+        if capture['calibration_hash']!=home['calibration_sha256']:raise ValueError('Home calibration changed')
+        closed=waypoints[-1][0].copy();closed[5]=1.
+        waypoints.extend([(closed,1.5),(home['raised'],3.),(home['unfolded'],6.),(home['home'],2.5)])
+        stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
+        waypoints.append((waypoints[-1][0].copy(),2.))
+    else:
+        add('Release',np.r_[bowl[:2],hover],40.,seconds=1.)
+        waypoints.append((waypoints[-1][0].copy(),1.5))
     actions,timestamps=interpolate_native(waypoints)
     validate_trajectory(actions,timestamps,limits)
     np.savez_compressed(folder/'plan.npz',actions=actions,timestamps=timestamps)
@@ -110,10 +129,11 @@ def plan(folder):
             'action_hash':array_hash(actions),'outcome':'not_simulated','transfer_checks_passed':False,'executed':False,
             'method':'Aperture-aware IK centers the open jaws on descent; smooth closing waypoints; contact-driven MuJoCo validation required',
             'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist()}
+    if stacking:report.update(placement_index=placement_index,placement_offset_m=np.asarray(stack_offset if stack_offset is not None else [0,0,0]).tolist())
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     (folder/'scene.json').write_text(json.dumps(cal.data,indent=2))
     mujoco.mj_saveLastXML(str(folder/'scene.xml'),m)
-    render_preview(m,adapter.to_model(initial),folder/'preview.jpg')
+    if preview:render_preview(m,adapter.to_model(initial),folder/'preview.jpg')
     return report
 
 
@@ -124,6 +144,30 @@ def render_preview(model,q,path):
         cv2.imwrite(str(path),cv2.cvtColor(renderer.render(),cv2.COLOR_RGB2BGR))
 
 
+def prepare_plan(folder):
+    """Plan stack placement against the predicted held object, not pad center alone."""
+    from studio_stack import predicted_held_position
+    report=plan(folder,preview=False)
+    if report.get('task')=='stack':
+        offset=np.zeros(3);iterations=[]
+        goal=np.asarray(report['world']['target_cube']['position'],float).copy()
+        goal[2]+=report['world']['target_cube']['size']+.004
+        for attempt in range(5):
+            capture,config,scene,cal,model=load_scene(folder);adapter=NativeJointAdapter(**config['adapter']);saved=np.load(folder/'plan.npz')
+            held=predicted_held_position(model,adapter,capture['initial_native'],saved['actions'],saved['timestamps'],report['placement_index'])
+            error=goal-held;iterations.append({'offset_m':offset.tolist(),'held_center_m':held.tolist(),'goal_m':goal.tolist(),'error_m':error.tolist()})
+            if np.linalg.norm(error[:2])<.0015 and abs(error[2])<.002:break
+            candidate=offset+error*.85
+            if np.any(np.abs(candidate)>.020):raise ValueError('Stack placement correction exceeds 20 mm; reposition the cubes and capture again')
+            if attempt==4:raise ValueError('Stack placement did not converge; reposition the cubes and capture again')
+            offset=candidate;report=plan(folder,stack_offset=offset,preview=False)
+        report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':.004}
+        (folder/'plan.json').write_text(json.dumps(report,indent=2))
+    capture,config,scene,cal,model=load_scene(folder)
+    render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
+    return report
+
+
 def simulate(folder):
     report=json.loads((folder/'plan.json').read_text()); capture,config,scene,cal,m=load_scene(folder)
     adapter=NativeJointAdapter(**config['adapter']); saved=np.load(folder/'plan.npz');actions=saved['actions'];ts=saved['timestamps']
@@ -132,8 +176,10 @@ def simulate(folder):
     states=np.tile(report['initial_native'],(len(actions),1))
     ep=Episode(-1,np.arange(len(actions)),np.arange(len(actions)),ts,states,actions,{})
     trace=integrate_actions(m,ep,adapter)
-    inside=containment(m,trace['qpos'][-1],trace['cube_pose'][-1],cal,config)
-    outcome=score(trace,inside)
+    if report.get('task')=='stack':
+        inside=None;stack=stack_verdict(trace,cal.world['cube']['size']);outcome=stack['outcome'];report['stack_assessment']=stack
+    else:
+        inside=containment(m,trace['qpos'][-1],trace['cube_pose'][-1],cal,config);outcome=score(trace,inside)
     collision={k:v for k,v in trace['audit']['contact_audit'].items() if k!='cube'}
     checks=trace['audit']['initial_max_penetration_m']<=.001 and all(v['max_penetration_m']<=.001 for v in collision.values())
     tracking=np.abs(adapter.to_native(trace['qpos'][1:])-actions)
@@ -141,7 +187,8 @@ def simulate(folder):
     report.update(outcome=outcome,transfer_checks_passed=checks,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),
                   simulated_action_hash=array_hash(trace['native_action_applied']))
-    np.savez_compressed(folder/'trace.npz',qpos=trace['qpos'],cube_pose=trace['cube_pose'],native=adapter.to_native(trace['qpos']),timestamps=trace['sample_times'])
+    extra={k:trace[k] for k in ['target_pose','target_velocity'] if k in trace}
+    np.savez_compressed(folder/'trace.npz',qpos=trace['qpos'],cube_pose=trace['cube_pose'],native=adapter.to_native(trace['qpos']),timestamps=trace['sample_times'],**extra)
     # Save the physical verdict even if the graphics environment fails.
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     try:
@@ -161,8 +208,10 @@ def render_trace(m,trace,folder):
     option=mujoco.MjvOption();option.geomgroup[3]=0
     try:
         with mujoco.Renderer(m,height=480,width=640) as renderer:
-            for q,cube in zip(trace['qpos'],trace['cube_pose']):
+            for index,(q,cube) in enumerate(zip(trace['qpos'],trace['cube_pose'])):
                 d.qpos[:6]=q;d.qpos[cube_addr:cube_addr+7]=cube;mujoco.mj_forward(m,d)
+                if 'target_pose' in trace:
+                    address=m.joint('target_cube_free').qposadr[0];d.qpos[address:address+7]=trace['target_pose'][index];mujoco.mj_forward(m,d)
                 frames=[]
                 for view in ['top_cam','wrist_cam']:
                     renderer.update_scene(d,camera=view,scene_option=option);frames.append(renderer.render().copy())
@@ -173,5 +222,5 @@ def render_trace(m,trace,folder):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('mode',choices=['plan','simulate']);parser.add_argument('folder',type=Path);args=parser.parse_args()
-    result=plan(args.folder) if args.mode=='plan' else simulate(args.folder)
+    result=prepare_plan(args.folder) if args.mode=='plan' else simulate(args.folder)
     print(json.dumps({'outcome':result['outcome'],'frames':result['frames']}))

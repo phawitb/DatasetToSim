@@ -39,4 +39,5 @@ def list_runs(work,jobs):
         if not isinstance(stamp,(int,float)) or not math.isfinite(stamp):stamp=folder.stat().st_mtime
         rows.append({'id':identifier,'captured_at':stamp,'source':capture.get('source','unknown'),'purpose':capture.get('purpose','pick_place'),'status':'error' if errors else status,'stage':job.get('stage'),'simulation_outcome':plan.get('outcome'),'hardware_completed':completed,'physical_outcome':physical_outcome,'frames':plan.get('frames'),'duration':plan.get('duration'),'video':f'/media/studio/{identifier}/{video}' if video else None,'preview':f'/media/studio/{identifier}/top.jpg' if (folder/'top.jpg').exists() else None,'error':'; '.join(errors) or job.get('error') or execution.get('error') or trace.get('error')})
         rows[-1]['command_count']=command_count
+        rows[-1]['task']=plan.get('task',capture.get('task','bowl'))
     return sorted(rows,key=lambda r:(r['captured_at'],r['id']),reverse=True)

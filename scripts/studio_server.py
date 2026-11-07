@@ -252,6 +252,19 @@ def robot_command(command:str,request:Request):
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if command=='home':
             if hardware.call('status').get('running'):raise ValueError('Robot is executing')
+            home=json.loads((ROOT/'calibration/studio-home.json').read_text())
+            pose=hardware.call('status').get('positions')
+            if pose is not None and np.all(np.abs(np.asarray(pose)-home['home'])<3):
+                current=None
+                return {'already_home':True}
+            captures=[]
+            for path in WORK.glob('*/capture.json'):
+                try:
+                    saved=json.loads(path.read_text())
+                    if saved.get('source')=='live' and saved.get('purpose')!='home':captures.append(saved)
+                except (OSError,ValueError):pass
+            if captures and max(captures,key=lambda c:c.get('captured_at',0)).get('task')=='stack':
+                raise ValueError('Interrupted stack: automatic Home cannot verify both cubes from this pose. Keep torque on and recover the scene before starting another run. A completed stack returns Home within its validated plan.')
             snapshot=hardware.call('snapshot')
             references=[]
             for path in WORK.glob('*/selection.json'):
@@ -332,11 +345,15 @@ def folder_for(identifier):
 def capture(body:dict):
     global current
     with operation_lock:
+        task=body.get('task','bowl')
+        if task not in ['bowl','stack']:raise ValueError('Choose Place in bowl or Stack on cube')
+        if 'bowl_present' in body and not isinstance(body['bowl_present'],bool):raise ValueError('Bowl presence must be true or false')
         if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if hardware.call('status').get('running'):raise ValueError('Stop the robot before capturing')
         identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
         source=body.get('source','live')
+        if task=='stack' and source!='live':raise ValueError('Stacking requires a live two-cube capture')
         if source=='live':
             snapshot=hardware.call('snapshot')
             for view,image in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(image))
@@ -351,7 +368,8 @@ def capture(body:dict):
             cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
             snapshot={'source':'dataset','episode':index,'captured_at':time.time(),'initial_native':ep.state_deg[0].tolist(),'calibration_hash':cfg['follower_calibration_sha256']}
         else:raise ValueError('Choose live or dataset capture')
-        snapshot['id']=identifier;(folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
+        snapshot.update(id=identifier,task=task,bowl_present=body.get('bowl_present',True) if task=='stack' else True)
+        (folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
         current=identifier;jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':snapshot}
         return jobs[identifier]
 
@@ -365,13 +383,14 @@ def get_plan(identifier:str):
 @app.post('/api/captures/{identifier}/select')
 def select_object(identifier:str,body:dict):
     folder=folder_for(identifier);role=body.get('role')
-    if role not in ['from','to']:raise ValueError('Choose From or To')
+    if role not in ['from','to','obstacle']:raise ValueError('Choose From, To or Bowl obstacle')
     with operation_lock:
         if restarting:raise ValueError('Server restarting')
         if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
         if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
         if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
         capture=json.loads((folder/'capture.json').read_text())
+        if role=='obstacle' and (capture.get('task')!='stack' or not capture.get('bowl_present',True)):raise ValueError('Bowl obstacle is only used for stacking with a bowl present')
         if capture.get('source')!='live' or capture.get('purpose')=='home':raise ValueError('Capture a live scene to select objects')
         plan=folder/'plan.json'
         if plan.exists() and json.loads(plan.read_text()).get('executed'):raise ValueError('Capture a new scene after execution')
@@ -381,8 +400,7 @@ def select_object(identifier:str,body:dict):
         if selection and selection['model']!=result['model']:raise ValueError('SAM model changed; capture a new scene')
         revision=uuid.uuid4().hex
         selected=save_role(folder,role,result,revision)
-        other='to' if role=='from' else 'from'
-        if other in selection:
+        for other in [r for r in ['from','to','obstacle'] if r!=role and r in selection]:
             mask=cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)
             if mask is None:raise ValueError('Previous mask missing; capture again')
             validate_pair(decode_mask(result),mask>0)
@@ -396,7 +414,7 @@ def select_object(identifier:str,body:dict):
 
 
 def verify_selected_scene(folder,report,fresh):
-    from strict_action_scene import episode_scene
+    from studio_stack import scene_calibration
     selection,_=load_selection(folder)
     if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
     image=folder/f'preflight-{uuid.uuid4().hex}.jpg'
@@ -404,7 +422,7 @@ def verify_selected_scene(folder,report,fresh):
     checked,masks=refresh_pair(sam,folder,selection,image,image.stem)
     if checked['model']!=selection['model']:raise ValueError('SAM model changed; capture and select again')
     cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-    observed=episode_scene(cfg,scene_from_masks(cfg,*masks))
+    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present',True)))
     validate_scene_match(report['world'],observed.world)
 
 

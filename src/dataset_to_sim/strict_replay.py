@@ -95,17 +95,25 @@ def integrate_actions(model, episode: Episode, adapter: NativeJointAdapter, fina
     cube_joint=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_JOINT,'cube_free')
     cube_addr=int(model.jnt_qposadr[cube_joint]) if cube_joint>=0 else None
     cube_vaddr=int(model.jnt_dofadr[cube_joint]) if cube_joint>=0 else None
+    target_body=body_id('target_cube')
+    target_joint=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_JOINT,'target_cube_free')
+    target_addr=int(model.jnt_qposadr[target_joint]) if target_joint>=0 else None
+    target_vaddr=int(model.jnt_dofadr[target_joint]) if target_joint>=0 else None
+    target_poses=[];target_velocities=[]
     samples=[];velocities=[];poses=[];cube_velocities=[];sample_times=[];step_times=[];step_ends=[];indices=[];controls=[]
     bilateral=[];peaks=[]
     support_samples=[];secure_run=lift_run=secure_max=lift_max=secure_total=lift_total=0.
     initial_cube_z=float(data.qpos[cube_addr+2]) if cube_addr is not None else 0.
     audit={key:{'contacts':0,'max_penetration_m':0.,'max_normal_force_N':0.} for key in ['robot_self','finger_table','robot_workcell','cube']}
+    if target_addr is not None:audit['target_cube']={'contacts':0,'max_penetration_m':0.,'max_normal_force_N':0.}
     initial_penetration=max([0.]+[-float(c.dist) for c in data.contact])
     def sample():
         samples.append(data.qpos[qadr].copy());velocities.append(data.qvel[vadr].copy());sample_times.append(float(data.time))
         if cube_addr is not None:
             poses.append(data.qpos[cube_addr:cube_addr+7].copy())
             cube_velocities.append(data.qvel[cube_vaddr:cube_vaddr+6].copy())
+        if target_addr is not None:
+            target_poses.append(data.qpos[target_addr:target_addr+7].copy());target_velocities.append(data.qvel[target_vaddr:target_vaddr+6].copy())
     sample();nominal_dt=float(model.opt.timestep)
     try:
         for f,target in enumerate(targets):
@@ -123,6 +131,7 @@ def integrate_actions(model, episode: Episode, adapter: NativeJointAdapter, fina
                     bits={int(model.geom_contype[g1]),int(model.geom_contype[g2])}
                     names={model.geom(g1).name,model.geom(g2).name}
                     category='cube' if cube>=0 and cube in bodies else ('robot_self' if bits<={2,8} else ('finger_table' if 2 in bits and names&{'table','work_mat','floor'} else 'robot_workcell'))
+                    if target_body>=0 and target_body in bodies and cube not in bodies and not bits&{2,8}:category='target_cube'
                     force=np.zeros(6);mujoco.mj_contactForce(model,data,j,force)
                     item=audit[category];item['contacts']+=1
                     item['max_penetration_m']=max(item['max_penetration_m'],max(0.,-float(c.dist)))
@@ -151,7 +160,12 @@ def integrate_actions(model, episode: Episode, adapter: NativeJointAdapter, fina
     if array_hash(episode.action_deg)!=array_hash(native):raise RuntimeError('Source action array changed')
     mujoco.mj_forward(model,data)
     final_finger_contact=any(cube in {int(model.geom_bodyid[c.geom1]),int(model.geom_bodyid[c.geom2])} and 2 in {int(model.geom_contype[c.geom1]),int(model.geom_contype[c.geom2])} for c in data.contact) if cube>=0 else False
-    return {'qpos':np.array(samples),'qvel':np.array(velocities),'cube_pose':np.array(poses),'cube_velocity':np.array(cube_velocities),
+    stack_force=0.
+    if target_body>=0:
+        for i,c in enumerate(data.contact):
+            if {int(model.geom_bodyid[c.geom1]),int(model.geom_bodyid[c.geom2])}=={cube,target_body}:
+                force=np.zeros(6);mujoco.mj_contactForce(model,data,i,force);stack_force+=abs(float(force[0]))
+    result={'qpos':np.array(samples),'qvel':np.array(velocities),'cube_pose':np.array(poses),'cube_velocity':np.array(cube_velocities),
             'sample_times':np.array(sample_times),'native_action_applied':native,'model_targets':targets,
             'step_start_times':np.array(step_times),'step_end_times':np.array(step_ends),
             'step_action_index':np.array(indices,dtype=np.int32),'step_controls':np.array(controls),
@@ -165,3 +179,6 @@ def integrate_actions(model, episode: Episode, adapter: NativeJointAdapter, fina
                      'final_cube_linear_speed_m_s':float(np.linalg.norm(data.qvel[cube_vaddr:cube_vaddr+3])) if cube_vaddr is not None else None,
                      'final_cube_angular_speed_rad_s':float(np.linalg.norm(data.qvel[cube_vaddr+3:cube_vaddr+6])) if cube_vaddr is not None else None,
                      'nominal_timestep_seconds':nominal_dt,'actuator_delay_seconds':model.actuator_delay.tolist(),'prehistory':'initial observed joint pose; pre-recording commands unavailable','timing_note':'Dataset timestamps are nominal recording times; hardware latency is not identified.'}}
+    if target_addr is not None:
+        result.update(target_pose=np.array(target_poses),target_velocity=np.array(target_velocities));result['audit']['final_stack_support_N']=stack_force
+    return result

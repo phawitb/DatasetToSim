@@ -45,9 +45,12 @@ def save_role(folder,role,result,revision):
 
 
 def refresh_pair(client,folder,selection,image,tag):
-    results=[client.predict(image,selection[role]['point']) for role in ['from','to']]
-    masks=[decode_mask(r) for r in results];validate_pair(*masks)
+    roles=['from','to']+(['obstacle'] if 'obstacle' in selection else [])
+    results=[client.predict(image,selection[role]['point']) for role in roles]
+    masks=[decode_mask(r) for r in results]
+    for i,a in enumerate(masks):
+        for b in masks[i+1:]:validate_pair(a,b)
     revision=uuid.uuid4().hex;report={'revision':revision,'image_sha256':results[0]['image_sha256'],'model':results[0]['model']}
-    for role,result in zip(['from','to'],results):report[role]=save_role(folder,role,result,revision)
+    for role,result in zip(roles,results):report[role]=save_role(folder,role,result,revision)
     (Path(folder)/f'{tag}.json').write_text(json.dumps(report,indent=2))
     return report,masks

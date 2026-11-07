@@ -57,11 +57,15 @@ def native_limits(config):
 
 
 def validate_scene_match(planned, observed):
-    for obj in ['cube','bowl']:
-        if np.linalg.norm(np.array(observed[obj]['position'])-planned[obj]['position'])>.008:
+    stacking='target_cube' in planned
+    if ('target_cube' in observed)!=stacking or observed.get('bowl_present',True)!=planned.get('bowl_present',True):raise ValueError('Scene objects changed; capture again')
+    objects=['cube']+(['bowl'] if planned.get('bowl_present',True) else [])+(['target_cube'] if stacking else [])
+    for obj in objects:
+        tolerance=.003 if stacking and obj!='bowl' else .008
+        if np.linalg.norm(np.array(observed[obj]['position'])-planned[obj]['position'])>tolerance:
             raise ValueError('Objects moved; capture and simulate again')
     def yaw(q): return 2*np.arctan2(q[3],q[0])
     # Square cube yaw is equivalent modulo 90 degrees.
-    difference=(yaw(observed['cube']['quaternion'])-yaw(planned['cube']['quaternion'])+np.pi/4)%(np.pi/2)-np.pi/4
-    if abs(difference)>np.deg2rad(10):
-        raise ValueError('Cube rotated; capture and simulate again')
+    for obj in ['cube']+(['target_cube'] if stacking else []):
+        difference=(yaw(observed[obj]['quaternion'])-yaw(planned[obj]['quaternion'])+np.pi/4)%(np.pi/2)-np.pi/4
+        if abs(difference)>np.deg2rad(10):raise ValueError('Cube rotated; capture and simulate again')

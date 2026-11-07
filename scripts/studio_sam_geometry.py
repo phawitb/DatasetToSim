@@ -63,19 +63,35 @@ def fit_mask_pose(mask,camera,initial,edge,support):
     return best.x,{'method':'measured cube fit to SAM mask only','boundary_rmse_px':error,'observed_hull':observed.tolist(),'projected_hull':project_cube(camera,best.x,edge,support).tolist()}
 
 
-def scene_from_masks(config,source,target):
+def scene_from_masks(config,source,target,obstacle=None,*,task='bowl',bowl_present=True):
     from strict_action_scene import episode_scene
+    if task not in ['bowl','stack']:raise ValueError('Choose Place in bowl or Stack on cube')
     validate_pair(source,target)
+    if task=='stack' and bowl_present and obstacle is None:raise ValueError('Select the bowl obstacle, or mark that no bowl is present before Capture')
     contours,_=cv2.findContours(np.asarray(source,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     contour=max(contours,key=cv2.contourArea);x,y,w,h=cv2.boundingRect(contour)
     if not (8<=w<=65 and 8<=h<=65):raise ValueError('From must match the calibrated 19.5 mm cube profile')
     corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
-    bowl=bowl_from_mask(target)
+    bowl=bowl_from_mask(target) if task=='bowl' else bowl_from_mask(obstacle) if bowl_present else [320.,240.]
     scene={'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(source))],'bowl_pixel':list(bowl),'method':'SAM 2.1 user-selected From/To masks; calibrated metric projection'}
     cal=episode_scene(config,scene);c=cal.world['cube'];q=c['quaternion'];support=cal.data['scene_estimation']['cube_support_z_m']
     pose,fit=fit_mask_pose(source,cal.camera('top'),[*c['position'][:2],2*np.arctan2(q[3],q[0])],c['size'],support)
     scene['cube_pose_from_initial_rgb']={'position':[float(pose[0]),float(pose[1]),support+c['size']/2+.0002],'quaternion':[float(np.cos(pose[2]/2)),0.,0.,float(np.sin(pose[2]/2))]}
     scene['cube_pose_fit']=fit
+    if task=='stack':
+        # Fit To with exactly the same measured cube geometry as From.
+        contours,_=cv2.findContours(np.asarray(target,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        contour=max(contours,key=cv2.contourArea);tx,ty,tw,th=cv2.boundingRect(contour)
+        if not (8<=tw<=65 and 8<=th<=65):raise ValueError('To must match the calibrated 19.5 mm cube profile')
+        tc=cv2.boxPoints(cv2.minAreaRect(contour))
+        ts={'cube_pixel':tc.mean(axis=0).tolist(),'cube_pixel_corners':tc.tolist(),'bowl_pixel':bowl}
+        target_cal=episode_scene(config,ts);obj=target_cal.world['cube'];tq=obj['quaternion'];support=target_cal.data['scene_estimation']['cube_support_z_m']
+        pose,fit=fit_mask_pose(target,target_cal.camera('top'),[*obj['position'][:2],2*np.arctan2(tq[3],tq[0])],obj['size'],support)
+        scene.update(task='stack',bowl_present=bowl_present,target_cube={'position':[float(pose[0]),float(pose[1]),support+obj['size']/2+.0002],
+                     'quaternion':[float(np.cos(pose[2]/2)),0.,0.,float(np.sin(pose[2]/2))],'size':obj['size']},target_cube_fit=fit)
+        if np.linalg.norm(np.array(scene['target_cube']['position'][:2])-scene['cube_pose_from_initial_rgb']['position'][:2])<.045:raise ValueError('Separate the two cubes by at least 45 mm for a clear grasp')
+        if obstacle is not None:
+            validate_pair(source,obstacle);validate_pair(target,obstacle)
     return scene
 
 
@@ -86,7 +102,10 @@ def load_selection(folder):
     if selection.get('image_sha256')!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed; select From and To again')
     if not all(role in selection for role in ['from','to']):raise ValueError('Select both From and To with SAM')
     masks=[]
-    for role in ['from','to']:
+    capture=json.loads((folder/'capture.json').read_text()) if (folder/'capture.json').exists() else {}
+    roles=['from','to']+(['obstacle'] if capture.get('task')=='stack' and capture.get('bowl_present',True) else [])
+    for role in roles:
+        if role not in selection:raise ValueError('Select the bowl obstacle before generating a stack plan')
         path=(folder/selection[role]['mask_file']).resolve()
         if path.parent!=folder.resolve():raise ValueError('Invalid mask path')
         m=cv2.imread(str(path),cv2.IMREAD_GRAYSCALE)
@@ -94,5 +113,6 @@ def load_selection(folder):
         m=m>0
         if hashlib.sha256(m.astype(np.uint8).tobytes()).hexdigest()!=selection[role]['mask_sha256']:raise ValueError('Saved SAM mask changed; select again')
         masks.append(m)
-    validate_pair(*masks)
+    for i,a in enumerate(masks):
+        for b in masks[i+1:]:validate_pair(a,b)
     return selection,masks

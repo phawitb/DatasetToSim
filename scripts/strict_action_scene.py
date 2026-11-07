@@ -101,7 +101,7 @@ def estimate_scene(config,rgb):
 def _numbers(values):return ' '.join(str(float(x)) for x in np.ravel(values))
 
 
-def build_model(cal,config):
+def build_model(cal,config,return_xml=False):
     root=ET.fromstring(physical_model(cal,return_xml=True))
     for body in root.findall('.//body'):body.set('gravcomp','0')
     for actuator in root.findall('actuator/position'):actuator.set('ctrllimited','false')
@@ -198,7 +198,8 @@ def build_model(cal,config):
         slide,torsion,rolling=materials['jaw']
         for pair in root.findall('contact/pair'):
             pair.set('friction',_numbers([slide,slide,torsion,rolling,rolling]))
-    return mujoco.MjModel.from_xml_string(ET.tostring(root,encoding='unicode'))
+    xml=ET.tostring(root,encoding='unicode')
+    return xml if return_xml else mujoco.MjModel.from_xml_string(xml)
 
 
 def containment(model,qpos,cube_pose,cal,config):
