@@ -443,8 +443,10 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
     if restarting:raise ValueError('Server restarting')
     if operation not in ['plan','simulate','execute']:raise ValueError('Unknown operation')
     from studio_motion import validate_technique
+    from dataset_to_sim.studio import validate_speed_scale
     body=body or {}
     technique=validate_technique(body.get('motion_technique','classic'))
+    speed_scale=validate_speed_scale(body.get('speed_scale',1.))
     folder=folder_for(identifier)
     if json.loads((folder/'capture.json').read_text()).get('purpose')=='home':raise ValueError('Capture a new scene after Home')
     requested_generation=stop_generation
@@ -460,6 +462,8 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
         if operation!='plan' and 'motion_technique' in body:
             saved_technique=json.loads((folder/'plan.json').read_text()).get('motion_technique','classic')
             if technique!=saved_technique:raise ValueError('Motion technique changed; generate and simulate a new plan')
+        if operation!='plan' and 'speed_scale' in body:
+            if speed_scale!=json.loads((folder/'plan.json').read_text()).get('speed_scale',1.):raise ValueError('Travel speed changed; generate and simulate a new plan')
         if operation=='execute':
             report=json.loads((folder/'plan.json').read_text())
             fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
@@ -481,9 +485,9 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
         if old.exists():
             invalid=json.loads(old.read_text())
             if invalid.get('executed'):raise ValueError('Capture a new scene after an execution')
-            invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None)
+            invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None,simulated_timestamp_hash=None,simulated_speed_scale=None)
             invalid.pop('video',None);old.write_text(json.dumps(invalid,indent=2))
-        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique}))
+        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale}))
         (folder/'job.json').unlink(missing_ok=True)
         jobs[identifier]={'id':identifier,'status':'running','stage':operation}
         def run():

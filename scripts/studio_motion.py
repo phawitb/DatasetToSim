@@ -1,16 +1,16 @@
 """C2, shape-preserving live motion. Does not alter benchmark actions or limits."""
 import numpy as np
 from numpy.polynomial import polynomial as poly
-from dataset_to_sim.studio import SPEED_LIMITS
+from dataset_to_sim.studio import motion_speed_limits
 
-TECHNIQUES={'classic':'Classic — step by step','gentle':'Gentle — quintic blend','flow':'Flow — blended S-curve'}
+TECHNIQUES={'natural':'Natural — coordinated curves','classic':'Classic — step by step','gentle':'Gentle — quintic blend','flow':'Flow — blended S-curve'}
 FLOW_ACCELERATION=np.array([80.]*5+[120.])
 FLOW_JERK=np.array([600.]*5+[900.])
 
 
 def validate_technique(value):
     if not isinstance(value,str) or value not in TECHNIQUES:
-        raise ValueError('Choose Classic, Gentle or Flow motion technique')
+        raise ValueError('Choose Natural, Classic, Gentle or Flow motion technique')
     return value
 
 
@@ -41,7 +41,7 @@ def _peaks(coefficients,duration,order):
     return np.array(peaks)
 
 
-def interpolate_flow(waypoints,blend=()):
+def interpolate_flow(waypoints,blend=(),speed_scale=1.):
     """Return 30 Hz native commands and auditable knot/derivative diagnostics.
 
     Input durations are minimums. Segment time is expanded until analytic
@@ -53,7 +53,7 @@ def interpolate_flow(waypoints,blend=()):
     if poses.ndim!=2 or poses.shape[1]!=6 or len(poses)<2 or not np.isfinite(poses).all() or not np.isfinite(durations).all() or np.any(durations<0):
         raise ValueError('Expected finite six-joint waypoints and nonnegative durations')
     durations=np.maximum(durations,1/30)
-    limits=[SPEED_LIMITS*.92,FLOW_ACCELERATION,FLOW_JERK]
+    limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK]
     for attempt in range(24):
         durations=np.ceil(durations*30-1e-9)/30
         coefficients=_coefficients(poses,durations,blend)
@@ -75,7 +75,7 @@ def interpolate_flow(waypoints,blend=()):
     return actions,timestamps,info
 
 
-def interpolate_ruckig(waypoints,blend=()):
+def interpolate_ruckig(waypoints,blend=(),speed_scale=1.):
     """Local state-to-state Ruckig sections with shared pass-through velocities.
 
     Never sets intermediate_positions (Community's cloud waypoint interface).
@@ -86,7 +86,7 @@ def interpolate_ruckig(waypoints,blend=()):
     poses=np.array([q for q,_ in waypoints],float)
     floors=np.array([d for _,d in waypoints[1:]],float)
     if poses.ndim!=2 or poses.shape[1]!=6 or len(poses)<2 or not np.isfinite(poses).all() or not np.isfinite(floors).all() or np.any(floors<0):raise ValueError('Expected finite six-joint waypoints and nonnegative durations')
-    vmax=SPEED_LIMITS*.92
+    vmax=motion_speed_limits(speed_scale)*.92
     estimates=np.maximum(np.maximum(floors,1/30),np.max(abs(np.diff(poses,axis=0))/vmax,axis=1)+.6)
     slopes=np.diff(poses,axis=0)/estimates[:,None];velocities=np.zeros_like(poses)
     for i in blend:

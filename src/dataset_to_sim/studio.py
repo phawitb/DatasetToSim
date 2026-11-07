@@ -1,10 +1,32 @@
 """Shared contracts for the local Real / Sim Studio and hardware worker."""
 from pathlib import Path
 import time
+import hashlib
 import numpy as np
 
 JOINTS = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper']
 SPEED_LIMITS = np.array([35.] * 5 + [50.])
+
+
+def validate_speed_scale(value):
+    if isinstance(value,bool) or not isinstance(value,(int,float)) or not np.isfinite(value) or not .5<=value<=1.5:
+        raise ValueError('Travel speed must be a number from 50% to 150%')
+    return float(value)
+
+
+def motion_speed_limits(speed_scale=1.):
+    limits=SPEED_LIMITS.copy();limits[:5]*=validate_speed_scale(speed_scale)
+    return limits
+
+
+def validate_simulated_timing(plan,timestamps):
+    speed=validate_speed_scale(plan.get('speed_scale',1.))
+    if 'timestamp_hash' not in plan and 'speed_scale' not in plan:return # Legacy plans.
+    actual=hashlib.sha256(np.ascontiguousarray(timestamps,dtype='<f8').tobytes()).hexdigest()
+    if actual!=plan.get('timestamp_hash') or actual!=plan.get('simulated_timestamp_hash'):
+        raise ValueError('Commands do not match the simulated timing')
+    if speed!=plan.get('simulated_speed_scale'):
+        raise ValueError('Travel speed does not match the simulated plan')
 
 
 def safe_file(root, relative):
@@ -15,7 +37,8 @@ def safe_file(root, relative):
     return path
 
 
-def validate_trajectory(actions, timestamps, limits):
+def validate_trajectory(actions, timestamps, limits, speed_scale=1.):
+    speed_limits=motion_speed_limits(speed_scale)
     q, t, limits = np.asarray(actions, float), np.asarray(timestamps, float), np.asarray(limits, float)
     if q.ndim != 2 or q.shape[1] != 6 or len(q) < 2 or t.shape != (len(q),):
         raise ValueError('Expected at least two six-joint commands and matching times')
@@ -26,7 +49,7 @@ def validate_trajectory(actions, timestamps, limits):
     overshoot = np.maximum(limits[:,0] - q, 0) + np.maximum(q - limits[:,1], 0)
     if np.any(overshoot[0] > np.array([2.]*5+[0.])) or np.any(np.diff(overshoot,axis=0) > 1e-6) or np.any((q[:,5] < 0) | (q[:,5] > 100)):
         raise ValueError('Trajectory exceeds native joint limits')
-    if np.any(np.abs(np.diff(q, axis=0)) / np.diff(t)[:,None] > SPEED_LIMITS + 1e-5):
+    if np.any(np.abs(np.diff(q, axis=0)) / np.diff(t)[:,None] > speed_limits + 1e-5):
         raise ValueError('Trajectory exceeds speed limits')
     if t[-1] > 120:
         raise ValueError('Trajectory is longer than 120 seconds')

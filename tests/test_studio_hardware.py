@@ -206,3 +206,17 @@ def test_journal_failure_cannot_skip_motor_hold_or_release_running_state(tmp_pat
     while h.running and time.monotonic()<deadline:time.sleep(.01)
     assert not h.running and h.stopped.is_set() and len(h.robot.commands)>=2
     assert 'disk full' in h.error
+
+
+@pytest.mark.parametrize('change',[{'timestamps':[0,.05,.1]},{'speed_scale':1.5},{'simulated_timestamp_hash':'wrong'}])
+def test_changed_simulated_timing_never_dispatches_to_robot(change):
+    from dataset_to_sim.strict_replay import array_hash
+    h=Hardware();h.robot=Robot();h.connected=True;h.calibration_hash=lambda:'abc'
+    h.frames={v:(time.monotonic(),np.zeros((1,1,3),dtype=np.uint8)) for v in ['top','wrist']}
+    actions=np.zeros((3,6));ts=np.array([0,.1,.2])
+    plan={'id':'test','source':'live','outcome':'success','transfer_checks_passed':True,'captured_at':time.time(),
+          'initial_native':[0]*6,'calibration_hash':'abc','executed':False,'stop_generation':0,'owner':'owner',
+          'actions':actions.tolist(),'timestamps':ts.tolist(),'action_hash':array_hash(actions),'simulated_action_hash':array_hash(actions),
+          'speed_scale':1.25,'simulated_speed_scale':1.25,'timestamp_hash':array_hash(ts),'simulated_timestamp_hash':array_hash(ts)}
+    with pytest.raises(ValueError,match='simulated'):h.execute(plan|change)
+    assert h.robot.commands==[] and not h.running and not h.consumed

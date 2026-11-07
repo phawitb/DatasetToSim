@@ -68,11 +68,56 @@ def test_plan_api_freezes_technique_and_rejects_mismatched_execution(tmp_path,mo
     for operation in ['simulate','execute']:
         r=client.post(f'/api/plans/{identifier}/{operation}',json={'motion_technique':'flow'},headers=headers)
         assert r.status_code==409 and 'technique' in r.json()['error'].lower()
-    r=client.post(f'/api/plans/{identifier}/plan',json={'motion_technique':'flow'},headers=headers)
+    for value in [None,True,'1.25',0,1.51]:
+        r=client.post(f'/api/plans/{identifier}/plan',json={'speed_scale':value},headers=headers)
+        assert r.status_code==409
+    for operation in ['simulate','execute']:
+        r=client.post(f'/api/plans/{identifier}/{operation}',json={'motion_technique':'classic','speed_scale':1.25},headers=headers)
+        assert r.status_code==409 and 'speed' in r.json()['error'].lower()
+    r=client.post(f'/api/plans/{identifier}/plan',json={'motion_technique':'flow','speed_scale':1.25},headers=headers)
     assert r.status_code==200
     assert json.loads((folder/'planning-options.json').read_text())['motion_technique']=='flow'
+    assert json.loads((folder/'planning-options.json').read_text())['speed_scale']==1.25
     old=json.loads((folder/'plan.json').read_text())
     assert old['outcome']=='not_simulated' and not old['transfer_checks_passed']
     deadline=time.monotonic()+2
     while server.jobs[identifier]['status']=='running' and time.monotonic()<deadline:time.sleep(.01)
     assert server.jobs[identifier]['status']=='error'
+
+
+@pytest.mark.parametrize('engine',['interpolate_flow','interpolate_ruckig'])
+def test_adjustable_speed_shortens_travel_without_raising_acceleration_or_jerk(engine):
+    import studio_motion
+    from dataset_to_sim.studio import motion_speed_limits,validate_trajectory
+    interpolate=getattr(studio_motion,engine)
+    poses=np.zeros((4,6));poses[:,0]=[0,90,120,120]
+    waypoints=[(p,d) for p,d in zip(poses,[0,.1,.1,.7])]
+    base=interpolate(waypoints,blend={1})
+    q,t,info=interpolate(waypoints,blend={1},speed_scale=1.5)
+    assert t[-1]<base[1][-1]
+    assert np.max(np.abs(np.diff(q[:,0]))*30)>35
+    assert np.all(np.asarray(info['max_velocity'])<=motion_speed_limits(1.5)*.92+1e-6)
+    assert np.all(np.asarray(info['max_acceleration'])<=studio_motion.FLOW_ACCELERATION+1e-6)
+    assert np.all(np.asarray(info['max_jerk'])<=studio_motion.FLOW_JERK+1e-6)
+    k=info['knot_indices'];assert t[k[3]]-t[k[2]]>=.7-1e-8
+    limits=np.array([[-180,180]]*5+[[0,100]])
+    validate_trajectory(q,t,limits,speed_scale=1.5)
+    with pytest.raises(ValueError,match='speed'):validate_trajectory(q,t,limits)
+    np.testing.assert_array_equal(base[0],interpolate(waypoints,blend={1},speed_scale=1.)[0])
+
+
+@pytest.mark.parametrize('value',[None,True,False,'1.2',[],float('nan'),float('inf'),0,.49,1.51])
+def test_speed_setting_rejects_invalid_values(value):
+    from dataset_to_sim.studio import validate_speed_scale
+    with pytest.raises(ValueError,match='speed'):validate_speed_scale(value)
+
+
+def test_simulated_timing_is_bound_to_speed_and_timestamps():
+    from dataset_to_sim.studio import validate_simulated_timing
+    times=np.array([0.,1/30,2/30])
+    report={'speed_scale':1.25,'simulated_speed_scale':1.25,'timestamp_hash':array_hash(times),'simulated_timestamp_hash':array_hash(times)}
+    validate_simulated_timing(report,times)
+    with pytest.raises(ValueError,match='timing'):validate_simulated_timing(report,times*.8)
+    with pytest.raises(ValueError,match='speed'):validate_simulated_timing(report|{'speed_scale':1.5},times)
+    with pytest.raises(ValueError,match='timing'):validate_simulated_timing({'speed_scale':1.25},times)
+    validate_simulated_timing({},times) # Legacy default-speed runs retain compatibility.

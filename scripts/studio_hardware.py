@@ -19,7 +19,7 @@ sys.path.insert(0,str(ROOT/'src'))
 import cv2  # Load OpenCV before LeRobot/Torch to avoid duplicate OpenMP on macOS.
 import numpy as np
 from studio_recording import Recording
-from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits
+from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits, validate_simulated_timing
 
 
 def open_calibrated_connection(robot):
@@ -195,7 +195,8 @@ class Hardware:
             if not plan.get('owner'):raise ValueError('Execution requires an owning browser page')
             if plan['id'] in self.consumed:raise ValueError('Plan already consumed')
             actions=np.asarray(plan['actions'],float);ts=np.asarray(plan['timestamps'],float)
-            validate_trajectory(actions,ts,native_limits(self.config))
+            validate_trajectory(actions,ts,native_limits(self.config),speed_scale=plan.get('speed_scale',1.))
+            validate_simulated_timing(plan,ts)
             actual_hash=hashlib.sha256(np.ascontiguousarray(actions,dtype='<f8').tobytes()).hexdigest()
             if actual_hash!=plan['action_hash'] or actual_hash!=plan.get('simulated_action_hash'):
                 raise ValueError('Commands do not match the simulated trajectory')

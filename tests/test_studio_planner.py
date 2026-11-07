@@ -18,7 +18,7 @@ def test_interpolation_preserves_endpoints_and_obeys_speed_limits():
     assert t[-1]>3
 
 
-@pytest.mark.parametrize('technique',['classic','gentle','flow'])
+@pytest.mark.parametrize('technique',['classic','gentle','flow','natural'])
 def test_open_approach_centers_cube_between_both_jaws(tmp_path,monkeypatch,technique):
     """Regression: fixed jaw had only 2.2 mm clearance while moving jaw had 32 mm."""
     import studio_planner as planner
@@ -39,6 +39,20 @@ def test_open_approach_centers_cube_between_both_jaws(tmp_path,monkeypatch,techn
         commands=np.load(tmp_path/'plan.npz')['actions']
         assert np.max(np.abs(np.diff(commands[k-1:k+2,:5],axis=0))*30)<.15,"Stop over the bowl before opening"
     actions=np.load(tmp_path/'plan.npz')['actions']
+    if technique=='natural':
+        knots=report['motion']['task_knot_indices']
+        a,b,c=knots['Pregrasp'],knots['Approach'],knots['Grasp settle']
+        assert c-b>=12, 'Allow measured joints to settle before closing'
+        np.testing.assert_allclose(actions[b:c+1],np.tile(actions[b],(c-b+1,1)),atol=1e-10)
+        assert np.all(actions[a:c+1,5]==35), 'Keep jaws open during guarded descent'
+        data=mujoco.MjData(model);adapter=NativeJointAdapter(**cfg['adapter'])
+        for command in actions[a:b+1]:
+            data.qpos[:6]=adapter.to_model(command);mujoco.mj_forward(model,data)
+            midpoint=(data.geom('fixed_pad').xpos+data.geom('moving_pad').xpos)/2
+            assert np.linalg.norm(midpoint[:2]-cal.world['cube']['position'][:2])<.003
+        baseline=tmp_path/'classic';baseline.mkdir()
+        classic=planner.plan(baseline,technique='classic')
+        assert report['motion']['classic_duration']==pytest.approx(classic['duration'],abs=1/30)
     closing=np.flatnonzero((actions[1:,5]<34.99)&(actions[:-1,5]>=34.99))[0]
     data=mujoco.MjData(model);data.qpos[:6]=NativeJointAdapter(**cfg['adapter']).to_model(actions[closing]);mujoco.mj_forward(model,data)
     center=(data.geom('fixed_pad').xpos+data.geom('moving_pad').xpos)/2
