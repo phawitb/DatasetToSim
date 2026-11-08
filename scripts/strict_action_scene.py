@@ -18,6 +18,59 @@ from dataset_to_sim.strict_replay import NativeJointAdapter
 FOLLOWER=ROOT.home()/'.cache/huggingface/lerobot/calibration/robots/so_follower/my_awesome_follower_arm.json'
 
 
+def fillet(corner, toward_a, toward_b, radius, samples):
+    """Arc of the given radius tangent to two profile lines leaving a corner."""
+    corner, a, b = map(np.asarray, (corner, toward_a, toward_b)); a = a / np.linalg.norm(a); b = b / np.linalg.norm(b)
+    angle = np.arccos(np.clip(a @ b, -1, 1)); tangent = radius / np.tan(angle / 2)
+    start, end = corner + a * tangent, corner + b * tangent
+    center = corner + (a + b) / np.linalg.norm(a + b) * radius / np.sin(angle / 2)
+    u, v = start - center, end - center; phi = np.arctan2(u[0] * v[1] - u[1] * v[0], u @ v)
+    return [center + np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]) @ u for t in np.linspace(0, phi, samples)], tangent
+
+
+def bowl_profile(r0, r1, h, wall, floor, outer_fillet=0., inner_fillet=0., samples=7):
+    """Half cross-section (radius, z) of the bowl, outer bottom centre to inner floor centre.
+
+    r0/r1 are the outer side line's radii at z=0 and z=h (virtual sharp corner at
+    the bottom). ``wall`` is the thickness normal to the side wall. Rounded
+    bottoms are tangent arcs to the floor plane and the side line.
+    """
+    slope = (r1 - r0) / h; radial = wall * np.hypot(1, slope)
+    outer_side, inner_side = np.array([r1 - r0, h]), np.array([r1 - r0, h])
+    if outer_fillet: outer_arc, _ = fillet([r0, 0], [-1, 0], outer_side, outer_fillet, samples)
+    else: outer_arc = [np.array([r0, 0.])]
+    corner = np.array([r0 - radial + slope * floor, floor])
+    if inner_fillet: inner_arc, _ = fillet(corner, inner_side, [-1, 0], inner_fillet, samples)
+    else: inner_arc = [corner]
+    outer = [np.array([0., 0.])] + outer_arc + [np.array([r1, h])]
+    inner = [np.array([r1 - radial, h])] + inner_arc + [np.array([0., floor])]
+    return np.array(outer + inner), radial
+
+
+def bowl_slant_height(slant, r0, r1, outer_fillet):
+    """Vertical height whose outer side-surface length (rim to table, around the fillet) equals ``slant``."""
+    def length(h):
+        alpha = np.arctan((r1 - r0) / h); corner_angle = np.pi / 2 + alpha
+        tangent = outer_fillet / np.tan(corner_angle / 2) if outer_fillet else 0.
+        return np.hypot(h, r1 - r0) - tangent + outer_fillet * (np.pi - corner_angle)
+    low, high = 1e-3, slant
+    for _ in range(80):
+        mid = (low + high) / 2; low, high = (mid, high) if length(mid) < slant else (low, mid)
+    return (low + high) / 2
+
+
+BOWL_OUTER_FILLET_M,BOWL_INNER_FILLET_M=.005,.003  # estimates: rounding radii not measured
+
+
+def bowl_wall_estimates(bowl):
+    """Wall estimates from measurements; sharp 3 mm radial wall if wall thickness is unmeasured."""
+    if bowl.get('wall_thickness') is None:return {'bowl_wall_radial_thickness_m':.003}
+    r0,r1=bowl['bottom_diameter']/2,bowl['top_rim_diameter']/2
+    _,radial=bowl_profile(r0,r1,bowl['height'],bowl['wall_thickness'],.004,BOWL_OUTER_FILLET_M,BOWL_INNER_FILLET_M)
+    return {'bowl_wall_thickness_m':bowl['wall_thickness'],'bowl_wall_radial_thickness_m':float(radial),
+            'bowl_outer_fillet_radius_m':BOWL_OUTER_FILLET_M,'bowl_inner_fillet_radius_m':BOWL_INNER_FILLET_M}
+
+
 def make_configuration():
     measurements=json.loads((ROOT/'calibration/real-measurements.json').read_text())
     follower=json.loads(FOLLOWER.read_text());grip=follower['gripper']
@@ -46,7 +99,7 @@ def make_configuration():
             'gripper_degrees_per_native_unit':adapter.gripper_degrees_per_native_unit,
             'wrist_camera':json.loads((ROOT/'calibration/wrist-full-contact.json').read_text()),
             'estimates':{'wood_density_kg_m3':600.,'cube_mass_kg':600.*data['world']['cube']['size']**3,
-                         'bowl_bottom_outer_radius_m':(measurements['bowl'].get('bottom_diameter') or .0826)/2,'bowl_wall_radial_thickness_m':.003,'bowl_floor_thickness_m':.004},
+                         'bowl_bottom_outer_radius_m':(measurements['bowl'].get('bottom_diameter') or .0826)/2,'bowl_floor_thickness_m':.004,**bowl_wall_estimates(measurements['bowl'])},
             'physical_control':{'arm_kp':150.,'arm_kv':4.,'arm_torque_limit_Nm':2.94,'gripper_kp':35.,'gripper_kv':.1,'gripper_torque_limit_Nm':.35,'gravity_compensation':False,'input_clipping':False},
             'limitations':['Current follower calibration is snapshotted; identity with the historical recording calibration is unverified.',
                            'Gripper encoder scale is known from current calibration; model closed reference of -10 degrees is the source joint lower limit, still an estimated mechanical zero.',
@@ -99,6 +152,78 @@ def estimate_scene(config,rgb):
 
 
 def _numbers(values):return ' '.join(str(float(x)) for x in np.ravel(values))
+
+
+COLLISION=dict(group='3',contype='4',conaffinity='15',solref='.002 1',solimp='.99 .999 .0001')
+
+
+def _revolve(section,edges):
+    return [[r*np.cos(a),r*np.sin(a),z] for r,z in section for a in edges]
+
+
+def add_historical_bowl(asset,bowl,cal,estimates):
+    """Sharp-cornered frustum with a radial wall, as frozen in historical runs."""
+    r0=estimates['bowl_bottom_outer_radius_m'];r1=cal.world['bowl']['outer_radius']
+    h=cal.world['bowl']['height'];wall=estimates['bowl_wall_radial_thickness_m'];floor=estimates['bowl_floor_thickness_m']
+    if not (0<wall<r0<r1 and 0<floor<h):raise ValueError('Inconsistent bowl dimensions')
+    n=96;angles=np.arange(n)*2*np.pi/n;vertices=[];faces=[]
+    for radius,z in [(r0,0),(r1,h),(r1-wall,h),(r0-wall,floor)]:
+        vertices.extend([[radius*np.cos(a),radius*np.sin(a),z]for a in angles])
+    for ring in range(3):
+        for j in range(n):
+            a=ring*n+j;b=ring*n+(j+1)%n;c=(ring+1)*n+j;d=(ring+1)*n+(j+1)%n
+            faces.extend([[a,b,c],[b,d,c]])
+    vertices.append([0,0,floor]);faces.extend([[4*n,3*n+j,3*n+(j+1)%n]for j in range(n)])
+    ET.SubElement(asset,'mesh',name='bowl_visual',vertex=_numbers(vertices),face=' '.join(map(str,np.ravel(faces))))
+    ET.SubElement(bowl,'geom',type='mesh',mesh='bowl_visual',rgba='.5 .65 .6 1',contype='0',conaffinity='0')
+    vertices=[[ (r0-wall)*np.cos(a),(r0-wall)*np.sin(a),z] for z in [0,floor] for a in angles]
+    ET.SubElement(asset,'mesh',name='bowl_floor_mesh',vertex=_numbers(vertices))
+    ET.SubElement(bowl,'geom',name='bowl_floor_collision',type='mesh',mesh='bowl_floor_mesh',**COLLISION)
+    for j in range(32):
+        edges=[j*2*np.pi/32,(j+1)*2*np.pi/32]
+        vertices=[[radius*np.cos(a),radius*np.sin(a),z]for z,outer in [(0,r0),(h,r1)] for radius in [outer,outer-wall] for a in edges]
+        name=f'bowl_contact_{j}';ET.SubElement(asset,'mesh',name=name+'_mesh',vertex=_numbers(vertices))
+        ET.SubElement(bowl,'geom',name=name,type='mesh',mesh=name+'_mesh',**COLLISION)
+
+
+def add_rounded_bowl(asset,bowl,cal,estimates):
+    """Measured cross-section revolved: normal wall thickness, rounded inner and outer bottom."""
+    r0=estimates['bowl_bottom_outer_radius_m'];r1=cal.world['bowl']['outer_radius'];h=cal.world['bowl']['height']
+    floor=estimates['bowl_floor_thickness_m'];wall=estimates['bowl_wall_thickness_m']
+    profile,radial=bowl_profile(r0,r1,h,wall,floor,estimates.get('bowl_outer_fillet_radius_m',0.),estimates.get('bowl_inner_fillet_radius_m',0.))
+    if not (0<radial<r0<r1 and 0<floor<h):raise ValueError('Inconsistent bowl dimensions')
+    rim=int(np.flatnonzero(np.isclose(profile[:,0],r1)&np.isclose(profile[:,1],h))[0])
+    outer,inner=profile[1:rim+1],profile[rim+1:-1]  # without the two axis points
+    n=96;angles=np.arange(n)*2*np.pi/n;rings=np.vstack([outer,inner]);vertices=[];faces=[]
+    for radius,z in rings:vertices.extend([[radius*np.cos(a),radius*np.sin(a),z]for a in angles])
+    for ring in range(len(rings)-1):
+        for j in range(n):
+            a=ring*n+j;b=ring*n+(j+1)%n;c=(ring+1)*n+j;d=(ring+1)*n+(j+1)%n
+            faces.extend([[a,b,c],[b,d,c]])
+    top,bottom=len(rings)*n,len(rings)*n+1;last=(len(rings)-1)*n
+    vertices+= [[0,0,profile[-1][1]],[0,0,profile[0][1]]]
+    faces.extend([[top,last+j,last+(j+1)%n]for j in range(n)]);faces.extend([[bottom,(j+1)%n,j]for j in range(n)])
+    ET.SubElement(asset,'mesh',name='bowl_visual',vertex=_numbers(vertices),face=' '.join(map(str,np.ravel(faces))))
+    ET.SubElement(bowl,'geom',type='mesh',mesh='bowl_visual',rgba='.5 .65 .6 1',contype='0',conaffinity='0')
+    # Convex collision pieces follow the inner surface: a floor disk out to the
+    # inner fillet, fillet slabs, and 32 straight wall wedges above it.
+    slope=(r1-r0)/h;outer_r=lambda z:r0+slope*z
+    def outer_z(radius):  # outer surface height under an inner point
+        order=np.argsort(outer[:,0]);return float(np.interp(radius,outer[order,0],outer[order,1]))
+    flat=inner[-1][0];edges_all=[[j*2*np.pi/32,(j+1)*2*np.pi/32] for j in range(32)]
+    ET.SubElement(asset,'mesh',name='bowl_floor_mesh',vertex=_numbers([[flat*np.cos(a),flat*np.sin(a),z] for z in [0,floor] for a in angles]))
+    ET.SubElement(bowl,'geom',name='bowl_floor_collision',type='mesh',mesh='bowl_floor_mesh',**COLLISION)
+    rim_in,wall_low=inner[0],inner[1]
+    for j,edges in enumerate(edges_all):
+        section=[rim_in,wall_low,(outer_r(wall_low[1]),wall_low[1]),(r1,h)]
+        name=f'bowl_contact_{j}';ET.SubElement(asset,'mesh',name=name+'_mesh',vertex=_numbers(_revolve(section,edges)))
+        ET.SubElement(bowl,'geom',name=name,type='mesh',mesh=name+'_mesh',**COLLISION)
+    arc=inner[1:]
+    for j,edges in enumerate(edges_all):
+        for k in range(len(arc)-1):
+            a,b=arc[k],arc[k+1];section=[a,b,(b[0],min(b[1],outer_z(b[0]))),(a[0],min(a[1],outer_z(a[0])))]
+            name=f'bowl_fillet_{j}_{k}';ET.SubElement(asset,'mesh',name=name+'_mesh',vertex=_numbers(_revolve(section,edges)))
+            ET.SubElement(bowl,'geom',name=name,type='mesh',mesh=name+'_mesh',**COLLISION)
 
 
 def build_model(cal,config,return_xml=False):
@@ -156,29 +281,10 @@ def build_model(cal,config,return_xml=False):
     asset=root.find('asset')
     for child in list(asset):
         if child.get('name') in ['bowl_visual','bowl_floor_mesh']:asset.remove(child)
-    estimates=config['estimates'];r0=estimates['bowl_bottom_outer_radius_m'];r1=cal.world['bowl']['outer_radius']
-    h=cal.world['bowl']['height'];wall=estimates['bowl_wall_radial_thickness_m'];floor=estimates['bowl_floor_thickness_m']
-    if not (0<wall<r0<r1 and 0<floor<h):raise ValueError('Inconsistent bowl dimensions')
-    # Rendered frustum: exactly 118 mm outer rim and 50 mm height.
-    n=96;angles=np.arange(n)*2*np.pi/n;vertices=[];faces=[]
-    for radius,z in [(r0,0),(r1,h),(r1-wall,h),(r0-wall,floor)]:
-        vertices.extend([[radius*np.cos(a),radius*np.sin(a),z]for a in angles])
-    for ring in range(3):
-        for j in range(n):
-            a=ring*n+j;b=ring*n+(j+1)%n;c=(ring+1)*n+j;d=(ring+1)*n+(j+1)%n
-            faces.extend([[a,b,c],[b,d,c]])
-    vertices.append([0,0,floor]);faces.extend([[4*n,3*n+j,3*n+(j+1)%n]for j in range(n)])
-    ET.SubElement(asset,'mesh',name='bowl_visual',vertex=_numbers(vertices),face=' '.join(map(str,np.ravel(faces))))
-    ET.SubElement(bowl,'geom',type='mesh',mesh='bowl_visual',rgba='.5 .65 .6 1',contype='0',conaffinity='0')
-    # Convex floor and 32 convex wall wedges share that same measured envelope.
-    vertices=[[ (r0-wall)*np.cos(a),(r0-wall)*np.sin(a),z] for z in [0,floor] for a in angles]
-    ET.SubElement(asset,'mesh',name='bowl_floor_mesh',vertex=_numbers(vertices))
-    ET.SubElement(bowl,'geom',name='bowl_floor_collision',type='mesh',mesh='bowl_floor_mesh',group='3',contype='4',conaffinity='15',solref='.002 1',solimp='.99 .999 .0001')
-    for j in range(32):
-        edges=[j*2*np.pi/32,(j+1)*2*np.pi/32]
-        vertices=[[radius*np.cos(a),radius*np.sin(a),z]for z,outer in [(0,r0),(h,r1)] for radius in [outer,outer-wall] for a in edges]
-        name=f'bowl_contact_{j}';ET.SubElement(asset,'mesh',name=name+'_mesh',vertex=_numbers(vertices))
-        ET.SubElement(bowl,'geom',name=name,type='mesh',mesh=name+'_mesh',group='3',contype='4',conaffinity='15',solref='.002 1',solimp='.99 .999 .0001')
+    estimates=config['estimates']
+    if 'bowl_wall_thickness_m' in estimates:add_rounded_bowl(asset,bowl,cal,estimates)
+    else:add_historical_bowl(asset,bowl,cal,estimates)
+    r1=cal.world['bowl']['outer_radius'];h=cal.world['bowl']['height']
     clearance=config.get('home_bowl_clearance_m',0.)
     if clearance:
         if not np.isfinite(clearance) or not 0<clearance<=.05:raise ValueError('Invalid Home bowl clearance')

@@ -83,7 +83,9 @@ def test_measured_cube_and_bowl_dimensions_include_collision_geometry():
     assert m.neq==0 and m.nexclude==0
     assert set(m.geom_contype)>={0,1,2,4,8}
     assert cal.world['bowl']['outer_radius']==.059
-    assert cal.world['bowl']['height']==.05
+    # 50 mm is the user's side-surface length (rim to table around the rounded bottom).
+    h=cal.world['bowl']['height'];assert 0.044<h<0.049
+    assert config['measurements']['bowl']['side_surface_length']==.05
     # Reconstructed mesh vertices must obey the measured outer envelope.
     d=mujoco.MjData(m);mujoco.mj_forward(m,d)
     vertices=[]
@@ -92,12 +94,21 @@ def test_measured_cube_and_bowl_dimensions_include_collision_geometry():
         v=m.mesh_vert[m.mesh_vertadr[mid]:m.mesh_vertadr[mid]+m.mesh_vertnum[mid]]
         vertices.extend(v@geom.xmat.reshape(3,3).T+geom.xpos-d.body('bowl').xpos)
     vertices=np.array(vertices)
-    np.testing.assert_allclose(vertices[:,2].max(),.05,atol=1e-7)
+    np.testing.assert_allclose(vertices[:,2].max(),h,atol=1e-7)
     np.testing.assert_allclose(np.linalg.norm(vertices[:,:2],axis=1).max(),.059,atol=1e-7)
     assert config['measurements']['bowl']['bottom_diameter']==.098
     np.testing.assert_allclose(config['estimates']['bowl_bottom_outer_radius_m'],.049)
-    bottom=vertices[np.abs(vertices[:,2])<1e-7]
-    np.testing.assert_allclose(np.linalg.norm(bottom[:,:2],axis=1).max(),.049,atol=1e-7)
+    # Rounded bottom: collision pieces stay inside the rounded outer envelope
+    # and no flat-bottom corner remains at the 49 mm outer radius.
+    for i in range(m.ngeom):
+        name=mujoco.mj_id2name(m,mujoco.mjtObj.mjOBJ_GEOM,i) or ''
+        if name.startswith(('bowl_contact_','bowl_fillet_')) or name=='bowl_floor_collision':
+            mid=m.geom_dataid[i];v=m.mesh_vert[m.mesh_vertadr[mid]:m.mesh_vertadr[mid]+m.mesh_vertnum[mid]]
+            w=v@d.geom_xmat[i].reshape(3,3).T+d.geom_xpos[i]-d.xpos[m.body('bowl').id]
+            assert (np.linalg.norm(w[:,:2],axis=1)<=.049+(.059-.049)*w[:,2]/h+1e-6).all()
+            assert w[:,2].min()>=-1e-7
+    assert any((mujoco.mj_id2name(m,mujoco.mjtObj.mjOBJ_GEOM,i) or '').startswith('bowl_fillet_') for i in range(m.ngeom))
+    np.testing.assert_allclose(config['estimates']['bowl_wall_thickness_m'],.002)
 
 
 def test_motor_latency_keeps_native_commands_and_initial_history():

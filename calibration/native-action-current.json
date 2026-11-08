@@ -71,7 +71,7 @@
           0
         ],
         "outer_radius": 0.059,
-        "height": 0.05
+        "height": 0.046175
       }
     },
     "cameras": {
@@ -317,10 +317,15 @@
     "bowl": {
       "top_rim_diameter": 0.118,
       "top_rim_measurement_surface": "outer rim (confirmed by user)",
-      "height": 0.05,
+      "side_surface_length": 0.05,
+      "side_surface_measurement": "50 mm measured along the outer side surface, rim to table (user 2026-11-08)",
+      "height": 0.046175,
+      "height_source": "vertical height derived from the 50 mm side-surface length, 118/98 mm outer diameters and the estimated outer bottom rounding",
       "bottom_diameter": 0.098,
-      "wall_thickness": null,
-      "bottom_measurement_surface": "outside bottom diameter (user confirmed 2026-11-06)"
+      "bottom_measurement_surface": "outside bottom diameter (user confirmed 2026-11-06)",
+      "wall_thickness": 0.002,
+      "wall_thickness_source": "user measured 2026-11-08",
+      "bottom_profile": "rounded inside and outside (user 2026-11-08); rounding radii not measured"
     },
     "integration_status": "New runs use confirmed dimensions; historical simulation settings remain frozen with their original dimensions.",
     "historical_estimates": {
@@ -584,8 +589,11 @@
     "wood_density_kg_m3": 600.0,
     "cube_mass_kg": 0.004448925,
     "bowl_bottom_outer_radius_m": 0.049,
-    "bowl_wall_radial_thickness_m": 0.003,
-    "bowl_floor_thickness_m": 0.004
+    "bowl_wall_radial_thickness_m": 0.0020464,
+    "bowl_floor_thickness_m": 0.004,
+    "bowl_wall_thickness_m": 0.002,
+    "bowl_outer_fillet_radius_m": 0.005,
+    "bowl_inner_fillet_radius_m": 0.003
   },
   "physical_control": {
     "arm_kp": 150.0,
@@ -601,12 +609,12 @@
     "Current follower calibration identity with historical recording is unverified.",
     "Shared motor parameters fitted to native recorded states; no real hardware validation.",
     "Camera intrinsic distortion and exposure timestamps unmeasured; whole-frame delays approximate fitted image timing.",
-    "Wood mass, friction and bowl wall/floor thickness remain estimates; bottom outer diameter98mm is user measured.",
     "Initial cube pose derived from RGB silhouette; occlusion and pixel boundaries produce uncertainty.",
     "Original native action values and recording boundaries retained; no action repair, future-state following, cube weld/forces/teleportation.",
     "This refinement uses all72 native-state and terminal-image observations for shared calibration; results are calibration-set replay, not independent policy or hardware validation.",
     "Terminal red-pixel centroid approximates cube projection and can differ from cube center under occlusion; episodes9/53 detections excluded.",
-    "Identified motor Coulomb friction includes effective gearbox/controller behavior and is not an independently measured coefficient."
+    "Identified motor Coulomb friction includes effective gearbox/controller behavior and is not an independently measured coefficient.",
+    "Bowl bottom rounding radii and floor thickness are estimates; rim, bottom diameter, side-surface length and wall thickness are user measured."
   ],
   "gripper_pad_proxies": false,
   "cube_projection_height_fraction": 1.0,
@@ -7122,5 +7130,20 @@
     "physical_materials_are_unmeasured_estimates": true,
     "native_actions_unchanged": true,
     "shared_parameters_only": true
+  },
+  "bowl_geometry_update_2026_11_08": {
+    "source": "User: 50 mm is measured along the side surface; wall 2 mm; bottom rounded inside and outside",
+    "previous": {
+      "height_m": 0.05,
+      "wall_radial_thickness_m": 0.003,
+      "bottom": "sharp corners"
+    },
+    "height_m": 0.046175,
+    "wall_thickness_m": 0.002,
+    "wall_radial_thickness_m": 0.0020464,
+    "outer_fillet_radius_m_estimate": 0.005,
+    "inner_fillet_radius_m_estimate": 0.003,
+    "floor_thickness_m_estimate": 0.004,
+    "note": "Rounding radii are estimates; height depends on the outer rounding radius. Archived benchmark episodes keep their frozen models."
   }
 }

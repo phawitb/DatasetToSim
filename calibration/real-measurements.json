@@ -15,10 +15,15 @@
   "bowl": {
     "top_rim_diameter": 0.118,
     "top_rim_measurement_surface": "outer rim (confirmed by user)",
-    "height": 0.05,
+    "side_surface_length": 0.05,
+    "side_surface_measurement": "50 mm measured along the outer side surface, rim to table (user 2026-11-08)",
+    "height": 0.046175,
+    "height_source": "vertical height derived from the 50 mm side-surface length, 118/98 mm outer diameters and the estimated outer bottom rounding",
     "bottom_diameter": 0.098,
-    "wall_thickness": null,
-    "bottom_measurement_surface": "outside bottom diameter (user confirmed 2026-11-06)"
+    "bottom_measurement_surface": "outside bottom diameter (user confirmed 2026-11-06)",
+    "wall_thickness": 0.002,
+    "wall_thickness_source": "user measured 2026-11-08",
+    "bottom_profile": "rounded inside and outside (user 2026-11-08); rounding radii not measured"
   },
   "integration_status": "New runs use confirmed dimensions; historical simulation settings remain frozen with their original dimensions.",
   "historical_estimates": {
@@ -26,7 +31,9 @@
     "bowl_top_outer_diameter": 0.12,
     "cube_mass_kg": 0.012,
     "bowl_height": 0.05,
-    "bowl_bottom_outer_diameter": 0.0826
+    "bowl_bottom_outer_diameter": 0.0826,
+    "bowl_height_before_2026_11_08": 0.05,
+    "bowl_wall_thickness_before_2026_11_08": 0.003
   },
   "robot": {
     "gripper": "standard SO-101; no finger extension or replacement (user confirmed)",
