@@ -263,7 +263,7 @@ class RealAppearance:
                     top_mat=self.profile['appearance']['top']['work_mat']['real']
                     wrist_mat=self.profile['appearance']['wrist']['work_mat']['real']
                     target=target+np.asarray(wrist_mat['mean'])-np.asarray(top_mat['mean'])
-                gain=np.clip(np.asarray(stats['real']['std'])/np.asarray(source_stats['std']),.7,1.3)
+                gain=np.clip(np.asarray(stats['real']['std'])/np.asarray(source_stats['std']),getattr(self,'min_gain',.7),1.3)
                 lab[mask]=(lab[mask]-source)*gain+target
             if self.background and view=='wrist' and getattr(self,'background_mode','calibrated')=='uploaded':
                 # Uploaded pixels have unknown material statistics. Transfer only
