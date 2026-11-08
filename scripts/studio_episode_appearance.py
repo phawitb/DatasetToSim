@@ -16,7 +16,7 @@ from dataset_to_sim.archive import load_saved_model
 from dataset_to_sim.dataset import DatasetIndex
 from dataset_to_sim.observations import camera_sample_indices
 from episode0 import DATA
-from strict_action_scene import current_bowl_visual, _numbers
+from strict_action_scene import current_bowl_visual, with_bowl_visual
 from studio_real_appearance import REFERENCE, RealAppearance, robust_stats, segmentation_ids
 
 # Rendered light falloff on the background is removed: the real plate already
@@ -42,17 +42,6 @@ def real_filter(kind, hsv):
             'dark_robot': (val < 80) & (sat < 110),
             'work_mat': (sat < 90) & (val < 120),
             'table': (sat < 60) & (val > 100)}[kind]
-
-
-def with_bowl_visual(scene, vertices, faces):
-    """Archived scene with only the bowl's visual mesh replaced."""
-    import xml.etree.ElementTree as ET
-    root = ET.parse(scene).getroot()
-    compiler = root.find('compiler'); compiler.set('meshdir', str((Path(scene).parent / compiler.get('meshdir', '.')).resolve()))
-    mesh = root.find(".//asset/mesh[@name='bowl_visual']")
-    if mesh is None: raise ValueError('Archived scene has no bowl visual mesh')
-    mesh.set('vertex', _numbers(vertices)); mesh.set('face', ' '.join(map(str, np.ravel(faces))))
-    return mujoco.MjModel.from_xml_string(ET.tostring(root, encoding='unicode'))
 
 
 def light_direction(azimuth, elevation):

@@ -207,7 +207,7 @@ const generationTimingName=options=>options?.timing_profile==='recorded'?'Record
 const generationFields={
  episodes_per_task:['count',1,'number'],seed:['seed',42,'number'],motion_technique:['motion','natural'],timing_profile:['timing','recorded'],speed_scale:['speed',1,'number'],
  layout_strategy:['layout-strategy','uniform'],randomize_layout:['layout',true,'boolean'],real_background:['real-background',false,'boolean'],real_image_processing:['real-processing',false,'boolean'],visual_randomization:['visual',true,'boolean'],camera_jitter:['camera',false,'boolean'],sensor_augmentation:['sensor',true,'boolean'],physics_randomization:['physics',false,'boolean'],validation_fraction:['validation',.2,'number'],unstack_top:['unstack','red'],
- background_id:['background','calibrated-real'],lighting_randomization:['lighting',false,'boolean'],light_intensity:['light-intensity',1,'number'],light_direction:['light-direction',0,'number'],light_elevation:['light-elevation',55,'number'],light_spread:['light-spread',45,'number'],shadow_strength:['shadow-strength',.5,'number']
+ background_id:['background','calibrated-real'],lighting_randomization:['lighting',false,'boolean'],light_intensity:['light-intensity',1,'number'],light_direction:['light-direction',-30,'number'],light_elevation:['light-elevation',55,'number'],light_spread:['light-spread',45,'number'],shadow_strength:['shadow-strength',.5,'number']
 };
 function collectGenerationSettings(){
  const settings={name:$('#generation-name').value.trim(),tasks:[...$$('[name="generation-task"]:checked')].map(input=>input.value)};

@@ -10,6 +10,9 @@ VISUAL_DEFAULTS = {
     'lighting_randomization': False, 'light_intensity': 1.,
     'light_direction': 0., 'light_elevation': 55., 'light_spread': 45.,
     'shadow_strength': .5, 'background_id': 'calibrated-real',
+    # New requests use the shared Realistic profile (per camera real colors,
+    # faint soft shadows). Saved requests without this key keep 'standard'.
+    'appearance_profile': 'realistic',
 }
 LIGHT_FIELDS = ('pos', 'dir', 'diffuse', 'ambient', 'specular', 'castshadow')
 
@@ -26,6 +29,8 @@ def validate_visual_options(options):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f'{key} must be a finite number from {low} to {high}')
         result[key] = float(value)
+    if result['appearance_profile'] not in ('standard', 'realistic'):
+        raise ValueError('appearance_profile must be standard or realistic')
     identifier = result['background_id']
     if not isinstance(identifier, str) or not re.fullmatch(r'calibrated-real|bg-[a-f0-9]{64}', identifier):
         raise ValueError('Invalid background_id')
@@ -64,8 +69,9 @@ def reference_lighting(model, data, lighting):
 
 
 def configure_visuals(model, seed, options):
-    explicit = any(key in options for key in VISUAL_DEFAULTS if key != 'background_id')
-    options = validate_visual_options(options)
+    explicit = any(key in options for key in VISUAL_DEFAULTS if key not in ('background_id', 'appearance_profile'))
+    # RealAppearance reads the raw request: a saved request without the key is standard.
+    options = validate_visual_options({'appearance_profile': 'standard'} | dict(options))
     rng = np.random.default_rng(np.random.SeedSequence([seed, 917]))
     draws = {'seed': int(seed), 'camera': {}, 'materials': {}, 'lighting': {},
              'sensor': sensor_parameters(rng, options.get('sensor_augmentation', False)),

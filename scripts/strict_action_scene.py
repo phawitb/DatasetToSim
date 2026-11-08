@@ -5,6 +5,7 @@ import hashlib
 import itertools
 import json
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import cv2
 import mujoco
@@ -210,6 +211,16 @@ def current_bowl_visual(config):
                            estimates.get('bowl_outer_fillet_radius_m',0.),estimates.get('bowl_inner_fillet_radius_m',0.))
     rim=int(np.flatnonzero(np.isclose(profile[:,0],r1)&np.isclose(profile[:,1],h))[0])
     return revolve_profile(profile,rim)
+
+
+def with_bowl_visual(scene, vertices, faces):
+    """Archived scene with only the bowl's visual mesh replaced."""
+    root = ET.parse(scene).getroot()
+    compiler = root.find('compiler'); compiler.set('meshdir', str((Path(scene).parent / compiler.get('meshdir', '.')).resolve()))
+    mesh = root.find(".//asset/mesh[@name='bowl_visual']")
+    if mesh is None: raise ValueError('Archived scene has no bowl visual mesh')
+    mesh.set('vertex', _numbers(vertices)); mesh.set('face', ' '.join(map(str, np.ravel(faces))))
+    return mujoco.MjModel.from_xml_string(ET.tostring(root, encoding='unicode'))
 
 
 def add_rounded_bowl(asset,bowl,cal,estimates):

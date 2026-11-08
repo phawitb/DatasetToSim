@@ -216,6 +216,8 @@ class GenerationManager:
         public_fields = validate_request({})
         inherited = {key: value for key, value in parent['options'].items() if key in public_fields}
         inherited.setdefault('timing_profile', 'conservative')
+        # Extensions keep the parent's appearance; parents predating profiles are standard.
+        inherited.setdefault('appearance_profile', 'standard')
         # Add episodes is additive unless this request explicitly supplies totals.
         inherited['target_counts'] = None
         next_seed = self.next_seed(parent)

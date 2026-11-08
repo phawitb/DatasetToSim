@@ -1,0 +1,254 @@
+{
+ "schema_version": 2,
+ "episodes": [
+  0,
+  6,
+  12,
+  18,
+  24,
+  30,
+  36,
+  42,
+  48,
+  54,
+  60,
+  66
+ ],
+ "appearance": {
+  "top": {
+   "robot": {
+    "mean": [
+     178.10373141765146,
+     152.89905886559742,
+     160.69842225895704
+    ],
+    "std": [
+     27.20861637231299,
+     5.9804444871563405,
+     4.751627214981553
+    ],
+    "pixels": 682368,
+    "episodes": 12
+   },
+   "dark_robot": {
+    "mean": [
+     57.552157260335704,
+     133.56885772220346,
+     122.37616875070407
+    ],
+    "std": [
+     9.053213139673455,
+     2.1611374075629364,
+     3.0436329496114025
+    ],
+    "pixels": 71016,
+    "episodes": 12
+   },
+   "bowl": {
+    "mean": [
+     202.0117765742046,
+     124.18507859396576,
+     128.80798674956534
+    ],
+    "std": [
+     15.556978024422795,
+     1.6112135372247416,
+     1.602494818353492
+    ],
+    "pixels": 559076,
+    "episodes": 12
+   },
+   "red": {
+    "mean": [
+     146.39923761118172,
+     173.6084498094028,
+     141.91296060991104
+    ],
+    "std": [
+     22.269353461919387,
+     3.8717604499652873,
+     2.568635421990454
+    ],
+    "pixels": 1574,
+    "episodes": 4
+   }
+  },
+  "wrist": {
+   "robot": {
+    "mean": [
+     79.04498501435393,
+     158.68784232433103,
+     161.83245790331978
+    ],
+    "std": [
+     14.027618081385674,
+     3.162906945282741,
+     4.395616564404656
+    ],
+    "pixels": 427409,
+    "episodes": 12
+   },
+   "red": {
+    "mean": [
+     65.87976567076744,
+     166.01662956453816,
+     153.23004881859012
+    ],
+    "std": [
+     21.790516423402938,
+     7.267479569316228,
+     6.568333138051003
+    ],
+    "pixels": 128025,
+    "episodes": 11
+   },
+   "bowl": {
+    "mean": [
+     118.27346947983912,
+     119.227237529138,
+     124.86373471934964
+    ],
+    "std": [
+     23.598423775510337,
+     2.7798955798772336,
+     3.785648356079284
+    ],
+    "pixels": 1507053,
+    "episodes": 12
+   },
+   "work_mat": {
+    "mean": [
+     38.54583602093648,
+     126.36317541932944,
+     131.81260200130387
+    ],
+    "std": [
+     10.02175953264582,
+     1.3784480414655547,
+     1.897014877035065
+    ],
+    "pixels": 4342469,
+    "episodes": 12
+   },
+   "table": {
+    "mean": [
+     170.17598021451317,
+     127.5181992795388,
+     121.56674489028924
+    ],
+    "std": [
+     24.1821018729511,
+     2.0530754713294215,
+     4.155689278057968
+    ],
+    "pixels": 1525967,
+    "episodes": 12
+   }
+  }
+ },
+ "shadow": {
+  "azimuth_degrees": -30.0,
+  "elevation_degrees": 55.0,
+  "blur_sigma_px": 16.0,
+  "strength": 0.22345035425681248,
+  "episodes": [
+   {
+    "azimuth_degrees": 120.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 24.0,
+    "strength": 0.1917387137622052,
+    "correlation": 0.2530414171401342,
+    "episode": 0
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 24.0,
+    "strength": 0.3037543409749743,
+    "correlation": 0.3162197787994918,
+    "episode": 6
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 24.0,
+    "strength": 0.2537762265580731,
+    "correlation": 0.3677002618077663,
+    "episode": 12
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 11.0,
+    "strength": 0.23167266638521505,
+    "correlation": 0.1565330106197255,
+    "episode": 18
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 16.0,
+    "strength": 0.22183759656456933,
+    "correlation": 0.2618693517701443,
+    "episode": 24
+   },
+   {
+    "azimuth_degrees": 120.0,
+    "elevation_degrees": 70.0,
+    "blur_sigma_px": 24.0,
+    "strength": 0.2250631119490556,
+    "correlation": 0.266904802661459,
+    "episode": 30
+   },
+   {
+    "azimuth_degrees": 0.0,
+    "elevation_degrees": 85.0,
+    "blur_sigma_px": 24.0,
+    "strength": 0.35,
+    "correlation": 0.15560695855394233,
+    "episode": 36
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 16.0,
+    "strength": 0.21040586296180147,
+    "correlation": 0.21341768526046367,
+    "episode": 42
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 16.0,
+    "strength": 0.20802837887837838,
+    "correlation": 0.25378571264601874,
+    "episode": 48
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 11.0,
+    "strength": 0.2758411024855136,
+    "correlation": 0.36910533280324886,
+    "episode": 54
+   },
+   {
+    "azimuth_degrees": -30.0,
+    "elevation_degrees": 55.0,
+    "blur_sigma_px": 16.0,
+    "strength": 0.21984709348958942,
+    "correlation": 0.2628299365132499,
+    "episode": 60
+   },
+   {
+    "azimuth_degrees": 30.0,
+    "elevation_degrees": 70.0,
+    "blur_sigma_px": 16.0,
+    "strength": 0.11742138059507444,
+    "correlation": 0.1889761344489737,
+    "episode": 66
+   }
+  ]
+ },
+ "method": "Per-episode Datasets Realistic calibrations pooled across sampled real episodes: per camera Lab targets (pixel-weighted mean, pooled std) and the shadow light direction with the largest summed correlation, median blur and strength (capped at 0.35)."
+}

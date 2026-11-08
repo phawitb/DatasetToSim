@@ -14,9 +14,19 @@ def render_episode(folder, seed, options, *, preview=False, progress=lambda *_:N
     folder = Path(folder)
     settings = json.loads((folder / 'generation-config.json').read_text())
     model = mujoco.MjModel.from_xml_path(str(folder / 'scene.xml'))
+    bowl_note = None
+    if options.get('appearance_profile') == 'realistic':
+        from strict_action_scene import ROOT, current_bowl_visual, with_bowl_visual
+        bowl = current_bowl_visual(json.loads((ROOT / 'calibration/native-action-current.json').read_text()))
+        if bowl is not None:
+            # Display only: the static bowl is drawn with the current measured
+            # geometry; archived physics states are rendered unchanged.
+            model = with_bowl_visual(folder / 'scene.xml', *bowl)
+            bowl_note = 'Bowl drawn with current measured geometry; archived physics used the original bowl.'
     camera = settings['wrist_camera']; cid = model.camera('wrist_cam').id
     model.cam_pos[cid] = camera['position']; model.cam_quat[cid] = camera['quaternion']; model.cam_fovy[cid] = camera['fovy']
     draws = configure_visuals(model, seed, options)
+    if bowl_note: draws['bowl_geometry'] = bowl_note
     draws.update(source_type='real_replay', observation_alignment='Pre-action integrated state k; no state-following, action repair or image delay.')
     appearance = None
     if options['real_background'] or options['real_image_processing']:

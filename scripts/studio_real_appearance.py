@@ -16,6 +16,10 @@ from studio_generation_visuals import reference_lighting
 
 ROOT=Path(__file__).resolve().parents[1]
 REFERENCE=ROOT/'calibration/real-appearance-v1'
+REALISTIC=REFERENCE/'realistic-v2.json'
+APPEARANCE_PROFILES=('standard','realistic')
+REALISTIC_OBJECTS=('robot','dark_robot','bowl')
+MAX_SOFT_SHADOW=.35
 
 
 def geom_classes(model):
@@ -162,10 +166,37 @@ class RealAppearance:
                 'applied':self.background and self.processing,
                 'wrist_lab_shift':(np.asarray(self.profile['appearance']['wrist']['work_mat']['real']['mean'])-
                     np.asarray(self.profile['appearance']['top']['work_mat']['real']['mean'])).tolist()}
+        self.realistic=options.get('appearance_profile','standard')=='realistic'
+        if self.realistic:self._use_realistic_profile()
+
+    def _use_realistic_profile(self):
+        """Shared Realistic profile: per camera object targets pooled from real
+        episodes, flat real-plate background and faint blurred shadows."""
+        real=json.loads(REALISTIC.read_text());appearance=self.profile['appearance']
+        self.shading=False;self.min_gain=.35;self.soft_shadow=real['shadow']
+        for view,kinds in real['appearance'].items():
+            for kind,stats in kinds.items():
+                # Wrist background pixels come from the Top plate: Top real stats are the source.
+                sim=appearance['top'][kind]['real'] if view=='wrist' and kind in ('work_mat','table','floor') else None
+                appearance[view][kind]={'real':{k:stats[k] for k in ('mean','std','pixels')},'sim':sim,'measured':True,'wrist_measured':view=='wrist'}
+        top,wrist=real['appearance']['top'],real['appearance']['wrist']
+        if 'red' in top and 'red' in wrist:
+            # No real green reference in Wrist: transfer the measured red Top-to-Wrist exposure change (L only).
+            green=dict(appearance['top']['green']['real']);green['mean']=list(green['mean']);green['mean'][0]+=wrist['red']['mean'][0]-top['red']['mean'][0]
+            appearance['wrist']['green']={'real':green,'sim':None,'measured':True,'wrist_measured':True}
+        # Hard MuJoCo shadows are never rendered directly, including the
+        # neutral reference light used for color matching.
+        self.model.light_castshadow[:]=0
+        if self.lighting.get('reference'):
+            import copy
+            self.lighting=copy.deepcopy(self.lighting);self.lighting['reference']['castshadow']=[0]*len(self.lighting['reference']['castshadow'])
+        self.provenance['appearance_profile']={'name':'realistic','sha256':hashlib.sha256(REALISTIC.read_bytes()).hexdigest(),
+            'episodes':real['episodes'],'shadow':{k:v for k,v in real['shadow'].items() if k!='episodes'},'method':real['method']}
 
 
     def _calibrate_poses(self,renderer,data,poses,option,allow_unseen=False):
-        samples={v:{k:[] for k in ('red','green')} for v in ('top','wrist')}
+        kinds=('red','green')+(REALISTIC_OBJECTS if getattr(self,'realistic',False) else ())
+        samples={v:{k:[] for k in kinds} for v in ('top','wrist')}
         original=data.qpos.copy()
         try:
             with reference_lighting(self.model,data,self.lighting):
@@ -175,7 +206,7 @@ class RealAppearance:
                     for view in samples:
                         renderer.update_scene(data,camera=view+'_cam',scene_option=option)
                         rgb=renderer.render().copy();ids=segmentation_ids(renderer)
-                        for kind in ('red','green'):
+                        for kind in kinds:
                             mask=np.isin(ids,[j for j,c in self.classes.items() if c==kind]).astype('uint8')
                             mask=cv2.erode(mask,np.ones((3,3),np.uint8))>0
                             if mask.sum()>10:samples[view][kind].append(rgb[mask])
@@ -183,7 +214,13 @@ class RealAppearance:
             data.qpos[:]=original
             mujoco.mj_forward(self.model,data)
         for view in samples:
-            for kind in ('red','green'):
+            for kind in kinds:
+                if kind not in self.profile['appearance'][view]:continue
+                if kind in REALISTIC_OBJECTS:
+                    # Shared-profile object never visible in this view: leave it unprocessed.
+                    if samples[view][kind]:self.profile['appearance'][view][kind]['sim']=robust_stats(np.concatenate(samples[view][kind]))
+                    else:self.profile['appearance'][view].pop(kind)
+                    continue
                 pixels=samples[view][kind] or samples['top'][kind]
                 if not pixels:
                     if not allow_unseen:
@@ -215,6 +252,24 @@ class RealAppearance:
         if rgb is None:
             renderer.update_scene(data,camera=view+'_cam',scene_option=option)
             rgb=renderer.render().copy()
+        result=self._render_frame(renderer,data,view,option,rgb)
+        return self.apply_soft_shadow(renderer,data,view,option,rgb,result) if getattr(self,'realistic',False) else result
+
+    def apply_soft_shadow(self,renderer,data,view,option,plain,result):
+        """Faint, blurred shadows: luminance ratio of shadowed/unshadowed renders
+        under the configured lights, scaled by the shadow-strength control."""
+        strength=min(MAX_SOFT_SHADOW,self.soft_shadow['strength']*float(self.lighting.get('shadow_strength',.5))/.5)
+        if strength<=0:return result
+        self.model.light_castshadow[:]=1
+        try:
+            renderer.update_scene(data,camera=view+'_cam',scene_option=option);shaded=renderer.render().copy()
+        finally:self.model.light_castshadow[:]=0
+        renderer.update_scene(data,camera=view+'_cam',scene_option=option)
+        ratio=(cv2.cvtColor(shaded,cv2.COLOR_RGB2GRAY).astype(np.float32)+4)/(cv2.cvtColor(plain,cv2.COLOR_RGB2GRAY).astype(np.float32)+4)
+        ratio=cv2.GaussianBlur(np.clip(ratio,.2,1.),(0,0),self.soft_shadow['blur_sigma_px'])
+        return np.clip(result.astype(np.float32)*(1-strength*(1-ratio))[:,:,None],0,255).astype(np.uint8)
+
+    def _render_frame(self,renderer,data,view,option,rgb):
         if not self.lighting.get('reference'):
             return self.apply(rgb,segmentation_ids(renderer),data,view)
         with reference_lighting(self.model,data,self.lighting):

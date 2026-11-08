@@ -58,9 +58,9 @@
 <p class="generation-help">Set a base light direction and brightness. These controls apply to the rendered scene.</p>
 <div class="generation-fields">
 <label class="generation-field" for="generation-light-intensity">Light intensity<input id="generation-light-intensity" type="number" min="0.25" max="2.5" step="0.05" value="1" required><small>0.25 dim · 1 normal · 2.5 bright</small></label>
-<label class="generation-field" for="generation-light-direction">Direction (degrees)<input id="generation-light-direction" type="number" min="-180" max="180" step="1" value="0" required><small>Rotation around the workcell: −180° to 180°</small></label>
+<label class="generation-field" for="generation-light-direction">Direction (degrees)<input id="generation-light-direction" type="number" min="-180" max="180" step="1" value="-30" required><small>Rotation around the workcell: −180° to 180°. −30° matches the real recordings.</small></label>
 <label class="generation-field" for="generation-light-elevation">Elevation (degrees)<input id="generation-light-elevation" type="number" min="15" max="85" step="1" value="55" required><small>15° low angle · 85° overhead</small></label>
-<label class="generation-field" for="generation-shadow-strength">Shadow strength<input id="generation-shadow-strength" type="number" min="0" max="1" step="0.05" value="0.5" required><small>0 none · 1 strong</small></label>
+<label class="generation-field" for="generation-shadow-strength">Shadow strength<input id="generation-shadow-strength" type="number" min="0" max="1" step="0.05" value="0.5" required><small>0 none · 0.5 matches the real recordings (faint, soft) · 1 stronger</small></label>
 </div>
 <label class="generation-check"><input id="generation-lighting" type="checkbox"><span>Randomize lighting around these settings</span></label>
 <label class="generation-field" for="generation-light-spread">Random direction spread (degrees)<input id="generation-light-spread" type="number" min="0" max="180" step="1" value="45" required><small>Seeded variation around your light direction; used when lighting randomization is enabled.</small></label>
