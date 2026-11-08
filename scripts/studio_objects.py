@@ -30,7 +30,7 @@ _DESCRIPTORS = {
     'green-bowl': ('Green bowl', 'Task object', 'Open bowl mesh with the calibrated tapered wall and floor.'),
     'tape': ('Tape roll', 'Library object', 'Clear 1-inch packing-tape roll modelled in Blender from measurements: '
              '53 mm outer diameter, 24 mm wide, 26 mm core hole, 30 mm cardboard core. '
-             'Grasped across its outer diameter in Put the tape in the green bowl.'),
+             'Grasped through its hole (fixed jaw inside the core) in Put the tape in the green bowl.'),
     'so101': ('SO-101 robot', 'Robot', 'Current robot visual meshes, camera mount, and wrist camera in the saved Home pose.'),
     'work-mat': ('Work mat', 'Environment', 'Calibrated work surface used by every generated task.'),
     'table': ('Table', 'Environment', 'The actual tabletop box used by the simulation.'),

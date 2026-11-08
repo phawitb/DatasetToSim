@@ -148,9 +148,18 @@ def test_tape_task_scene_moves_the_measured_roll_into_the_bowl(tmp_path):
     initialize_generation_scene(tmp_path / 'scene', 'tape_to_green_bowl', 3, {'physics_randomization': True})
     capture, config, scene, cal, model = load_generation_scene(tmp_path / 'scene')
     size = tape_object.dimensions()
-    # The manipulated body is the roll: convex outer collision, three visual parts, its own mass.
+    # The manipulated body is the roll: a hollow wall of convex wedges (the fixed jaw
+    # goes into the hole), a non-colliding outer outline, three visual parts, its own mass.
     geom = model.geom('cube_geom')
-    assert geom.type == mujoco.mjtGeom.mjGEOM_MESH and geom.contype > 0
+    assert geom.type == mujoco.mjtGeom.mjGEOM_MESH and geom.contype == 0
+    walls = [model.geom(f'tape_wall_{k}') for k in range(tape_object.WALL_SEGMENTS)]
+    assert all(wall.contype > 0 and wall.bodyid == model.body('cube').id for wall in walls)
+    data = mujoco.MjData(model); mujoco.mj_forward(model, data)
+    center = data.body('cube').xpos
+    radii = [np.linalg.norm((model.mesh_vert[model.mesh_vertadr[w.dataid[0]]:][:8] @ data.geom_xmat[w.id].reshape(3, 3).T
+                             + data.geom_xpos[w.id] - center)[:, :2], axis=1) for w in walls]
+    assert min(r.min() for r in radii) == pytest.approx(size['core_inner_diameter_m'] / 2, abs=1e-4)
+    assert max(r.max() for r in radii) == pytest.approx(size['outer_diameter_m'] / 2, abs=1e-4)
     assert model.body('cube').mass[0] == pytest.approx(size['mass_kg'] * scene['physics_draws']['cube_mass_scale'])
     assert all(model.geom(name + '_visual').contype == 0 for name in ('tape_roll', 'tape_core', 'tape_liner'))
     assert cal.world['cube']['position'][2] == pytest.approx(cal.world['mat']['position'][2] + cal.world['mat']['size'][2] / 2 + size['width_m'] / 2 + .0002)

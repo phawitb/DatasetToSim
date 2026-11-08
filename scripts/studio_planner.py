@@ -76,12 +76,18 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     aperture=.15
     # Native gripper commands: open around the object, and open to release.
     open_grip,release_grip,close_grip=35.,40.,0.
-    from tape_object import is_tape,grasp_width,jaw_openings
+    from tape_object import is_tape,grasp_width,jaw_openings,FIXED_PAD_RADIUS_M
     tape=is_tape(cal.world)
     if tape:
-        # The roll is grasped across its outer diameter, far wider than a cube.
-        aperture,open_grip,close_grip=jaw_openings(m,d,adapter,current,grasp_width());release_grip=open_grip
+        # The roll is grasped through its hole: the jaws pinch its 13.5 mm wall.
+        aperture,open_grip,close_grip,release_grip=jaw_openings(m,d,adapter,current,grasp_width())
     def center(q):
+        if tape:
+            # Fixed jaw in the core hole, moving jaw outside: the reference point is the
+            # roll axis implied by the fixed pad, set just off-axis towards the moving jaw.
+            d.qpos[:6]=q;d.qpos[5]=aperture;mujoco.mj_forward(m,d)
+            fixed=d.geom('fixed_pad').xpos;toward=(d.geom('moving_pad').xpos-fixed)[:2]
+            return np.r_[fixed[:2]-FIXED_PAD_RADIUS_M*toward/np.linalg.norm(toward),fixed[2]]
         d.qpos[:6]=q;d.qpos[5]=max(aperture,q[5]);mujoco.mj_forward(m,d)
         return (d.geom('fixed_pad').xpos+d.geom('moving_pad').xpos)/2
     def jaw_angle():
@@ -104,7 +110,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     roll_offset=reference[4]-reference[0]
     # A stack needs a shallower bite: the standard jaw extends below the
     # aperture center and otherwise closes around both stacked cubes.
-    grasp_z=max(cube[2]+(.022 if unstacking else .010), .024)
+    grasp_z=max(cube[2]+(.022 if unstacking else .006 if tape else .010), .024)
     hover=max(.12,grasp_z+.09,bowl[2]+cal.world['bowl']['height']+.065)
     errors=[]; waypoints=[(initial,0)]; names=['Start']; stages=[]
     def waypoint(name,q,seconds):
@@ -119,10 +125,10 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
             roll=.05*wrap90(jaw_angle()-yaw) if yaw is not None else .008*(x[4]-x[0]-roll_offset)
             level=[]
             if tape:
-                # The moving jaw swings in an arc. Across a 53 mm roll it would meet the
-                # top face unless both pads are level at the held width: tilt the wrist.
-                d.qpos[:6]=np.r_[x,aperture];mujoco.mj_forward(m,d)
-                level=[d.geom('fixed_pad').xpos[2]-d.geom('moving_pad').xpos[2]];c=center(q)
+                # The moving jaw swings in an arc; keep both pads level at the held
+                # width so it meets the outer wall, not the top face. center(q) left
+                # the model at that held aperture.
+                level=[d.geom('fixed_pad').xpos[2]-d.geom('moving_pad').xpos[2]]
             return np.r_[c-xyz,.012*(x[1:4].sum()-np.pi/2),roll,level,.00003*(x-prior[:5])]
         fit=least_squares(residual,np.clip(seed[:5],lo,hi),bounds=(lo,hi),max_nfev=180,gtol=1e-10)
         current=np.r_[fit.x,opening]
@@ -164,6 +170,15 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         for name,q,seconds in [('Close after retreat',closed,1.5),('Return raised',home['raised'],3.),('Return unfolded',home['unfolded'],6.),('Home',home['home'],2.5)]:waypoint(name,q,seconds)
         stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
         waypoint('Final settle',waypoints[-1][0].copy(),2.)
+    elif tape:
+        # The roll hangs on the fixed jaw through its hole, so it cannot be dropped:
+        # lower it onto the bowl floor, open a little, then lift the jaw out.
+        place_z=grasp_z+config['estimates']['bowl_floor_thickness_m']+.006
+        add('Lower into bowl',np.r_[bowl[:2],place_z],close_grip,seconds=2.)
+        waypoint('Placement settle',waypoints[-1][0].copy(),.5)
+        add('Release in bowl',np.r_[bowl[:2],place_z],release_grip,seconds=1.)
+        add('Retreat',np.r_[bowl[:2],hover],release_grip,seconds=1.5)
+        waypoint('Final settle',waypoints[-1][0].copy(),1.5)
     else:
         add('Release',np.r_[bowl[:2],hover],release_grip,seconds=1.)
         waypoint('Final settle',waypoints[-1][0].copy(),1.5)

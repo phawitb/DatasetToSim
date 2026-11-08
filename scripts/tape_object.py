@@ -2,9 +2,12 @@
 
 The roll reuses the manipulated ``cube`` body so traces, grasp audits and
 containment stay one code path. Only its geometry, mass and grip opening
-change. Visual meshes come from the Blender model in assets/models/tape;
-collision is the convex outer cylinder (the hole is never touched by an
-outside grasp or a drop into the bowl).
+change. Visual meshes come from the Blender model in assets/models/tape.
+
+The roll is grasped through its hole: the fixed jaw goes into the core and
+the moving jaw closes on the outside, pinching the wall. Collision is
+therefore a hollow ring of convex wedges; ``cube_geom`` keeps the outer
+cylinder only as a non-colliding outline for bowl containment.
 """
 import json
 from functools import lru_cache
@@ -19,10 +22,16 @@ TAPE = 'tape'
 VISUAL_PARTS = [('tape_roll', '.93 .91 .84 .55'), ('tape_core', '.55 .40 .26 1'), ('tape_liner', '.88 .90 .95 1')]
 # Pads are 6 mm thick boxes; the occupied pad-centre span is object width + 6 mm.
 PAD_THICKNESS_M = .006
-# Open jaws clear the roll by this much on each side before closing.
+# Open moving jaw clears the outer wall by this much before closing.
 OPEN_SIDE_CLEARANCE_M = .013
-# Jaw clearance around the roll for initial layout proposals.
-LAYOUT_JAW_CLEARANCE_M = .012
+# Fixed pad centre sits this far from the roll axis, towards the moving jaw,
+# when it enters the hole (keeps its 6 x 16 mm pad clear of the 26 mm core).
+FIXED_PAD_RADIUS_M = .0055
+# The open moving jaw reaches ~55 mm from the roll axis on one side.
+LAYOUT_JAW_CLEARANCE_M = .03
+WALL_SEGMENTS = 24
+# The opened moving jaw backs off the outer wall by this much on release.
+RELEASE_CLEARANCE_M = .008
 # Close this many native gripper units past first contact.
 SQUEEZE_NATIVE = 12.
 
@@ -53,8 +62,9 @@ def footprint_radius():
 
 
 def grasp_width():
-    """Width the jaws close across: the outer diameter."""
-    return dimensions()['outer_diameter_m']
+    """Width the jaws close across: the roll wall, core hole to outer surface."""
+    size = dimensions()
+    return (size['outer_diameter_m'] - size['core_inner_diameter_m']) / 2
 
 
 def _obj(path):
@@ -80,14 +90,25 @@ def apply_tape(root, world):
     asset = root.find('asset')
     body = root.find(".//body[@name='cube']")
     geom = body.find("geom[@name='cube_geom']")
+    inner = size['core_inner_diameter_m'] / 2
     angles = np.arange(48) * 2 * np.pi / 48
-    collision = [[radius * np.cos(a), radius * np.sin(a), z] for z in (-width / 2, width / 2) for a in angles]
-    ET.SubElement(asset, 'mesh', name='tape_collision_mesh', vertex=_numbers(collision))
+    outline = [[radius * np.cos(a), radius * np.sin(a), z] for z in (-width / 2, width / 2) for a in angles]
+    ET.SubElement(asset, 'mesh', name='tape_collision_mesh', vertex=_numbers(outline))
+    physics = {key: geom.get(key) for key in ('contype', 'conaffinity', 'friction', 'condim', 'solref', 'solimp') if geom.get(key)}
     for key in ('size', 'type', 'rgba', 'material'):
         geom.attrib.pop(key, None)
-    # Same physics attributes as the cube; hidden in renders (group 3).
+    # Outline only: bowl containment reads its vertices; it never collides or weighs.
     geom.set('type', 'mesh'); geom.set('mesh', 'tape_collision_mesh'); geom.set('group', '3')
-    geom.set('rgba', '.93 .91 .84 .3'); geom.set('mass', str(world['cube'].get('mass_kg', size['mass_kg'])))
+    geom.set('rgba', '.93 .91 .84 .3'); geom.set('mass', '0'); geom.set('contype', '0'); geom.set('conaffinity', '0')
+    # Hollow wall: convex wedges between the core hole and the outer surface,
+    # with the cube's contact physics and the roll's mass shared between them.
+    mass = world['cube'].get('mass_kg', size['mass_kg']) / WALL_SEGMENTS
+    for k in range(WALL_SEGMENTS):
+        edges = [k * 2 * np.pi / WALL_SEGMENTS, (k + 1) * 2 * np.pi / WALL_SEGMENTS]
+        wedge = [[r * np.cos(a), r * np.sin(a), z] for z in (-width / 2, width / 2) for r in (inner, radius) for a in edges]
+        ET.SubElement(asset, 'mesh', name=f'tape_wall_{k}_mesh', vertex=_numbers(wedge))
+        ET.SubElement(body, 'geom', name=f'tape_wall_{k}', type='mesh', mesh=f'tape_wall_{k}_mesh', group='3',
+                      rgba='.93 .91 .84 .3', mass=str(mass), **physics)
     for name, rgba in VISUAL_PARTS:
         vertices, faces = _obj(MODEL_DIR / f'{name}.obj')
         vertices = vertices - [0, 0, width / 2]  # Blender parts sit on z=0; centre them on the body
@@ -98,7 +119,7 @@ def apply_tape(root, world):
 
 
 def jaw_openings(model, data, adapter, qpos, width):
-    """Held model gripper angle for ``width``, and native open and squeeze commands."""
+    """Held model gripper angle for ``width``, and native open, squeeze and release commands."""
     import mujoco
     def span(q5):
         data.qpos[:6] = qpos; data.qpos[5] = q5; mujoco.mj_forward(model, data)
@@ -109,12 +130,16 @@ def jaw_openings(model, data, adapter, qpos, width):
             mid = (low + high) / 2
             low, high = (mid, high) if span(mid) < target else (low, mid)
         return (low + high) / 2
-    held = solve(width + PAD_THICKNESS_M)
+    held = solve(width + PAD_THICKNESS_M)  # after the wall slides onto the fixed pad
     opened = solve(width + PAD_THICKNESS_M + 2 * OPEN_SIDE_CLEARANCE_M)
     native = lambda q5: float(adapter.to_native(np.r_[np.zeros(5), q5])[5])
     # Squeeze command: a little inside the held width, so the servo presses at
     # its torque limit while the tracking error stays a bounded, honest number.
-    return held, float(np.ceil(native(opened))), max(0., float(np.floor(native(held) - SQUEEZE_NATIVE)))
+    # Release only opens a little: the moving jaw stays clear of the bowl wall,
+    # and the fixed jaw then slides up out of the hole.
+    released = solve(width + PAD_THICKNESS_M + RELEASE_CLEARANCE_M)
+    return (held, float(np.ceil(native(opened))), max(0., float(np.floor(native(held) - SQUEEZE_NATIVE))),
+            float(np.ceil(native(released))))
 
 
 def fit_tape_mask(mask, camera, initial_xy, support):
