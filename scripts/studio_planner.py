@@ -77,6 +77,15 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     def center(q):
         d.qpos[:6]=q;d.qpos[5]=max(aperture,q[5]);mujoco.mj_forward(m,d)
         return (d.geom('fixed_pad').xpos+d.geom('moving_pad').xpos)/2
+    def jaw_angle():
+        # Horizontal direction the jaws close along, after center(q) ran forward kinematics.
+        v=d.geom('moving_pad').xpos-d.geom('fixed_pad').xpos;return np.arctan2(v[1],v[0])
+    def yaw_of(item):
+        q=np.asarray(item['quaternion'],float);return 2*np.arctan2(q[3],q[0])
+    # Generated scenes may rotate cubes freely: close the jaws across a face pair
+    # (any multiple of 90 deg). Real New Run scenes keep the original roll rule.
+    align=bool(cal.world.get('align_grasp_yaw',False))
+    wrap90=lambda a:(a+np.pi/4)%(np.pi/2)-np.pi/4
     start=center(current).copy()
     reference=np.array([0.,-20.,65.,45.,0.,0.])
     # Use a recorded successful grasp posture only as the IK branch seed.
@@ -93,13 +102,15 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     errors=[]; waypoints=[(initial,0)]; names=['Start']; stages=[]
     def waypoint(name,q,seconds):
         waypoints.append((q,seconds));names.append(name)
-    def add(name,xyz,grip,seed=None,seconds=1.):
+    def add(name,xyz,grip,seed=None,seconds=1.,yaw=None):
         nonlocal current
         prior=current.copy(); seed=prior if seed is None else seed
         opening=adapter.to_model(np.array([0,0,0,0,0,grip]))[5]
+        yaw=yaw if align else None
         def residual(x):
-            q=np.r_[x,opening]
-            return np.r_[center(q)-xyz,.012*(x[1:4].sum()-np.pi/2),.008*(x[4]-x[0]-roll_offset),.00003*(x-prior[:5])]
+            q=np.r_[x,opening];c=center(q)
+            roll=.05*wrap90(jaw_angle()-yaw) if yaw is not None else .008*(x[4]-x[0]-roll_offset)
+            return np.r_[c-xyz,.012*(x[1:4].sum()-np.pi/2),roll,.00003*(x-prior[:5])]
         fit=least_squares(residual,np.clip(seed[:5],lo,hi),bounds=(lo,hi),max_nfev=180,gtol=1e-10)
         current=np.r_[fit.x,opening]
         err=float(np.linalg.norm(center(current)-xyz)); errors.append(err)
@@ -114,22 +125,25 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         start=center(current).copy()
         stages.append({'name':'Unfold from rest','target_m':start.tolist(),'ik_error_mm':0.})
     add('Raise',np.r_[start[:2],max(hover,start[2])],initial[5],seconds=1.5)
-    add('Open above cube',np.r_[cube[:2],hover],35.,reference,1.5)
+    source_yaw=yaw_of(cal.world['cube'])
+    # Stacking turns the held cube to the lower cube's faces; other placements are free.
+    place_yaw=yaw_of(cal.world['target_cube']) if stacking else None
+    add('Open above cube',np.r_[cube[:2],hover],35.,reference,1.5,yaw=source_yaw)
     if technique=='natural':
         # End the coordinated travel above contact height. The short final
         # descent keeps the yaw aligned before the jaws surround the object.
-        add('Pregrasp',np.r_[cube[:2],grasp_z+.045],35.,seconds=.6)
-    add('Approach',np.r_[cube[:2],grasp_z],35.,seconds=1.5)
+        add('Pregrasp',np.r_[cube[:2],grasp_z+.045],35.,seconds=.6,yaw=source_yaw)
+    add('Approach',np.r_[cube[:2],grasp_z],35.,seconds=1.5,yaw=source_yaw)
     if technique=='natural':waypoint('Grasp settle',waypoints[-1][0].copy(),.4)
-    add('Grasp',np.r_[cube[:2],grasp_z],0.,seconds=1.)
-    add('Lift',np.r_[cube[:2],hover],0.,seconds=1.5)
-    add('Transfer',np.r_[placement[:2],hover],0.,seconds=2.)
+    add('Grasp',np.r_[cube[:2],grasp_z],0.,seconds=1.,yaw=source_yaw)
+    add('Lift',np.r_[cube[:2],hover],0.,seconds=1.5,yaw=source_yaw)
+    add('Transfer',np.r_[placement[:2],hover],0.,seconds=2.,yaw=place_yaw)
     if placing:
         place_z=grasp_z+(placement[2]-cube[2])+(cal.world['target_cube']['size'] if stacking else 0)+.005
-        add('Lower onto cube' if stacking else 'Lower onto table',np.r_[placement[:2],place_z],0.,seconds=2.)
+        add('Lower onto cube' if stacking else 'Lower onto table',np.r_[placement[:2],place_z],0.,seconds=2.,yaw=place_yaw)
         waypoint('Placement settle',waypoints[-1][0].copy(),.7)
         placement_knot=len(waypoints)-1
-        add('Release on cube' if stacking else 'Release on table',np.r_[placement[:2],place_z],40.,seconds=1.5)
+        add('Release on cube' if stacking else 'Release on table',np.r_[placement[:2],place_z],40.,seconds=1.5,yaw=place_yaw)
         add('Retreat',np.r_[placement[:2],hover],40.,seconds=2.)
         home=json.loads((ROOT/'calibration/studio-home.json').read_text())
         if capture['calibration_hash']!=home['calibration_sha256']:raise ValueError('Home calibration changed')

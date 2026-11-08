@@ -66,3 +66,27 @@ def test_balancer_restricts_choices_and_accounts_for_inherited_outside_zones():
     assert b.source[4]==b.target[4]==1
     assert abs(b.source[0]-b.source[1])<=1 and abs(b.target[7]-b.target[8])<=1
     with pytest.raises(ValueError,match='full'):b.choose()
+
+
+def test_zone_spread_keeps_objects_near_zone_centers_and_rotation_covers_full_range(tmp_path):
+    from studio_generation_layout import workspace_grid_cells
+    centers = {}
+    yaws = []
+    for seed in range(12):
+        folder = tmp_path / str(seed)
+        options = validate_request({'tasks': ['red_cube_to_green_bowl'], 'zone_spread_mm': 20, 'object_yaw_range_deg': 360})
+        initialize_generation_scene(folder, 'red_cube_to_green_bowl', seed, options)
+        scene = json.loads((folder / 'generation-scene.json').read_text()); world = scene['world']
+        cells = workspace_grid_cells(world)
+        xy = np.asarray(world['cube']['position'][:2])
+        nearest = min(np.linalg.norm(xy - np.mean(np.asarray(c['bounds_xy_m']), axis=0)) for c in cells)
+        assert nearest <= .020 + 1e-9
+        q = world['cube']['quaternion']; yaws.append(np.degrees(2 * np.arctan2(q[3], q[0])))
+        assert world['align_grasp_yaw'] is True
+        assert scene['layout_sampling']['zone_spread_mm'] == 20
+    assert max(yaws) - min(yaws) > 90  # far beyond the legacy ±5.7°
+    with pytest.raises(ValueError, match='zone_spread_mm'):
+        validate_request({'zone_spread_mm': 150})
+    with pytest.raises(ValueError, match='object_yaw_range_deg'):
+        validate_request({'object_yaw_range_deg': 400})
+    assert validate_request({})['zone_spread_mm'] is None and validate_request({})['object_yaw_range_deg'] == 360

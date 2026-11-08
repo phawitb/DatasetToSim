@@ -26,7 +26,7 @@ from dataset_to_sim.studio import native_limits, validate_trajectory
 from strict_action_scene import build_model, containment
 from strict_action_replay import score
 from studio_stack import stack_verdict
-from studio_generation_layout import PARKED_XY, sample_workspace_layout
+from studio_generation_layout import LEGACY_YAW_RANGE_DEG, PARKED_XY, sample_workspace_layout
 
 TASKS = {
     'green_cube_to_green_bowl': ('bowl', 'green', 'Put the green cube in the green bowl.'),
@@ -196,8 +196,11 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
                           'not proof of unreachability or failure. Some physically valid layouts can be filtered; '
                           'previously accepted episodes remain valid and are retained.')
         for _ in range(maximum_proposals if descriptor is not None else 1):
+            spread = options.get('zone_spread_mm')
             source, target, bowl_xy, draws, layout_sampling = sample_workspace_layout(
-                world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles, present)
+                world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles, present,
+                zone_spread_m=None if spread is None else spread / 1000,
+                yaw_range_deg=options.get('object_yaw_range_deg', LEGACY_YAW_RANGE_DEG))
             if descriptor is None:
                 break
             screen['proposal_count'] += 1
@@ -224,6 +227,8 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
         draws['bowl'] = {'position_xy_m': list(bowl_xy), 'xy_offset_m': [0., 0.]}
         layout_sampling = {'version': 2, 'distribution': 'fixed_reference_layout'}
     layout_sampling['object_zones'] = object_zones
+    layout_sampling['zone_spread_mm'] = options.get('zone_spread_mm')
+    layout_sampling['object_yaw_range_deg'] = float(options.get('object_yaw_range_deg', LEGACY_YAW_RANGE_DEG))
 
     def pose(xy, yaw):
         return {'position': [*map(float, xy), z], 'size': edge,
@@ -233,6 +238,8 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
     world['target_cube'] = pose(*target)
     world['bowl']['position'] = [*map(float, bowl_xy), support]
     world['bowl_present'] = present['bowl']
+    # Requests with the rotation control may rotate cubes freely: align the jaws to the cube faces.
+    world['align_grasp_yaw'] = 'object_yaw_range_deg' in options
     world['other_cube_present'] = present['other_cube'] or task == 'unstack'
     if not world['other_cube_present']:
         world['target_cube']['position'] = [*PARKED_XY, -1.]
@@ -257,7 +264,7 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
             physics_draws['friction_scales'][material] = scale
     scene = {'schema_version': 1, 'source': 'synthetic', 'task': task, 'task_id': task_id,
              'world': world, 'layout_draws': draws, 'layout_sampling': layout_sampling, 'physics_draws': physics_draws,
-             'randomization_policy': 'Seeded uniform full-mat XY proposals with footprint margins, base exclusion and object separation; yaw within 0.10 rad. Only reachable, physically valid proposals are accepted. Optional cube mass and contact friction scale within 10%; fixed geometry, colors, gains and collision masks.',
+             'randomization_policy': 'Seeded uniform full-mat XY proposals with footprint margins, base exclusion and object separation; cube yaw uniform within the requested rotation range (legacy ±0.10 rad); optional disk spread around zone centers. Only reachable, physically valid proposals are accepted. Optional cube mass and contact friction scale within 10%; fixed geometry, colors, gains and collision masks.',
              'calibration': data, 'base_config_sha256': hashlib.sha256(config_path.read_bytes()).hexdigest()}
     if options.get('_layout_cell') is not None:
         scene['randomization_policy'] = ('Seeded uniform proposals within requested cells of the full calibrated mat; '

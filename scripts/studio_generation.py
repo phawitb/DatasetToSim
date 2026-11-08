@@ -37,7 +37,8 @@ def validate_request(body):
     defaults = dict(name='synthetic-demonstrations', tasks=list(TASKS), episodes_per_task=1, object_zones={},
                     seed=0, motion_technique='natural', timing_profile='recorded', speed_scale=1., randomize_layout=True,
                     visual_randomization=True, camera_jitter=False, sensor_augmentation=True,
-                    physics_randomization=False, real_background=False, real_image_processing=False, validation_fraction=.2, unstack_top='red', parent_job_id=None, target_counts=None, layout_strategy="uniform", extra_objects=[]) | VISUAL_DEFAULTS
+                    physics_randomization=False, real_background=False, real_image_processing=False, validation_fraction=.2, unstack_top='red', parent_job_id=None, target_counts=None, layout_strategy="uniform", extra_objects=[],
+                    zone_spread_mm=None, object_yaw_range_deg=360.) | VISUAL_DEFAULTS
     if not isinstance(body, dict) or set(body) - set(defaults):
         raise ValueError('Unknown generation options')
     result = defaults | body
@@ -73,6 +74,14 @@ def validate_request(body):
     from studio_generation_zones import validate_object_zones, validate_extra_objects, layout_zone_roles, ALL_ZONES
     result['object_zones'] = validate_object_zones(result['object_zones'])
     result['extra_objects'] = validate_extra_objects(result['extra_objects'])
+    spread = result['zone_spread_mm']
+    if spread is not None and (type(spread) not in (int, float) or not math.isfinite(spread) or not 0 <= spread <= 100):
+        raise ValueError('zone_spread_mm must be empty (whole zone) or 0–100 mm')
+    yaw = result['object_yaw_range_deg']
+    if type(yaw) not in (int, float) or not math.isfinite(yaw) or not 0 <= yaw <= 360:
+        raise ValueError('object_yaw_range_deg must be between 0 and 360')
+    if not result['randomize_layout'] and spread is not None:
+        raise ValueError('Zone spread requires Randomize object layout')
     if not result['randomize_layout'] and any(z != ALL_ZONES for z in result['object_zones'].values()):
         raise ValueError('Object zones require Randomize object layout')
     for task in tasks if 'tasks' in body or not result['parent_job_id'] else []:
@@ -222,6 +231,8 @@ class GenerationManager:
         # Parents predating scene-object selection always contained both cubes.
         from studio_generation_zones import LEGACY_EXTRA_OBJECTS
         inherited.setdefault('extra_objects', list(LEGACY_EXTRA_OBJECTS))
+        from studio_generation_layout import LEGACY_YAW_RANGE_DEG
+        inherited.setdefault('zone_spread_mm', None); inherited.setdefault('object_yaw_range_deg', LEGACY_YAW_RANGE_DEG)
         # Add episodes is additive unless this request explicitly supplies totals.
         inherited['target_counts'] = None
         next_seed = self.next_seed(parent)
