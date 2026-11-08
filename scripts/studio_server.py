@@ -372,43 +372,58 @@ def episode(index:int):
     video=episode_video_status(index).get('video')
     return {'episode':index,'frames':ep.frame_count,'duration':ep.frame_count/30,'timestamps':ep.timestamps.tolist(),'real':ep.state_deg.tolist(),'sim':sim,'actions':ep.action_deg.tolist(),'report':report,'video':video}
 
-def episode_video_status(index):
+APPEARANCES=('raw','background','realistic')
+
+def appearance_mode(value):
+    if value not in APPEARANCES:raise ValueError('Unknown Simulation appearance')
+    return value
+
+def episode_video_status(index,appearance='raw'):
     folder=RUN/f'episode-{index:02d}'
     if index<0 or not (folder/'report.json').is_file():raise ValueError('Episode not found')
+    if appearance!='raw':
+        if (WORK/f'replay-{index:02d}'/f'comparison-{appearance}.mp4').is_file():return {'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison-{appearance}.mp4'}
+        return video_jobs.get((index,appearance),{'status':'idle'})
     if (folder/'real-vs-sim-strict.mp4').is_file():return {'status':'ready','video':f'/media/benchmark/episode-{index:02d}/real-vs-sim-strict.mp4'}
     if (WORK/f'replay-{index:02d}'/'comparison.mp4').is_file():return {'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison.mp4'}
-    return video_jobs.get(index,{'status':'idle'})
+    return video_jobs.get((index,'raw'),{'status':'idle'})
 
 @app.get('/api/episodes/{index}/video')
-def video_status(index:int):return episode_video_status(index)
+def video_status(index:int,appearance:str='raw'):return episode_video_status(index,appearance_mode(appearance))
 
 @app.post('/api/episodes/{index}/video')
-def prepare_video(index:int):
+def prepare_video(index:int,appearance:str='raw'):
+    appearance=appearance_mode(appearance);key=(index,appearance)
     with video_lock:
-        status=episode_video_status(index)
+        status=episode_video_status(index,appearance)
         if status['status'] in ['ready','rendering']:return status
-        video_jobs[index]={'status':'rendering'}
+        video_jobs[key]={'status':'rendering'}
         def render():
             try:
-                result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_video.py'),str(index)],capture_output=True,text=True,timeout=240)
+                command=[sys.executable,str(ROOT/'scripts/studio_video.py'),str(index)] if appearance=='raw' else [sys.executable,str(ROOT/'scripts/studio_episode_appearance.py'),'video',str(index),appearance]
+                result=subprocess.run(command,capture_output=True,text=True,timeout=600)
                 if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1] if result.stderr else 'Render failed')
-                video_jobs[index]={'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison.mp4'}
-            except Exception as exc:video_jobs[index]={'status':'error','error':str(exc)}
+                name='comparison.mp4' if appearance=='raw' else f'comparison-{appearance}.mp4'
+                if not (WORK/f'replay-{index:02d}'/name).is_file():raise ValueError('Render produced no video')
+                video_jobs[key]={'status':'ready','video':f'/media/studio/replay-{index:02d}/{name}'}
+            except Exception as exc:video_jobs[key]={'status':'error','error':str(exc)}
         video_pool.submit(render)
-        return video_jobs[index]
+        return video_jobs[key]
 
 @app.get('/api/episodes/{index}/frame/{frame}')
-def frame(index:int,frame:int):
+def frame(index:int,frame:int,appearance:str='raw'):
+    appearance=appearance_mode(appearance)
     folder=RUN/f'episode-{index:02d}'
     if index<0 or frame<0 or not folder.is_dir():raise ValueError('Frame unavailable')
     report=json.loads((folder/'report.json').read_text())
     if frame>=report['frames']:raise ValueError('Frame out of bounds')
-    target=WORK/f'frame-{index}-{frame}.jpg'
+    target=WORK/(f'frame-{index}-{frame}.jpg' if appearance=='raw' else f'frame-{index}-{frame}-{appearance}.jpg')
     with frames_lock:
         if not target.exists():
             existing=folder/f'comparison-{frame:03d}.jpg'
-            if existing.exists():return FileResponse(existing)
-            result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_frame.py'),str(index),str(frame),str(target)],capture_output=True,text=True,timeout=40)
+            if appearance=='raw' and existing.exists():return FileResponse(existing)
+            command=[sys.executable,str(ROOT/'scripts/studio_frame.py'),str(index),str(frame),str(target)] if appearance=='raw' else [sys.executable,str(ROOT/'scripts/studio_episode_appearance.py'),'frame',str(index),appearance,str(frame),str(target)]
+            result=subprocess.run(command,capture_output=True,text=True,timeout=40)
             if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1] if result.stderr else 'Frame render failed')
     return FileResponse(target)
 

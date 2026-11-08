@@ -5,8 +5,13 @@ import {ObjectsView} from './objects-view.mjs';
 import {ReplayDatasetBuilder} from './replay-builder.mjs';
 import {ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary} from './generation-zones.mjs';
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+// Simulation appearance is display only: archived states are re-rendered, never re-simulated.
+const APPEARANCES={raw:{label:'MUJOCO',name:'Raw'},background:{label:'REAL BG',name:'Real background'},realistic:{label:'REALISTIC',name:'Realistic'}};
+function savedAppearance(){try{const value=localStorage.getItem('sim-appearance');return APPEARANCES[value]?value:'raw';}catch{return 'raw';}}
+const appearanceQuery=(appearance=state.appearance)=>appearance==='raw'?'':`?appearance=${appearance}`;
+const episodeVideo=()=>state.episode?.videos?.[state.appearance]||null;
 const clientId=crypto.randomUUID();
-const state={token:'',runs:[],historyMode:false,page:'datasets',datasets:[],selectedDataset:null,restarting:false,instance:null,activeCapture:null,episodes:[],episode:null,index:0,frame:0,view:'top',mode:'dataset',capture:null,selection:null,selectionRole:'from',selecting:false,plan:null,robot:{},busy:false,filter:'all',lastJob:'',request:0};
+const state={token:'',runs:[],historyMode:false,page:'datasets',datasets:[],selectedDataset:null,restarting:false,instance:null,activeCapture:null,episodes:[],episode:null,index:0,frame:0,view:'top',mode:'dataset',capture:null,selection:null,selectionRole:'from',selecting:false,plan:null,robot:{},busy:false,filter:'all',lastJob:'',request:0,appearance:savedAppearance()};
 const video=$('#video'),real=$('#real-canvas'),sim=$('#sim-canvas');
 const playback=new Playback(video,{onFrame:()=>{draw();if(state.mode==='dataset'&&state.episode)state.frame=Math.min(state.episode.frames-1,Math.floor(video.currentTime*30));updateTimeline();},onState:({ready,paused})=>{$('#play').disabled=!ready||state.robot.running||(state.mode==='live'&&state.plan?.executed&&!state.plan?.execution?.video);$('#play').textContent=paused?'▶':'Ⅱ';$('#play').setAttribute('aria-label',paused?'Play comparison':'Pause comparison');},onError:message=>toast(message,true)});
 function planVideo(){const name=state.plan?.execution?.video||state.plan?.video;return name?`/media/studio/${state.capture.id}/${name}`:null;}
@@ -22,7 +27,7 @@ function blank(which,text){$('#'+which+'-empty').textContent=text;$('#'+which+'-
 function draw(){
  const r=real.getContext('2d'),s=sim.getContext('2d');
  if(state.mode==='dataset'){
-  const source=state.episode?.video&&video.readyState>=2&&video.videoHeight===1024?video:combined;
+  const source=episodeVideo()&&video.readyState>=2&&video.videoHeight===1024?video:combined;
   if(source){let y=state.view==='top'?32:544;r.drawImage(source,0,y,640,480,0,0,640,480);s.drawImage(source,640,y,640,480,0,0,640,480);$('#real-empty').classList.add('hidden');$('#sim-empty').classList.add('hidden');}
  }else{
   if(state.plan?.execution?.video&&video.readyState>=2&&video.videoHeight===1024){
@@ -37,30 +42,43 @@ function renderList(){if(state.historyMode){renderRuns();return;}const query=$('
 function setMode(mode){
  if(mode!==state.mode)state.request++;video.pause();state.mode=mode;
  $('#real-label').textContent=mode==='dataset'?'RECORDED':state.plan?.execution?.video?'RECORDED RUN':'CAPTURE STILL';
- $('#sim-label').textContent=mode==='dataset'?'MUJOCO':'PLANNED';
+ $('#sim-label').textContent=mode==='dataset'?APPEARANCES[state.appearance].label:'PLANNED';$('#sim-appearance').classList.toggle('hidden',mode!=='dataset');
  $('#comparison-note').textContent=mode==='dataset'?'Original recorded actions · shared robot, camera and contact parameters':'Image-conditioned IK plan · simulation success does not establish real-world success';
- if(mode==='dataset'&&state.episode){setVideo(state.episode.video);$('#episode-label').textContent=`EPISODE ${String(state.index).padStart(2,'0')}`;setOutcome(state.episode.report.outcome);}
+ if(mode==='dataset'&&state.episode){setVideo(episodeVideo());$('#episode-label').textContent=`EPISODE ${String(state.index).padStart(2,'0')}`;setOutcome(state.episode.report.outcome);}
  else{setVideo(planVideo());$('#episode-label').textContent=state.page==='history'?'RECORDED RUN':'NEW RUN';setOutcome(state.plan?.outcome||(state.capture?'select objects':'capture needed'));if(!realImage)blank('real','Connect the robot and capture the current scene.');if(!simImage&&!state.plan?.video)blank('sim','Generate a plan to reconstruct this scene.');}
  applyLayout();draw();chart();updateTimeline();playbackLabel();updateSelection();
 }
 function setOutcome(text){$('#outcome').textContent=(state.mode==='live'&&text==='success'?'sim: ':'')+pretty(text);$('#outcome').classList.toggle('failed',!['success','not_simulated'].includes(text));}
 function setVideo(url){playback.setSource(url);playbackLabel();}
-async function ensureEpisodeVideo(index,request){
+async function ensureEpisodeVideo(index,request,appearance=state.appearance){
+ const stale=()=>request!==state.request||state.mode!=='dataset'||state.index!==index||state.appearance!==appearance;
  try{
-  let job=await api(`/api/episodes/${index}/video`,{});
+  let job=await api(`/api/episodes/${index}/video${appearanceQuery(appearance)}`,{});
   while(job.status==='rendering'){
-   if(request!==state.request||state.mode!=='dataset'||state.index!==index)return;
-   playbackLabel('Preparing full video…');
+   if(stale())return;
+   playbackLabel(appearance==='raw'?'Preparing full video…':`Rendering ${APPEARANCES[appearance].name.toLowerCase()} video…`);
    await new Promise(resolve=>setTimeout(resolve,1000));
-   job=await api(`/api/episodes/${index}/video`);
+   job=await api(`/api/episodes/${index}/video${appearanceQuery(appearance)}`);
   }
-  if(request!==state.request||state.mode!=='dataset'||state.index!==index)return;
+  if(stale())return;
   if(job.status!=='ready')throw Error(job.error||'Could not prepare video');
-  state.episode.video=job.video;setVideo(job.video);playbackLabel('⛓ Same timeline');
-  event(`Episode ${String(index).padStart(2,'0')} full video ready · both views use one clock`);
- }catch(e){playbackLabel('Video unavailable');toast(e.message,true);}
+  state.episode.videos[appearance]=job.video;showEpisodeVideo(job.video,state.frame);playbackLabel('⛓ Same timeline');
+  event(`Episode ${String(index).padStart(2,'0')} ${appearance==='raw'?'full':APPEARANCES[appearance].name.toLowerCase()} video ready · both views use one clock`);
+ }catch(e){if(!stale()){playbackLabel('Video unavailable');toast(e.message,true);}}
 }
-async function loadEpisode(index){try{state.page='datasets';state.historyMode=false;historySidebar();$('#run-summary').classList.add('hidden');if(state.mode!=='dataset'){state.mode='dataset';state.request++;}const request=++state.request;video.pause();blank('real','Loading episode…');blank('sim','Loading synchronized simulation…');const result=await api(`/api/episodes/${index}`);if(request!==state.request)return;state.index=index;$('#episode-select').value=index;state.episode=result;state.frame=0;combined=null;setMode('dataset');if(result.video&&video.readyState>=2)video.currentTime=0;renderList();$('#timeline').max=result.frames-1;$('#timeline').value=0;const rmse=result.report.joint_state_rmse_native;$('#arm-error').innerHTML=`${Math.sqrt(rmse.slice(0,5).reduce((a,x)=>a+x*x,0)/5).toFixed(3)}<em>°</em>`;$('#gripper-error').innerHTML=`${rmse[5].toFixed(3)}<em>u</em>`;if(!result.video){ensureEpisodeVideo(index,request);const firstFrame=await image(`/api/episodes/${index}/frame/0`);if(request!==state.request||state.mode!=='dataset'||state.index!==index)return;combined=firstFrame;draw();}event(`Episode ${String(index).padStart(2,'0')} loaded · ${pretty(result.report.outcome)}${result.video?' · synchronized video':' · frame-by-frame view'}`);}catch(e){toast(e.message,true);}}
+function showEpisodeVideo(url,frame){setVideo(url);if(frame>0)video.addEventListener('loadeddata',()=>{if(video.getAttribute('src')===url)video.currentTime=frame/30;},{once:true});}
+async function changeAppearance(){
+ const appearance=$('#sim-appearance').value;if(!APPEARANCES[appearance]||appearance===state.appearance)return;
+ state.appearance=appearance;try{localStorage.setItem('sim-appearance',appearance);}catch{}
+ $('#sim-label').textContent=state.mode==='dataset'?APPEARANCES[appearance].label:'PLANNED';
+ if(state.mode!=='dataset'||!state.episode)return;
+ const request=++state.request,index=state.index,frame=state.frame,url=episodeVideo();
+ if(url){showEpisodeVideo(url,frame);event(`Simulation view · ${APPEARANCES[appearance].name}`);return;}
+ setVideo(null);combined=null;blank('sim',`Rendering ${APPEARANCES[appearance].name.toLowerCase()} view…`);
+ ensureEpisodeVideo(index,request,appearance);
+ try{const still=await image(`/api/episodes/${index}/frame/${frame}${appearanceQuery(appearance)}`);if(request!==state.request||state.mode!=='dataset'||state.index!==index||state.frame!==frame||episodeVideo())return;combined=still;draw();}catch(e){toast(e.message,true);}
+}
+async function loadEpisode(index){try{state.page='datasets';state.historyMode=false;historySidebar();$('#run-summary').classList.add('hidden');if(state.mode!=='dataset'){state.mode='dataset';state.request++;}const request=++state.request;video.pause();blank('real','Loading episode…');blank('sim','Loading synchronized simulation…');const result=await api(`/api/episodes/${index}`);if(request!==state.request)return;state.index=index;$('#episode-select').value=index;state.episode=result;result.videos={raw:result.video||null};state.frame=0;combined=null;setMode('dataset');if(episodeVideo()&&video.readyState>=2)video.currentTime=0;renderList();$('#timeline').max=result.frames-1;$('#timeline').value=0;const rmse=result.report.joint_state_rmse_native;$('#arm-error').innerHTML=`${Math.sqrt(rmse.slice(0,5).reduce((a,x)=>a+x*x,0)/5).toFixed(3)}<em>°</em>`;$('#gripper-error').innerHTML=`${rmse[5].toFixed(3)}<em>u</em>`;if(!episodeVideo()){ensureEpisodeVideo(index,request);const firstFrame=await image(`/api/episodes/${index}/frame/0${appearanceQuery()}`);if(request!==state.request||state.mode!=='dataset'||state.index!==index)return;combined=firstFrame;draw();}event(`Episode ${String(index).padStart(2,'0')} loaded · ${pretty(result.report.outcome)}${episodeVideo()?' · synchronized video':' · frame-by-frame view'}`);}catch(e){toast(e.message,true);}}
 function updateTimeline(){const duration=state.mode==='dataset'?state.episode?.duration||0:state.plan?.execution?.duration||state.plan?.duration||0;const now=state.mode==='dataset'?state.frame/30:video.currentTime||0;$('#time').textContent=`${now.toFixed(2)} / ${duration.toFixed(2)} s`;const count=state.mode==='dataset'?state.episode?.frames||1:state.plan?.execution?.frames||state.plan?.frames||1;$('#timeline').max=count-1;$('#timeline').value=Math.min(count-1,Math.round(now*30));$('#frame-number').textContent=`FRAME ${String(Math.min(count-1,Math.round(now*30))).padStart(3,'0')} / ${String(count-1).padStart(3,'0')}`;const cursor=$('#chart-cursor');if(cursor)cursor.setAttribute('x1',45+(Math.min(count-1,Math.round(now*30))/Math.max(1,count-1))*740),cursor.setAttribute('x2',cursor.getAttribute('x1'));}
 function chart(){const svg=$('#chart');svg.replaceChildren();if(state.mode!=='dataset'||!state.episode){svg.innerHTML='<text x="400" y="72" text-anchor="middle" fill="#9ba991" font-size="11">Select a recorded episode to compare joint tracking.</text>';return;}const j=Number($('#joint').value||0),a=state.episode.real.map(x=>x[j]),b=state.episode.sim.map(x=>x[j]);let low=Math.min(...a,...b),high=Math.max(...a,...b);const margin=Math.max(2,(high-low)*.12);low-=margin;high+=margin;const x=i=>45+i/(a.length-1)*740,y=v=>112-(v-low)/(high-low)*95;let html='';for(let i=0;i<4;i++){let v=low+(high-low)*i/3;html+=`<line x1="45" y1="${y(v)}" x2="785" y2="${y(v)}" stroke="#e9eee4" stroke-dasharray="3 5"/><text x="34" y="${y(v)+3}" text-anchor="end" font-size="8" fill="#a1ac97">${v.toFixed(0)}</text>`;}for(let i=0;i<5;i++){let at=i/4;html+=`<text x="${45+at*740}" y="134" font-size="8" text-anchor="middle" fill="#a1ac97">${(at*state.episode.duration).toFixed(1)}s</text>`;}for(const [values,color,dash] of [[a,'#4689b1',''],[b,'#9475b9','4 3']])html+=`<polyline points="${values.map((v,i)=>`${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="1.8" stroke-dasharray="${dash}"/>`;html+='<line id="chart-cursor" x1="45" x2="45" y1="10" y2="116" stroke="#acc098" stroke-width="1"/>';svg.innerHTML=html;$('#chart-unit').textContent=j===5?'Gripper · normalized 0–100 units':'Joint position · degrees';updateTimeline();}
 const motionLabels={natural:'Natural',classic:'Classic',gentle:'Gentle',flow:'Flow'};
@@ -113,10 +131,10 @@ real.onclick=async e=>{
  try{state.selecting=true;updateControls();const selection=await api(`/api/captures/${id}/select`,{role,point});if(state.capture?.id!==id)return;state.selection=selection;state.plan=null;simImage=null;$('#plan-result').classList.add('hidden');if(state.mode==='live'){setVideo(null);blank('sim','Objects selected · generate a new plan');setOutcome('objects selected');}await loadMasks();state.selectionRole=selectionRoles().find(r=>!selection[r])||role;event(`SAM selected ${role.toUpperCase()} · ${(selection[role].score*100).toFixed(1)}% confidence`);}catch(e){toast(e.message,true);}finally{state.selecting=false;updateControls();}
 };
 $('#episode-select').onchange=()=>loadEpisode(Number($('#episode-select').value));
-$('#nav-data').onclick=showDatasets;$('#nav-live').onclick=newRun;$('#back-datasets').onclick=showDatasets;$('#search').oninput=renderList;$('#filter').onclick=()=>{state.filter=state.filter==='all'?'failed':'all';$('#filter').textContent=state.filter==='all'?'All results ▾':'Unresolved ▾';renderList();};$('#source').onchange=sourceChanged;$('#task').onchange=async()=>{await newRun();sourceChanged();};$('#bowl-present').onchange=async()=>{await newRun();sourceChanged();};$('#joint').onchange=chart;
+$('#nav-data').onclick=showDatasets;$('#nav-live').onclick=newRun;$('#back-datasets').onclick=showDatasets;$('#search').oninput=renderList;$('#filter').onclick=()=>{state.filter=state.filter==='all'?'failed':'all';$('#filter').textContent=state.filter==='all'?'All results ▾':'Unresolved ▾';renderList();};$('#source').onchange=sourceChanged;$('#task').onchange=async()=>{await newRun();sourceChanged();};$('#bowl-present').onchange=async()=>{await newRun();sourceChanged();};$('#joint').onchange=chart;$('#sim-appearance').value=state.appearance;$('#sim-appearance').onchange=changeAppearance;
 $$('[data-view]').forEach(b=>b.onclick=async()=>{state.view=b.dataset.view;updateSelection();$$('[data-view]').forEach(x=>x.classList.toggle('selected',x===b));$$('.view-name').forEach(x=>x.textContent=state.view.toUpperCase());if(state.mode==='live'&&!state.plan?.execution?.video){realImage=null;blank('real','Loading camera…');if(state.view==='wrist'&&!state.plan?.video)blank('sim','Wrist view available after simulation.');draw();if(!state.robot.running){try{await capturedImage();}catch(e){toast(e.message,true);}}}draw();});
 $('#play').onclick=()=>playback.toggle();$('#speed').onchange=()=>video.playbackRate=Number($('#speed').value);
-$('#timeline').oninput=()=>{const f=Number($('#timeline').value);if(video.getAttribute('src')){video.currentTime=f/30;state.frame=f;updateTimeline();}else if(state.mode==='dataset'){state.frame=f;updateTimeline();clearTimeout(seekTimer);const index=state.index;seekTimer=setTimeout(async()=>{try{const im=await image(`/api/episodes/${index}/frame/${f}`);if(state.mode==='dataset'&&state.index===index&&state.frame===f){combined=im;draw();}}catch(e){toast(e.message,true);}},200);}};
+$('#timeline').oninput=()=>{const f=Number($('#timeline').value);if(video.getAttribute('src')){video.currentTime=f/30;state.frame=f;updateTimeline();}else if(state.mode==='dataset'){state.frame=f;updateTimeline();clearTimeout(seekTimer);const index=state.index;seekTimer=setTimeout(async()=>{try{const im=await image(`/api/episodes/${index}/frame/${f}${appearanceQuery()}`);if(state.mode==='dataset'&&state.index===index&&state.frame===f){combined=im;draw();}}catch(e){toast(e.message,true);}},200);}};
 async function prepareArm(command){try{state.busy=true;updateControls();const result=await api('/api/robot/'+command,{});state.capture=null;$('#run-summary').classList.add('hidden');history.replaceState(null,'','/?page=new');state.selection=null;masks={};state.plan=null;realImage=null;simImage=null;state.lastJob='';$('#plan-result').classList.add('hidden');$('#source').value='live';setMode('live');sourceChanged();if(result.already_home){state.busy=false;event('Already Home · capture a new scene');}else if(command==='home'){event('Checking Home path in simulation, then returning the arm…');}else{state.robot=result;state.busy=false;event(command==='torque_off'?'Torque off · support and position the arm by hand':'Torque on · holding current pose · capture a new scene');}}catch(e){state.busy=false;toast(e.message,true);}updateControls();}
 $('#home').onclick=()=>prepareArm('home');$('#torque-off').onclick=()=>prepareArm('torque_off');$('#torque-on').onclick=()=>prepareArm('torque_on');
 $('#motion-speed').oninput=$('#motion-technique').onchange=$('#motion-timing').onchange=()=>{updateControls();if(motionMismatch()){setVideo(null);blank('sim','Motion settings changed · generate a new plan');setOutcome('plan needs update');}};

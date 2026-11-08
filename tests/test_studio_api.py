@@ -171,3 +171,29 @@ def test_opening_history_does_not_activate_archived_run(tmp_path,monkeypatch):
     assert rows['runs']==[] and rows['active_capture']=='a'*32
     assert client.get('/api/plans/'+identifier).json()['id']==identifier
     assert server.current=='a'*32
+
+
+def test_simulation_appearance_is_validated_and_rendered_separately(monkeypatch):
+    headers={'X-Studio-Token':server.TOKEN}
+    assert client.get('/api/episodes/0/video?appearance=neural').status_code==409
+    assert client.get('/api/episodes/0/frame/0?appearance=neural').status_code==409
+    calls=[]
+    class Done:
+        returncode=0;stderr=''
+    def run(command,**_):
+        calls.append(command);target=server.WORK/'replay-03'/'comparison-realistic.mp4'
+        target.parent.mkdir(exist_ok=True);target.write_bytes(b'video');return Done()
+    class Inline:
+        def submit(self,function):function()
+    monkeypatch.setattr(server.subprocess,'run',run);monkeypatch.setattr(server,'video_pool',Inline())
+    monkeypatch.setattr(server,'video_jobs',{})
+    target=server.WORK/'replay-03'/'comparison-realistic.mp4';existed=target.exists()
+    try:
+        if not existed:
+            result=client.post('/api/episodes/3/video?appearance=realistic',json={},headers=headers).json()
+            assert calls and calls[0][1].endswith('studio_episode_appearance.py') and calls[0][2:]==['video','3','realistic']
+            assert server.video_jobs[(3,'realistic')]['video'].endswith('replay-03/comparison-realistic.mp4')
+        assert client.get('/api/episodes/3/video?appearance=realistic').json()['status']=='ready'
+        assert not client.get('/api/episodes/3/video').json().get('video','').endswith('-realistic.mp4')
+    finally:
+        if not existed:target.unlink(missing_ok=True)
