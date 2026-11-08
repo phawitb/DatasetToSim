@@ -22,6 +22,10 @@ from dataset_to_sim.studio import native_limits, validate_trajectory, motion_spe
 from studio_motion import interpolate_flow, interpolate_ruckig, validate_technique, TECHNIQUES
 
 
+JOINT_LABELS=['Shoulder pan','Shoulder lift','Elbow','Wrist flex','Wrist roll','Gripper']
+HARDWARE_SHOULDER_LIFT_MARGIN_DEG=8.
+
+
 def interpolate_native(waypoints,speed_scale=1.,derivative_limits=None):
     speed_limits=motion_speed_limits(speed_scale) if derivative_limits is None else np.asarray(derivative_limits)[0]
     result=[np.asarray(waypoints[0][0],float)]
@@ -286,10 +290,19 @@ def simulate(folder):
     else:
         inside=containment(m,trace['qpos'][-1],trace['cube_pose'][-1],cal,config);outcome=score(trace,inside)
     collision={k:v for k,v in trace['audit']['contact_audit'].items() if k!='cube'}
-    checks=trace['audit']['initial_max_penetration_m']<=.001 and all(v['max_penetration_m']<=.001 for v in collision.values())
-    tracking=np.abs(adapter.to_native(trace['qpos'][1:])-actions)
-    checks=bool(checks and np.all(np.max(tracking,axis=0)<=np.array([10.]*5+[25.])))
-    report.update(outcome=outcome,transfer_checks_passed=checks,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
+    tracking=np.abs(adapter.to_native(trace['qpos'][1:])-actions);peak=np.max(tracking,axis=0)
+    failures=[]
+    if trace['audit']['initial_max_penetration_m']>.001:failures.append(f"Arm touches the table at the start ({trace['audit']['initial_max_penetration_m']*1000:.1f} mm): return Home and capture again")
+    for name,value in collision.items():
+        if value['max_penetration_m']>.001:failures.append(f"Collision {name.replace('_',' ')} ({value['max_penetration_m']*1000:.1f} mm)")
+    # Hardware stops when any arm joint trails its command by 10 deg. On the real arm the
+    # loaded shoulder lift trails the simulation by up to ~3 deg while lifting, so it keeps
+    # a 2 deg margin here (every observed hardware stop had >9 deg simulated shoulder lag).
+    limits=np.array([10.,HARDWARE_SHOULDER_LIFT_MARGIN_DEG,10.,10.,10.,25.])
+    for joint,(value,limit) in enumerate(zip(peak,limits)):
+        if value>limit:failures.append(f"{JOINT_LABELS[joint]} trails its command by {value:.1f}° (limit {limit:.0f}°): lower Travel speed")
+    checks=not failures
+    report.update(outcome=outcome,transfer_checks_passed=checks,transfer_check_failures=failures,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),
                   simulated_action_hash=array_hash(trace['native_action_applied']),simulated_timestamp_hash=array_hash(ts),simulated_speed_scale=report.get('speed_scale',1.),
                   simulated_timing_profile=report.get('timing_profile','conservative'),simulated_timing_contract_hash=report.get('timing_contract_hash'))

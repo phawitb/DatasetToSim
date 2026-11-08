@@ -116,15 +116,17 @@ def test_stack_trace_records_falling_target_without_pinning_it():
     assert trace['audit']['post_initial_state_writes']==0
 
 
-def test_interrupted_stack_home_never_reuses_older_bowl_scene(tmp_path,monkeypatch):
+def test_interrupted_stack_home_moves_straight_back_as_requested(tmp_path,monkeypatch):
+    # Home no longer inspects the scene: after any run, interrupted or not, it moves straight back.
     from types import SimpleNamespace
     from fastapi.testclient import TestClient
     import studio_server as server
     for i,task in enumerate(['bowl','stack']):
         p=tmp_path/str(i);p.mkdir();(p/'capture.json').write_text(json.dumps({'source':'live','task':task,'captured_at':100+i}))
+    calls=[]
     def call(command,**kw):
-        assert command=='status','Do not dispatch or capture from an unverified stack recovery pose'
-        return {'running':False,'positions':[0]*6}
+        calls.append(command)
+        return {'homing':True,'duration_s':2.} if command=='go_home' else {'running':False,'positions':[0]*6}
     monkeypatch.setattr(server,'hardware',SimpleNamespace(call=call));monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',None)
     r=TestClient(server.app).post('/api/robot/home',json={},headers={'X-Studio-Token':server.TOKEN,'X-Studio-Client':'owner'})
-    assert r.status_code==409 and 'Interrupted stack' in r.json()['error']
+    assert r.status_code==200 and r.json()['homing'] and 'snapshot' not in calls and calls[-1]=='go_home'
