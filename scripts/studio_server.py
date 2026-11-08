@@ -32,6 +32,7 @@ from studio_generation_preview import PreviewManager
 from studio_replay_dataset import ReplayDatasetManager
 from studio_generation_assets import list_backgrounds, resolve_background, upload_background, public_background, MAX_UPLOAD_BYTES
 from studio_runtime import request_restart,supervise
+from studio_episode_appearance import APPEARANCE_VERSION,video_name as appearance_video_name
 from studio_sam_home import home_scene
 from studio_home_wrist import released_reference,wrist_home_scene
 from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair
@@ -382,7 +383,8 @@ def episode_video_status(index,appearance='raw'):
     folder=RUN/f'episode-{index:02d}'
     if index<0 or not (folder/'report.json').is_file():raise ValueError('Episode not found')
     if appearance!='raw':
-        if (WORK/f'replay-{index:02d}'/f'comparison-{appearance}.mp4').is_file():return {'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison-{appearance}.mp4'}
+        name=appearance_video_name(appearance)
+        if (WORK/f'replay-{index:02d}'/name).is_file():return {'status':'ready','video':f'/media/studio/replay-{index:02d}/{name}'}
         return video_jobs.get((index,appearance),{'status':'idle'})
     if (folder/'real-vs-sim-strict.mp4').is_file():return {'status':'ready','video':f'/media/benchmark/episode-{index:02d}/real-vs-sim-strict.mp4'}
     if (WORK/f'replay-{index:02d}'/'comparison.mp4').is_file():return {'status':'ready','video':f'/media/studio/replay-{index:02d}/comparison.mp4'}
@@ -403,7 +405,7 @@ def prepare_video(index:int,appearance:str='raw'):
                 command=[sys.executable,str(ROOT/'scripts/studio_video.py'),str(index)] if appearance=='raw' else [sys.executable,str(ROOT/'scripts/studio_episode_appearance.py'),'video',str(index),appearance]
                 result=subprocess.run(command,capture_output=True,text=True,timeout=600)
                 if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1] if result.stderr else 'Render failed')
-                name='comparison.mp4' if appearance=='raw' else f'comparison-{appearance}.mp4'
+                name='comparison.mp4' if appearance=='raw' else appearance_video_name(appearance)
                 if not (WORK/f'replay-{index:02d}'/name).is_file():raise ValueError('Render produced no video')
                 video_jobs[key]={'status':'ready','video':f'/media/studio/replay-{index:02d}/{name}'}
             except Exception as exc:video_jobs[key]={'status':'error','error':str(exc)}
@@ -417,7 +419,7 @@ def frame(index:int,frame:int,appearance:str='raw'):
     if index<0 or frame<0 or not folder.is_dir():raise ValueError('Frame unavailable')
     report=json.loads((folder/'report.json').read_text())
     if frame>=report['frames']:raise ValueError('Frame out of bounds')
-    target=WORK/(f'frame-{index}-{frame}.jpg' if appearance=='raw' else f'frame-{index}-{frame}-{appearance}.jpg')
+    target=WORK/(f'frame-{index}-{frame}.jpg' if appearance=='raw' else f'frame-{index}-{frame}-{appearance}-v{APPEARANCE_VERSION}.jpg')
     with frames_lock:
         if not target.exists():
             existing=folder/f'comparison-{frame:03d}.jpg'

@@ -181,19 +181,19 @@ def test_simulation_appearance_is_validated_and_rendered_separately(monkeypatch)
     class Done:
         returncode=0;stderr=''
     def run(command,**_):
-        calls.append(command);target=server.WORK/'replay-03'/'comparison-realistic.mp4'
+        calls.append(command);target=server.WORK/'replay-03'/server.appearance_video_name('realistic')
         target.parent.mkdir(exist_ok=True);target.write_bytes(b'video');return Done()
     class Inline:
         def submit(self,function):function()
     monkeypatch.setattr(server.subprocess,'run',run);monkeypatch.setattr(server,'video_pool',Inline())
     monkeypatch.setattr(server,'video_jobs',{})
-    target=server.WORK/'replay-03'/'comparison-realistic.mp4';existed=target.exists()
+    target=server.WORK/'replay-03'/server.appearance_video_name('realistic');existed=target.exists()
     try:
         if not existed:
             result=client.post('/api/episodes/3/video?appearance=realistic',json={},headers=headers).json()
             assert calls and calls[0][1].endswith('studio_episode_appearance.py') and calls[0][2:]==['video','3','realistic']
-            assert server.video_jobs[(3,'realistic')]['video'].endswith('replay-03/comparison-realistic.mp4')
+            assert server.video_jobs[(3,'realistic')]['video'].endswith('replay-03/'+server.appearance_video_name('realistic'))
         assert client.get('/api/episodes/3/video?appearance=realistic').json()['status']=='ready'
-        assert not client.get('/api/episodes/3/video').json().get('video','').endswith('-realistic.mp4')
+        assert not client.get('/api/episodes/3/video').json().get('video','').endswith(server.appearance_video_name('realistic'))
     finally:
         if not existed:target.unlink(missing_ok=True)

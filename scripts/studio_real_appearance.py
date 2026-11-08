@@ -26,7 +26,9 @@ def geom_classes(model):
         color=model.mat_rgba[model.geom_matid[i],:3] if model.geom_matid[i]>=0 else model.geom_rgba[i,:3]
         if name in ('table','work_mat','floor'):kind=name
         elif name in ('cube_geom','target_cube_geom'):kind='red' if color[0]>color[1] else 'green'
-        elif 'bowl' in name:kind='bowl'
+        elif 'bowl' in name or 'bowl' in (mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_BODY,model.geom_bodyid[i]) or ''):
+            # The visible bowl mesh is unnamed; its body identifies it.
+            kind='bowl'
         elif color[0]>.5 and color[0]>color[1]*1.5:kind='robot'
         else:kind='dark_robot'
         classes[i]=kind
@@ -116,6 +118,8 @@ def preserve_lighting(matched, illuminated, reference):
 class RealAppearance:
     def __init__(self,folder,model,options,lighting=None):
         self.background=bool(options.get('real_background',False));self.processing=bool(options.get('real_image_processing',False))
+        # Optional: plate brightness from the real camera only, without rendered light falloff/shadows.
+        self.shading=bool(options.get('rendered_shading',True))
         self.model=model;self.classes=geom_classes(model);self.maps={};self.lighting=lighting or {}
         self.profile=json.loads((REFERENCE/'profile.json').read_text())
         self.folder=Path(folder);self.folder.mkdir(parents=True,exist_ok=True)
@@ -235,8 +239,10 @@ class RealAppearance:
                 # provides the calibrated exposure and material appearance.
                 gray=cv2.cvtColor(rgb,cv2.COLOR_RGB2GRAY).astype(float)
                 baseline=max(float(np.percentile(gray[mask],90)),1.)
-                shade=cv2.GaussianBlur(np.clip(gray/baseline,.45,1.05),(0,0),2.)
-                replacement=np.clip(plate*shade[:,:,None],0,255).astype('uint8')
+                if getattr(self,'shading',True):
+                    shade=cv2.GaussianBlur(np.clip(gray/baseline,.45,1.05),(0,0),2.)
+                    replacement=np.clip(plate*shade[:,:,None],0,255).astype('uint8')
+                else:replacement=plate.copy()
                 fallback=np.asarray(self.profile['surface_rgb'].get(kind,self.profile['surface_rgb']['table']),np.uint8)
                 replacement[~valid]=fallback
                 result[mask]=replacement[mask]
@@ -251,7 +257,7 @@ class RealAppearance:
                     top_stats=self.profile['appearance']['top']
                     source_stats=top_stats.get(kind,top_stats['table'])['real']
                 source=np.asarray(source_stats['mean']);target=np.asarray(stats['real']['mean'])
-                if view=='wrist' and kind in ('red','green'):
+                if view=='wrist' and kind in ('red','green','bowl') and not stats.get('wrist_measured'):
                     # Only Top has segmented cube references. Estimate the
                     # wrist camera exposure/color shift from the shared mat.
                     top_mat=self.profile['appearance']['top']['work_mat']['real']
