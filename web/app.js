@@ -363,7 +363,9 @@ function renderGenerationBatchSettings(){
  if(options.target_counts)add('Target totals',Object.entries(options.target_counts).map(([task,total])=>`${generationTaskName(task,options)} ${total}`).join(' · '));
  add('Layout distribution',options.layout_strategy==='balanced'?'Balanced workspace zones':'Uniform proposals');
  if(options.randomize_layout!==false)for(const key of activeZoneObjects(tasks,options.extra_objects??LEGACY_EXTRA_OBJECTS))add(ZONE_OBJECTS[key]+' initial zones',zoneSummary(options.object_zones?.[key]));
- if(options.randomize_layout!==false){add('Spread around zone center',options.zone_spread_mm==null?'Whole zone':`${options.zone_spread_mm} mm radius`);add('Object rotation',`${options.object_yaw_range_deg??11.46}°`);}
+ if(options.randomize_layout!==false){const spread=options.zone_spread_mm,yaw=options.object_yaw_range_deg;
+  for(const key of activeZoneObjects(tasks,options.extra_objects??LEGACY_EXTRA_OBJECTS)){const v=spread!==null&&typeof spread==='object'?spread[key]:spread;add(ZONE_OBJECTS[key]+' spread',v==null?'Whole zone':`${v} mm radius`);}
+  for(const key of ['red_cube','green_cube'].filter(k=>activeZoneObjects(tasks,options.extra_objects??LEGACY_EXTRA_OBJECTS).includes(k))){const v=yaw!==null&&typeof yaw==='object'?yaw[key]:yaw;add(ZONE_OBJECTS[key]+' rotation',`${v??11.46}°`);}}
  {const extras=options.extra_objects??LEGACY_EXTRA_OBJECTS;add('Extra objects in scene',options.extra_objects===undefined?'Both cubes in every task (earlier default)':extras.length?extras.map(key=>ZONE_OBJECTS[key]).join(' · '):'Task objects only');}
  for(const [task,coverage] of Object.entries(job.coverage||{}))add(generationTaskName(task,options),`Pick zones: ${coverage.source_counts.join(' / ')} · Destination zones: ${coverage.target_counts.join(' / ')}`);
  add('Random seed',options.seed??'Not recorded');

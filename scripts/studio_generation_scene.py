@@ -166,7 +166,7 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
     from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES
     object_zones = validate_object_zones(options.get('object_zones', {}))
     zone_roles = layout_zone_roles(task_id, options)
-    from studio_generation_zones import scene_presence
+    from studio_generation_zones import scene_presence, layout_role_settings
     present = scene_presence(task_id, options)
     if not options.get('randomize_layout', True) and any(z != ALL_ZONES for z in object_zones.values()):
         raise ValueError('Object zones require Randomize object layout')
@@ -196,11 +196,10 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
                           'not proof of unreachability or failure. Some physically valid layouts can be filtered; '
                           'previously accepted episodes remain valid and are retained.')
         for _ in range(maximum_proposals if descriptor is not None else 1):
-            spread = options.get('zone_spread_mm')
+            role_settings = layout_role_settings(task_id, options)
             source, target, bowl_xy, draws, layout_sampling = sample_workspace_layout(
                 world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles, present,
-                zone_spread_m=None if spread is None else spread / 1000,
-                yaw_range_deg=options.get('object_yaw_range_deg', LEGACY_YAW_RANGE_DEG))
+                zone_spread_m=role_settings['spread'], yaw_range_deg=role_settings['yaw'])
             if descriptor is None:
                 break
             screen['proposal_count'] += 1
@@ -227,8 +226,9 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
         draws['bowl'] = {'position_xy_m': list(bowl_xy), 'xy_offset_m': [0., 0.]}
         layout_sampling = {'version': 2, 'distribution': 'fixed_reference_layout'}
     layout_sampling['object_zones'] = object_zones
-    layout_sampling['zone_spread_mm'] = options.get('zone_spread_mm')
-    layout_sampling['object_yaw_range_deg'] = float(options.get('object_yaw_range_deg', LEGACY_YAW_RANGE_DEG))
+    from studio_generation_zones import validate_zone_spread
+    layout_sampling['zone_spread_mm'] = validate_zone_spread(options.get('zone_spread_mm'))
+    layout_sampling['object_yaw_range_deg'] = layout_role_settings(task_id, options)['yaw']
 
     def pose(xy, yaw):
         return {'position': [*map(float, xy), z], 'size': edge,

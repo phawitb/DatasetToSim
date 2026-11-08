@@ -37,7 +37,10 @@ LEGACY_YAW_RANGE_DEG = float(np.rad2deg(.20))
 
 
 def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, allowed_cells=None, present=None,
-                            zone_spread_m=None, yaw_range_deg=LEGACY_YAW_RANGE_DEG):
+                            zone_spread_m=None, yaw_range_deg=None):
+    # Per layout role: spread radius in m (None = whole zone) and cube yaw range in degrees.
+    zone_spread_m = zone_spread_m or {}
+    yaw_range_deg = yaw_range_deg or {}
     """Draw footprints over the whole calibrated mat, without reachability bias.
 
     Circumscribed circles conservatively separate objects, while yaw-aware box
@@ -85,19 +88,20 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, all
             lower, upper = np.maximum(lower, cell_low), np.minimum(upper, cell_high)
         if np.any(lower >= upper):
             raise ValueError(f'{name} does not fit on the calibrated mat in requested cell {cells.get(name)}')
-        for attempt in range(128 if cells or restricted or zone_spread_m is not None else 1000):
+        spread = zone_spread_m.get(name)
+        for attempt in range(128 if cells or restricted or spread is not None else 1000):
             selected = cells.get(name)
-            if selected is None and (name in restricted or zone_spread_m is not None):
+            if selected is None and (name in restricted or spread is not None):
                 # Spread sampling always starts from a zone: allowed ones, or any of the nine.
                 selected = zone_grid[int(rng.choice(restricted.get(name, list(range(9)))))]
                 cell_low, cell_high = np.asarray(selected['bounds_xy_m'])
                 lower, upper = np.maximum(mat_lower, cell_low), np.minimum(mat_upper, cell_high)
                 if np.any(lower >= upper):
                     continue
-            if zone_spread_m is not None and selected is not None:
+            if spread is not None and selected is not None:
                 # Uniform over a disk around the zone center, kept inside the zone and on the mat.
                 center = np.mean(np.asarray(selected['bounds_xy_m']), axis=0)
-                angle, radius = rng.uniform(0, 2 * np.pi), zone_spread_m * np.sqrt(rng.uniform())
+                angle, radius = rng.uniform(0, 2 * np.pi), spread * np.sqrt(rng.uniform())
                 xy = center + radius * np.array([np.cos(angle), np.sin(angle)])
                 if np.any(xy < lower) or np.any(xy > upper):
                     continue
@@ -115,12 +119,12 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, all
                            'proposal_count': attempt + 1, 'footprint_radius_m': float(radius)}
             if selected is not None:
                 draws[name].update(cell_id=int(selected['cell_id']), cell_bounds_xy_m=selected['bounds_xy_m'])
-                if zone_spread_m is not None: draws[name]['zone_spread_m'] = float(zone_spread_m)
+                if spread is not None: draws[name]['zone_spread_m'] = float(spread)
             return xy, yaw
         raise SamplingExhausted(f'Could not sample a separated {name} on the calibrated mat in requested cell {cells.get(name)} / allowed zones {restricted.get(name)}')
 
     def cube(name, separation=0.):
-        half = np.deg2rad(yaw_range_deg) / 2
+        half = np.deg2rad(yaw_range_deg.get(name, LEGACY_YAW_RANGE_DEG)) / 2
         yaw = float(rng.uniform(-half, half))
         extent = edge / 2 * (abs(np.cos(yaw)) + abs(np.sin(yaw)))
         return draw(name, edge / np.sqrt(2), yaw, [extent, extent], separation)
