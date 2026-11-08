@@ -105,13 +105,28 @@ def _video(path, n, expected_size, *, collect_stats=True):
         capture.release()
 
 
-def _native(values, n, label):
+# Simulated states come from MuJoCo qpos mapped back to native units; a jaw held
+# at the closed stop can sit a few 1e-4 units past it from contact-solver
+# softness. Only deviations this small are clamped (and reported); commanded
+# actions keep the strict range.
+STATE_GRIPPER_TOLERANCE = 1e-2
+
+
+def _native(values, n, label, tolerance=0.):
     values = np.asarray(values, dtype=np.float64)
     if values.shape != (n, 6) or not np.isfinite(values).all():
         raise ValueError(f'{label} must be finite with shape ({n}, 6), got {values.shape}')
-    if np.any((values[:, 5] < 0) | (values[:, 5] > 100)):
-        raise ValueError(f'{label} gripper must be native normalized 0–100; refusing to clip')
-    return values
+    gripper = values[:, 5]
+    outside = (gripper < 0) | (gripper > 100)
+    deviation = float(np.max(np.maximum(-gripper, gripper - 100))) if outside.any() else 0.
+    if deviation > tolerance:
+        raise ValueError(f'{label} gripper must be native normalized 0–100 '
+                         f'(deviation {deviation:.6g} exceeds tolerance {tolerance:g}); refusing to clip')
+    if not outside.any():
+        return values, None
+    values = values.copy()
+    values[:, 5] = np.clip(gripper, 0, 100)
+    return values, {'frames': int(outside.sum()), 'max_deviation': deviation, 'tolerance': tolerance}
 
 
 def _read_episode(root, expected_size):
@@ -131,7 +146,7 @@ def _read_episode(root, expected_size):
         n = len(raw_actions)
         if not n:
             raise ValueError('Cannot export an empty episode')
-        actions = _native(raw_actions, n, 'actions')
+        actions, _ = _native(raw_actions, n, 'actions')
         timestamps = np.asarray(plan['timestamps'], dtype=float)
     if timestamps.shape != (n,) or not np.isfinite(timestamps).all() or not np.allclose(timestamps, np.arange(n) / FPS, atol=1e-5, rtol=0):
         raise ValueError(f'Episode timestamps must start at zero and advance at {FPS} Hz')
@@ -151,10 +166,11 @@ def _read_episode(root, expected_size):
             states = NativeJointAdapter(**metadata['adapter']).to_native(qpos[:-1, :6])
         else:
             raise ValueError('Trace requires pre-action native/state, or N+1 qpos plus adapter calibration')
-        states = _native(states, n, 'observation.state')
+        states, state_clamp = _native(states, n, 'observation.state', STATE_GRIPPER_TOLERANCE)
     videos = {camera: _video(root / f'{camera}.mp4', n, expected_size) for camera in CAMERAS}
     return {'source': root, 'metadata': metadata, 'actions': actions.astype(np.float32),
-            'states': states.astype(np.float32), 'timestamps': timestamps.astype(np.float32), 'videos': videos, 'n': n}
+            'states': states.astype(np.float32), 'timestamps': timestamps.astype(np.float32), 'videos': videos, 'n': n,
+            'state_gripper_clamp': state_clamp}
 
 
 def export_dataset(episodes: list[Path], destination: Path, *, name: str,
@@ -265,6 +281,7 @@ def export_dataset(episodes: list[Path], destination: Path, *, name: str,
                 'exported_state_hash': array_hash(item['states']),
                 'source_plan_sha256': _sha(item['source'] / 'plan.npz'), 'source_trace_sha256': _sha(item['source'] / 'trace.npz'),
                 'outcome': 'success', 'transfer_checks_passed': True, 'videos': video_paths,
+                'state_gripper_clamp': item['state_gripper_clamp'],
                 'video_sha256': hashes, 'provenance_files': provenance_files, 'provenance': meta})
             for key, value in columns.items():
                 numeric[key].append(value)
@@ -288,6 +305,8 @@ def export_dataset(episodes: list[Path], destination: Path, *, name: str,
                     'state_alignment': 'pre-action state k paired with action k; terminal state excluded',
                     'units': {'arm': 'degrees', 'gripper': 'normalized 0–100'},
                     'requested_validation_fraction': validation_fraction,
+                    'state_gripper_clamp_note': f'Simulated observation.state gripper values within {STATE_GRIPPER_TOLERANCE:g} native units outside 0–100 (contact-solver overshoot at the jaw stops) are clamped; per-episode counts are in episodes[].state_gripper_clamp. Larger deviations and any out-of-range action are rejected.',
+                    'state_gripper_clamped_episodes': sum(item['state_gripper_clamp'] is not None for item in loaded),
                     'lineage': dict(lineage or {}),
                     'split_note': 'Inherited group assignments are preserved across revisions. Grouped variants never cross splits. Every task retains at least one training group; singleton task groups remain train-only. Validation may be smaller than requested to preserve task coverage. New group assignment is deterministic within this export.',
                     'validation_unavailable_tasks': sorted(task for task, task_group in task_groups.items() if not task_group & val_groups),

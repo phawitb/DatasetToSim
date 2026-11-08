@@ -200,3 +200,42 @@ def test_portable_provenance_is_copied_and_audited_without_source_folder(tmp_pat
     (dst / files['trace.npz']['path']).write_bytes(b'corrupt')
     with pytest.raises(ValueError, match='provenance'):
         mod.validate_export(dst, expected_size=(32, 24))
+
+
+def _set_state_gripper(root, values):
+    states = np.load(root / 'trace.npz')['native']
+    states[:len(values), 5] = values
+    np.savez(root / 'trace.npz', native=states)
+
+
+def test_state_gripper_solver_overshoot_is_clamped_and_reported(tmp_path):
+    mod = exporter()
+    root = episode(tmp_path, 'overshoot')
+    _set_state_gripper(root, [-1.6e-4, 0., 100.00005])
+    dst = tmp_path / 'export'
+    mod.export_dataset([root], dst, name='test', expected_size=(32, 24))
+    rows = pq.read_table(sorted((dst / 'data').rglob('*.parquet'))).to_pylist()
+    assert [row['observation.state'][5] for row in rows[:3]] == [0., 0., 100.]
+    manifest = json.loads((dst / 'export_manifest.json').read_text())
+    clamp = manifest['episodes'][0]['state_gripper_clamp']
+    assert clamp['frames'] == 2 and clamp['max_deviation'] == pytest.approx(1.6e-4)
+    assert manifest['state_gripper_clamped_episodes'] == 1
+    assert mod.validate_export(dst, expected_size=(32, 24))['valid']
+
+
+@pytest.mark.parametrize('target', ['state', 'action'])
+def test_gripper_out_of_range_beyond_tolerance_is_rejected(tmp_path, target):
+    from dataset_to_sim.strict_replay import array_hash
+    mod = exporter()
+    root = episode(tmp_path, 'bad')
+    if target == 'state':
+        _set_state_gripper(root, [-0.5])
+    else:
+        actions = np.load(root / 'plan.npz')['actions']
+        actions[0, 5] = -1e-6
+        np.savez(root / 'plan.npz', actions=actions, timestamps=np.arange(len(actions)) / 30)
+        meta = json.loads((root / 'episode.json').read_text()); meta['action_hash'] = array_hash(actions)
+        (root / 'episode.json').write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match='refusing to clip'):
+        mod.export_dataset([root], tmp_path / 'export', name='test', expected_size=(32, 24))
+    assert not (tmp_path / 'export').exists()
