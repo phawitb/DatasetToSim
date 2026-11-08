@@ -37,8 +37,12 @@ def safe_file(root, relative):
     return path
 
 
-def validate_trajectory(actions, timestamps, limits, speed_scale=1.):
-    speed_limits=motion_speed_limits(speed_scale)
+def validate_trajectory(actions, timestamps, limits, speed_scale=1., *, velocity_limits=None):
+    # Legacy callers retain the default. An explicit envelope must be resolved
+    # by the fixed Studio timing contract before hardware dispatch.
+    speed_limits=motion_speed_limits(speed_scale) if velocity_limits is None else np.asarray(velocity_limits, float)
+    if speed_limits.shape != (6,) or not np.isfinite(speed_limits).all() or np.any(speed_limits <= 0):
+        raise ValueError('Invalid velocity limits')
     q, t, limits = np.asarray(actions, float), np.asarray(timestamps, float), np.asarray(limits, float)
     if q.ndim != 2 or q.shape[1] != 6 or len(q) < 2 or t.shape != (len(q),):
         raise ValueError('Expected at least two six-joint commands and matching times')

@@ -22,8 +22,8 @@ from dataset_to_sim.studio import native_limits, validate_trajectory, motion_spe
 from studio_motion import interpolate_flow, interpolate_ruckig, validate_technique, TECHNIQUES
 
 
-def interpolate_native(waypoints,speed_scale=1.):
-    speed_limits=motion_speed_limits(speed_scale)
+def interpolate_native(waypoints,speed_scale=1.,derivative_limits=None):
+    speed_limits=motion_speed_limits(speed_scale) if derivative_limits is None else np.asarray(derivative_limits)[0]
     result=[np.asarray(waypoints[0][0],float)]
     for target,minimum_duration in waypoints[1:]:
         start=result[-1]; target=np.asarray(target,float)
@@ -37,6 +37,9 @@ def interpolate_native(waypoints,speed_scale=1.):
 
 def load_scene(folder):
     capture=json.loads((folder/'capture.json').read_text())
+    if capture.get('source')=='synthetic':
+        from studio_generation_scene import load_generation_scene
+        return load_generation_scene(folder)
     config=json.loads((ROOT/'calibration/native-action-current.json').read_text())
     rgb=cv2.cvtColor(cv2.imread(str(folder/'top.jpg')),cv2.COLOR_BGR2RGB)
     if rgb.shape != (480,640,3): raise ValueError('Calibrated top camera requires 640 × 480 images')
@@ -50,7 +53,7 @@ def load_scene(folder):
     return capture,config,scene,cal,build_model(cal,config)
 
 
-def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1.):
+def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1.,timing_profile=None):
     validate_technique(technique)
     speed_scale=validate_speed_scale(speed_scale)
     capture,config,scene,cal,m=load_scene(folder)
@@ -61,7 +64,9 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     lo,hi=np.min(bounds,axis=0)+1e-6,np.max(bounds,axis=0)-1e-6
     cube=np.array(cal.world['cube']['position']); bowl=np.array(cal.world['bowl']['position'])
     stacking=capture.get('task')=='stack'
-    destination=np.array(cal.world['target_cube']['position']) if stacking else bowl
+    unstacking=capture.get('task')=='unstack'
+    placing=stacking or unstacking
+    destination=np.array(cal.world['placement']['position']) if unstacking else np.array(cal.world['target_cube']['position']) if stacking else bowl
     placement=destination.copy()
     if stack_offset is not None:placement+=np.asarray(stack_offset,float)
     # Center the OPEN mouth over the cube during descent. Only one jaw moves:
@@ -81,7 +86,9 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     close=np.flatnonzero((ep.action_deg[1:,5]<5)&(ep.action_deg[:-1,5]>=5))[0]+1
     reference=adapter.to_model(ep.action_deg[min(close+3,len(ep.action_deg)-1)])
     roll_offset=reference[4]-reference[0]
-    grasp_z=max(cube[2]+.010, .024)
+    # A stack needs a shallower bite: the standard jaw extends below the
+    # aperture center and otherwise closes around both stacked cubes.
+    grasp_z=max(cube[2]+(.022 if unstacking else .010), .024)
     hover=max(.12,grasp_z+.09,bowl[2]+cal.world['bowl']['height']+.065)
     errors=[]; waypoints=[(initial,0)]; names=['Start']; stages=[]
     def waypoint(name,q,seconds):
@@ -117,12 +124,12 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     add('Grasp',np.r_[cube[:2],grasp_z],0.,seconds=1.)
     add('Lift',np.r_[cube[:2],hover],0.,seconds=1.5)
     add('Transfer',np.r_[placement[:2],hover],0.,seconds=2.)
-    if stacking:
-        place_z=grasp_z+(placement[2]-cube[2])+cal.world['target_cube']['size']+.005
-        add('Lower onto cube',np.r_[placement[:2],place_z],0.,seconds=2.)
+    if placing:
+        place_z=grasp_z+(placement[2]-cube[2])+(cal.world['target_cube']['size'] if stacking else 0)+.005
+        add('Lower onto cube' if stacking else 'Lower onto table',np.r_[placement[:2],place_z],0.,seconds=2.)
         waypoint('Placement settle',waypoints[-1][0].copy(),.7)
         placement_knot=len(waypoints)-1
-        add('Release on cube',np.r_[placement[:2],place_z],40.,seconds=1.5)
+        add('Release on cube' if stacking else 'Release on table',np.r_[placement[:2],place_z],40.,seconds=1.5)
         add('Retreat',np.r_[placement[:2],hover],40.,seconds=2.)
         home=json.loads((ROOT/'calibration/studio-home.json').read_text())
         if capture['calibration_hash']!=home['calibration_sha256']:raise ValueError('Home calibration changed')
@@ -136,34 +143,45 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # Compare against the original Classic route, not Natural's added grasp guards.
     classic_actions,classic_times=interpolate_native([w for w,name in zip(waypoints,names) if name not in {'Pregrasp','Grasp settle'}])
     motion={'technique':technique,'label':TECHNIQUES[technique],'classic_duration':float(classic_times[-1]+1/30)}
+    from studio_generation_timing import recorded_timing, generation_durations
+    from studio_timing import validate_timing_profile, timing_contract_hash
+    timing_profile=validate_timing_profile(timing_profile if timing_profile is not None else capture.get('generation_options',{}).get('timing_profile','conservative') if capture.get('source')=='synthetic' else 'conservative')
+    timing=recorded_timing(speed_scale) if timing_profile=='recorded' else None
+    derivative_limits=None if timing is None else timing['limits']
+    if timing is not None:
+        waypoints=generation_durations(waypoints,names)
+        motion.update(timing_profile='recorded',timing_reference=timing,
+                      enforced_derivatives=['velocity'] if technique=='classic' else ['velocity','acceleration','jerk'])
+    else:motion['timing_profile']='conservative'
     travel={'Unfold from rest','Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded','Home'}
     scaled=[(q,seconds/speed_scale if name in travel else seconds) for (q,seconds),name in zip(waypoints,names)]
     if technique=='natural':
         from studio_natural import interpolate_natural
-        actions,timestamps,detail=interpolate_natural(waypoints,names,speed_scale=speed_scale)
+        actions,timestamps,detail=interpolate_natural(waypoints,names,speed_scale=speed_scale,derivative_limits=derivative_limits)
         motion.update(detail);names=detail['waypoints']
-        if stacking:placement_index=detail['task_knot_indices']['Placement settle']
+        if placing:placement_index=detail['task_knot_indices']['Placement settle']
     elif technique!='classic':
         flowing=[(q,seconds*.55 if name in travel else seconds) for (q,seconds),name in zip(scaled,names)]
         blend={i for i,name in enumerate(names) if name in {'Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded'}}
-        if not stacking:blend.discard(names.index('Transfer'))
-        actions,timestamps,detail=(interpolate_ruckig if technique=='flow' else interpolate_flow)(flowing,blend,speed_scale=speed_scale)
+        if not placing:blend.discard(names.index('Transfer'))
+        actions,timestamps,detail=(interpolate_ruckig if technique=='flow' else interpolate_flow)(flowing,blend,speed_scale=speed_scale,derivative_limits=derivative_limits)
         motion.update(detail)
-        if stacking:placement_index=detail['knot_indices'][placement_knot]
+        if placing:placement_index=detail['knot_indices'][placement_knot]
     else:
-        actions,timestamps=interpolate_native(scaled,speed_scale=speed_scale)
-        if stacking:placement_index=len(interpolate_native(scaled[:placement_knot+1],speed_scale=speed_scale)[0])-1
-    motion.update(speed_scale=speed_scale,velocity_limits=(motion_speed_limits(speed_scale)*(.8 if technique=='classic' else .92)).tolist())
+        actions,timestamps=interpolate_native(scaled,speed_scale=speed_scale,derivative_limits=derivative_limits)
+        if placing:placement_index=len(interpolate_native(scaled[:placement_knot+1],speed_scale=speed_scale,derivative_limits=derivative_limits)[0])-1
+    motion.update(speed_scale=speed_scale,velocity_limits=((motion_speed_limits(speed_scale) if derivative_limits is None else np.asarray(derivative_limits)[0])*(.8 if technique=='classic' else .92)).tolist())
     motion['waypoints']=names
     motion['duration']=float(timestamps[-1]+1/30)
     motion['time_saved_seconds']=motion['classic_duration']-motion['duration']
-    validate_trajectory(actions,timestamps,limits,speed_scale=speed_scale)
+    validate_trajectory(actions,timestamps,limits,speed_scale=speed_scale,velocity_limits=None if derivative_limits is None else derivative_limits[0])
     np.savez_compressed(folder/'plan.npz',actions=actions,timestamps=timestamps)
     report={**capture,'scene':scene,'world':cal.world,'stages':stages,'frames':len(actions),'duration':float(timestamps[-1]+1/30),
             'action_hash':array_hash(actions),'timestamp_hash':array_hash(timestamps),'speed_scale':speed_scale,'outcome':'not_simulated','transfer_checks_passed':False,'executed':False,
             'method':'Aperture-aware IK centers the open jaws on descent; smooth closing waypoints; contact-driven MuJoCo validation required',
-            'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist(),'motion_technique':technique,'motion':motion}
-    if stacking:report.update(placement_index=placement_index,placement_offset_m=np.asarray(stack_offset if stack_offset is not None else [0,0,0]).tolist())
+            'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist(),'motion_technique':technique,'motion':motion,'timing_profile':timing_profile}
+    if timing is not None:report['timing_contract_hash']=timing_contract_hash(report)
+    if placing:report.update(placement_index=placement_index,placement_offset_m=np.asarray(stack_offset if stack_offset is not None else [0,0,0]).tolist())
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     (folder/'scene.json').write_text(json.dumps(cal.data,indent=2))
     mujoco.mj_saveLastXML(str(folder/'scene.xml'),m)
@@ -178,17 +196,19 @@ def render_preview(model,q,path):
         cv2.imwrite(str(path),cv2.cvtColor(renderer.render(),cv2.COLOR_RGB2BGR))
 
 
-def prepare_plan(folder,technique=None,speed_scale=None):
+def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_profile=None):
     """Plan stack placement against the predicted held object, not pad center alone."""
     from studio_stack import predicted_held_position
     options=folder/'planning-options.json'
     speed_scale=validate_speed_scale(speed_scale if speed_scale is not None else json.loads(options.read_text()).get('speed_scale',1.) if options.exists() else 1.)
     technique=validate_technique(technique if technique is not None else json.loads(options.read_text()).get('motion_technique','classic') if options.exists() else 'classic')
-    report=plan(folder,preview=False,technique=technique,speed_scale=speed_scale)
-    if report.get('task')=='stack':
+    if timing_profile is None and options.exists():timing_profile=json.loads(options.read_text()).get('timing_profile','conservative')
+    report=plan(folder,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile)
+    if report.get('task') in {'stack','unstack'}:
         offset=np.zeros(3);iterations=[]
-        goal=np.asarray(report['world']['target_cube']['position'],float).copy()
-        goal[2]+=report['world']['target_cube']['size']+.004
+        stacking=report['task']=='stack'
+        goal=np.asarray(report['world']['target_cube' if stacking else 'placement']['position'],float).copy()
+        goal[2]+=(report['world']['target_cube']['size'] if stacking else 0)+.004
         for attempt in range(5):
             capture,config,scene,cal,model=load_scene(folder);adapter=NativeJointAdapter(**config['adapter']);saved=np.load(folder/'plan.npz')
             held=predicted_held_position(model,adapter,capture['initial_native'],saved['actions'],saved['timestamps'],report['placement_index'])
@@ -197,11 +217,11 @@ def prepare_plan(folder,technique=None,speed_scale=None):
             candidate=offset+error*.85
             if np.any(np.abs(candidate)>.020):raise ValueError('Stack placement correction exceeds 20 mm; reposition the cubes and capture again')
             if attempt==4:raise ValueError('Stack placement did not converge; reposition the cubes and capture again')
-            offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique,speed_scale=speed_scale)
+            offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile)
         report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':.004}
         (folder/'plan.json').write_text(json.dumps(report,indent=2))
     capture,config,scene,cal,model=load_scene(folder)
-    render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
+    if preview:render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
     return report
 
 
@@ -210,7 +230,8 @@ def simulate(folder):
     adapter=NativeJointAdapter(**config['adapter']); saved=np.load(folder/'plan.npz');actions=saved['actions'];ts=saved['timestamps']
     if array_hash(actions)!=report['action_hash']: raise ValueError('Plan changed since generation')
     if 'timestamp_hash' in report and array_hash(ts)!=report['timestamp_hash']:raise ValueError('Plan timing changed since generation')
-    validate_trajectory(actions,ts,native_limits(config),speed_scale=report.get('speed_scale',1.))
+    from studio_timing import validated_motion_limits
+    validate_trajectory(actions,ts,native_limits(config),speed_scale=report.get('speed_scale',1.),velocity_limits=validated_motion_limits(report))
     states=np.tile(report['initial_native'],(len(actions),1))
     ep=Episode(-1,np.arange(len(actions)),np.arange(len(actions)),ts,states,actions,{})
     trace=integrate_actions(m,ep,adapter)
@@ -224,7 +245,8 @@ def simulate(folder):
     checks=bool(checks and np.all(np.max(tracking,axis=0)<=np.array([10.]*5+[25.])))
     report.update(outcome=outcome,transfer_checks_passed=checks,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),
-                  simulated_action_hash=array_hash(trace['native_action_applied']),simulated_timestamp_hash=array_hash(ts),simulated_speed_scale=report.get('speed_scale',1.))
+                  simulated_action_hash=array_hash(trace['native_action_applied']),simulated_timestamp_hash=array_hash(ts),simulated_speed_scale=report.get('speed_scale',1.),
+                  simulated_timing_profile=report.get('timing_profile','conservative'),simulated_timing_contract_hash=report.get('timing_contract_hash'))
     extra={k:trace[k] for k in ['target_pose','target_velocity'] if k in trace}
     np.savez_compressed(folder/'trace.npz',qpos=trace['qpos'],cube_pose=trace['cube_pose'],native=adapter.to_native(trace['qpos']),timestamps=trace['sample_times'],**extra)
     # Save the physical verdict even if the graphics environment fails.

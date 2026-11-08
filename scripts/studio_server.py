@@ -2,6 +2,7 @@
 import atexit
 import base64
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 import hashlib
 import json
 import os
@@ -13,14 +14,23 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import unquote
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'src'))
 import cv2
 import numpy as np
 from fastapi import FastAPI,HTTPException,Request
-from fastapi.responses import FileResponse,JSONResponse
+from fastapi.responses import FileResponse,JSONResponse,Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from studio_history import list_runs
+from studio_generation import GenerationManager,TASKS
+from studio_generation_view import GenerationViewer
+from studio_generation_trash import GenerationTrash
+from studio_generation_coverage import generation_coverage
+from studio_objects import catalog as object_catalog, object_mesh, object_thumbnail
+from studio_generation_preview import PreviewManager
+from studio_replay_dataset import ReplayDatasetManager
+from studio_generation_assets import list_backgrounds, resolve_background, upload_background, public_background, MAX_UPLOAD_BYTES
 from studio_runtime import request_restart,supervise
 from studio_sam_home import home_scene
 from studio_home_wrist import released_reference,wrist_home_scene
@@ -34,9 +44,176 @@ DATA=Path(os.environ.get('STUDIO_DATASET','/Users/phawit/Projects/VLA-Benchmark/
 TOKEN=secrets.token_urlsafe(32);jobs={};current=None;operation_lock=threading.Lock();frames_lock=threading.Lock();stop_lock=threading.Lock();stop_generation=0;restarting=False
 client_heartbeats={}
 video_jobs={};video_lock=threading.Lock();video_pool=ThreadPoolExecutor(max_workers=1)
-app=FastAPI(title='Real / Sim Studio')
+generation=GenerationManager(ROOT/'output/generated');atexit.register(generation.close)
+generation_trash=GenerationTrash(ROOT/'output/generated')
+generation_viewer=GenerationViewer();atexit.register(generation_viewer.close)
+generation_preview=PreviewManager(ROOT/'output/generation-previews');atexit.register(generation_preview.close)
+replay_datasets=ReplayDatasetManager(ROOT/'output/generated');atexit.register(replay_datasets.close)
+replay_previews=ReplayDatasetManager(ROOT/'output/replay-previews',media_prefix='/media/replay-previews');atexit.register(replay_previews.close)
+
+def dataset_build_busy():return generation.busy() or replay_datasets.busy() or replay_previews.busy()
+
+@asynccontextmanager
+async def studio_lifespan(app):
+    generation.recover_interrupted()
+    generation_preview.recover_interrupted()
+    replay_datasets.recover_interrupted()
+    replay_previews.recover_interrupted()
+    try:yield
+    finally:
+        generation.close()
+        generation_preview.close()
+        replay_datasets.close()
+        replay_previews.close()
+
+app=FastAPI(title='Real / Sim Studio',lifespan=studio_lifespan)
 app.add_middleware(TrustedHostMiddleware,allowed_hosts=['127.0.0.1','localhost','testserver'])
 app.mount('/assets',StaticFiles(directory=ROOT/'web'),name='assets')
+
+@app.get('/api/generation')
+def generation_index():
+    return {'tasks':[{'id':key,'label':value[2],'instruction':value[2]} for key,value in TASKS.items()],
+            'jobs':[replay_datasets.get(item['id']) | {'summary':item['summary']} if item.get('source_type')=='real_replay' else item for item in generation.list()],'busy':dataset_build_busy(),'trash':generation_trash.list()}
+
+@app.post('/api/generation')
+def generation_start(body:dict):
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if hardware.call('status').get('running'):raise ValueError('Wait for the robot to finish before generating data')
+        if current and jobs.get(current,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the active operation to finish')
+        if replay_datasets.busy() or replay_previews.busy():raise ValueError('Wait for the real replay build to finish')
+        generation_preview.close()
+        if body.get('parent_job_id') and generation.get(body['parent_job_id']).get('source_type')=='real_replay':raise ValueError('Choose source recordings in Datasets to build another real replay dataset')
+        return generation.start(body)
+
+@app.get('/api/generation/{identifier}')
+def generation_status(identifier:str):
+    job=generation.get(identifier)
+    return replay_datasets.get(identifier) | {'summary':job['summary']} if job.get('source_type')=='real_replay' else job
+
+@app.get('/api/generation/{identifier}/coverage')
+def generation_spatial_coverage(identifier:str):
+    return generation_coverage(generation.folder(identifier),generation.get(identifier))
+
+@app.get('/api/objects')
+def objects_catalog():return object_catalog()
+
+@app.get('/api/objects/{identifier}/thumbnail')
+def objects_thumbnail(identifier:str):return Response(object_thumbnail(identifier),media_type='image/png')
+
+@app.get('/api/objects/{identifier}/mesh')
+def objects_mesh(identifier:str):return object_mesh(identifier)
+
+@app.get('/api/generation/{identifier}/episodes/{index}')
+def generation_episode(identifier:str,index:int):
+    with operation_lock:return generation_viewer.get(generation.folder(identifier),index)
+
+@app.post('/api/generation/{identifier}/delete')
+def generation_delete(identifier:str):
+    with operation_lock:
+        if dataset_build_busy():raise ValueError('Wait for dataset builds to finish before deleting a dataset')
+        folder=generation.folder(identifier)
+        with generation_viewer.lock:
+            if any(not future.done() and Path(path).is_relative_to(folder) for path,future in generation_viewer.pending.items()):
+                raise ValueError('Episode preview is being prepared. Retry deleting in a moment.')
+            return generation_trash.delete(identifier)
+
+@app.post('/api/generation-trash/{identifier}/restore')
+def generation_restore(identifier:str):
+    with operation_lock:return generation_trash.restore(identifier)
+
+@app.post('/api/generation/{identifier}/cancel')
+def generation_cancel(identifier:str):
+    return replay_datasets.cancel(identifier) if generation.get(identifier).get('source_type')=='real_replay' else generation.cancel(identifier)
+
+@app.get('/api/generation/{identifier}/download')
+def generation_download(identifier:str):
+    job=generation.get(identifier)
+    if job['status']!='completed' or not job.get('export',{}).get('valid'):raise ValueError('Dataset is not ready')
+    return FileResponse(generation.folder(identifier)/'dataset.zip',filename=job['name']+'.zip',media_type='application/zip')
+
+@app.get('/media/generated/{identifier}/{path:path}')
+def generation_media(identifier:str,path:str):
+    return FileResponse(safe_file(generation.folder(identifier),path))
+
+
+@app.get('/api/replay-datasets/sources')
+def replay_sources():return {'sources':replay_datasets.sources()}
+
+@app.get('/api/replay-datasets')
+def replay_index():return {'jobs':replay_datasets.list(),'busy':replay_datasets.busy()}
+
+def start_replay_build(body,preview=False):
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if generation.busy() or replay_datasets.busy():raise ValueError('Wait for the active dataset build to finish')
+        if hardware.call('status').get('running'):raise ValueError('Wait for the robot to finish')
+        if current and jobs.get(current,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the active operation to finish')
+        generation_preview.close()
+        replay_previews.close()
+        return replay_previews.start_preview(body) if preview else replay_datasets.start(body)
+
+@app.post('/api/replay-datasets')
+def replay_start(body:dict):return start_replay_build(body)
+
+@app.post('/api/replay-datasets/preview')
+def replay_preview_start(body:dict):return start_replay_build(body,True)
+
+@app.get('/api/replay-datasets/previews/{identifier}')
+def replay_preview_status(identifier:str):return replay_previews.get(identifier)
+
+@app.get('/media/replay-previews/{identifier}/{path:path}')
+def replay_preview_media(identifier:str,path:str):return FileResponse(safe_file(replay_previews.folder(identifier),path))
+
+@app.get('/api/replay-datasets/{identifier}')
+def replay_status(identifier:str):return replay_datasets.get(identifier)
+
+@app.post('/api/replay-datasets/{identifier}/cancel')
+def replay_cancel(identifier:str):return replay_datasets.cancel(identifier)
+
+@app.get('/api/replay-datasets/{identifier}/download')
+def replay_download(identifier:str):
+    job=replay_datasets.get(identifier)
+    return FileResponse(replay_datasets.download(identifier),filename=job['name']+'.zip',media_type='application/zip')
+
+@app.get('/api/generation-assets')
+def generation_assets():
+    return {'backgrounds': list_backgrounds()}
+
+@app.post('/api/generation-assets/upload')
+async def generation_asset_upload(request: Request):
+    content = bytearray()
+    async for part in request.stream():
+        if len(content) + len(part) > MAX_UPLOAD_BYTES:
+            raise ValueError('Choose an image up to 12 MB')
+        content.extend(part)
+    item = upload_background(bytes(content), unquote(request.headers.get('x-filename', 'Uploaded background')))
+    return {'background': public_background(item)}
+
+@app.get('/api/generation-assets/{identifier}/image')
+def generation_asset_image(identifier: str):
+    return FileResponse(resolve_background(identifier)['path'], media_type='image/png')
+
+@app.post('/api/generation-preview')
+def generation_preview_start(body: dict):
+    with operation_lock:
+        if restarting: raise ValueError('Server restarting')
+        if dataset_build_busy(): raise ValueError('Wait for dataset generation to finish before rendering a preview')
+        if hardware.call('status').get('running'): raise ValueError('Wait for the robot to finish before rendering a preview')
+        if current and jobs.get(current, {}).get('status') in ['running','executing','recording']:
+            raise ValueError('Wait for the active operation to finish')
+        return generation_preview.start(generation.resolve_options(body))
+
+@app.get('/api/generation-preview/{identifier}')
+def generation_preview_status(identifier: str):
+    return generation_preview.get(identifier)
+
+@app.get('/api/generation-preview/{identifier}/images/{path:path}')
+def generation_preview_image(identifier: str, path: str):
+    import re
+    if not re.fullmatch(r'scene-[0-4]/(?:top|wrist)\.jpg', path):
+        raise ValueError('Preview image not found')
+    return FileResponse(safe_file(generation_preview.folder(identifier), path), media_type='image/jpeg')
 
 
 class HardwareClient:
@@ -128,6 +305,10 @@ def new_session():
 def schedule_restart():
     if not os.environ.get('STUDIO_RESTART_FILE'):raise ValueError('Restart unavailable: launch Studio with scripts/studio_server.py')
     def restart():
+        generation.close()
+        generation_preview.close()
+        replay_datasets.close()
+        replay_previews.close()
         # Give an active executor a normal hold first. A stuck worker must not
         # prevent the requested full restart; the supervisor kills its group.
         done=threading.Event()
@@ -249,6 +430,7 @@ def robot_command(command:str,request:Request):
         return hardware.call(command)
     with operation_lock:
         if restarting:raise ValueError('Server restarting')
+        if command in ['home','torque_on'] and dataset_build_busy():raise ValueError('Finish or cancel data generation before moving the robot')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if command=='home':
             if hardware.call('status').get('running'):raise ValueError('Robot is executing')
@@ -284,7 +466,7 @@ def robot_command(command:str,request:Request):
             identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
             for view,data in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(data))
             snapshot.update(id=identifier,purpose='home');(folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
-            generation=requested_generation;owner=request.headers.get('x-studio-client')
+            home_generation=requested_generation;owner=request.headers.get('x-studio-client')
             current=identifier;jobs[identifier]={'id':identifier,'status':'running','stage':'prepare'}
             def return_home():
                 try:
@@ -311,7 +493,7 @@ def robot_command(command:str,request:Request):
                         payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get(report.get('home_view','top'),fresh['captured_at'])}
                         with stop_lock:
                             if restarting:raise ValueError('Server restarting; Home cancelled')
-                            if generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
+                            if home_generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
                             if time.monotonic()-client_heartbeats.get(owner,0)>3:raise ValueError('Control page closed; Home cancelled')
                             hardware.call('execute',plan=payload)
                         report['executed']=True;(folder/'plan.json').write_text(json.dumps(report,indent=2))
@@ -445,6 +627,8 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
     from studio_motion import validate_technique
     from dataset_to_sim.studio import validate_speed_scale
     body=body or {}
+    from studio_timing import validate_timing_profile
+    timing_profile=validate_timing_profile(body.get('timing_profile','conservative'))
     technique=validate_technique(body.get('motion_technique','classic'))
     speed_scale=validate_speed_scale(body.get('speed_scale',1.))
     folder=folder_for(identifier)
@@ -453,6 +637,7 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
     with operation_lock:
         if restarting:raise ValueError('Server restarting')
         if current!=identifier:raise ValueError('This capture was replaced; use the current capture')
+        if dataset_build_busy():raise ValueError('Finish or cancel data generation before planning or running the robot')
         if jobs.get(identifier,{}).get('status')=='running':raise ValueError('Operation already running')
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
         if json.loads((folder/'capture.json').read_text()).get('source')=='live':
@@ -464,6 +649,8 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
             if technique!=saved_technique:raise ValueError('Motion technique changed; generate and simulate a new plan')
         if operation!='plan' and 'speed_scale' in body:
             if speed_scale!=json.loads((folder/'plan.json').read_text()).get('speed_scale',1.):raise ValueError('Travel speed changed; generate and simulate a new plan')
+        if operation!='plan' and 'timing_profile' in body:
+            if timing_profile!=json.loads((folder/'plan.json').read_text()).get('timing_profile','conservative'):raise ValueError('Motion timing changed; generate and simulate a new plan')
         if operation=='execute':
             report=json.loads((folder/'plan.json').read_text())
             fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
@@ -485,9 +672,9 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
         if old.exists():
             invalid=json.loads(old.read_text())
             if invalid.get('executed'):raise ValueError('Capture a new scene after an execution')
-            invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None,simulated_timestamp_hash=None,simulated_speed_scale=None)
+            invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None,simulated_timestamp_hash=None,simulated_speed_scale=None,simulated_timing_profile=None,simulated_timing_contract_hash=None)
             invalid.pop('video',None);old.write_text(json.dumps(invalid,indent=2))
-        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale}))
+        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale,'timing_profile':timing_profile}))
         (folder/'job.json').unlink(missing_ok=True)
         jobs[identifier]={'id':identifier,'status':'running','stage':operation}
         def run():

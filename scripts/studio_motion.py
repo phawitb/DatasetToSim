@@ -41,7 +41,7 @@ def _peaks(coefficients,duration,order):
     return np.array(peaks)
 
 
-def interpolate_flow(waypoints,blend=(),speed_scale=1.):
+def interpolate_flow(waypoints,blend=(),speed_scale=1.,derivative_limits=None):
     """Return 30 Hz native commands and auditable knot/derivative diagnostics.
 
     Input durations are minimums. Segment time is expanded until analytic
@@ -53,7 +53,7 @@ def interpolate_flow(waypoints,blend=(),speed_scale=1.):
     if poses.ndim!=2 or poses.shape[1]!=6 or len(poses)<2 or not np.isfinite(poses).all() or not np.isfinite(durations).all() or np.any(durations<0):
         raise ValueError('Expected finite six-joint waypoints and nonnegative durations')
     durations=np.maximum(durations,1/30)
-    limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK]
+    limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK] if derivative_limits is None else np.asarray(derivative_limits,float)*np.array([[.92],[1.],[1.]])
     for attempt in range(24):
         durations=np.ceil(durations*30-1e-9)/30
         coefficients=_coefficients(poses,durations,blend)
@@ -70,12 +70,12 @@ def interpolate_flow(waypoints,blend=(),speed_scale=1.):
     info={'knot_indices':knots,'segment_seconds':durations.tolist(),
           'blended_knots':sorted(blend),'max_velocity':peaks[:,0].max(axis=0).tolist(),
           'max_acceleration':peaks[:,1].max(axis=0).tolist(),'max_jerk':peaks[:,2].max(axis=0).tolist(),
-          'acceleration_limits':FLOW_ACCELERATION.tolist(),'jerk_limits':FLOW_JERK.tolist(),
+          'acceleration_limits':limits[1].tolist(),'jerk_limits':limits[2].tolist(),
           'continuity':'C2 quintic; zero acceleration at knots; bounded joint positions'}
     return actions,timestamps,info
 
 
-def interpolate_ruckig(waypoints,blend=(),speed_scale=1.):
+def interpolate_ruckig(waypoints,blend=(),speed_scale=1.,derivative_limits=None):
     """Local state-to-state Ruckig sections with shared pass-through velocities.
 
     Never sets intermediate_positions (Community's cloud waypoint interface).
@@ -86,7 +86,8 @@ def interpolate_ruckig(waypoints,blend=(),speed_scale=1.):
     poses=np.array([q for q,_ in waypoints],float)
     floors=np.array([d for _,d in waypoints[1:]],float)
     if poses.ndim!=2 or poses.shape[1]!=6 or len(poses)<2 or not np.isfinite(poses).all() or not np.isfinite(floors).all() or np.any(floors<0):raise ValueError('Expected finite six-joint waypoints and nonnegative durations')
-    vmax=motion_speed_limits(speed_scale)*.92
+    limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK] if derivative_limits is None else np.asarray(derivative_limits,float)*np.array([[.92],[1.],[1.]])
+    vmax=limits[0]
     estimates=np.maximum(np.maximum(floors,1/30),np.max(abs(np.diff(poses,axis=0))/vmax,axis=1)+.6)
     slopes=np.diff(poses,axis=0)/estimates[:,None];velocities=np.zeros_like(poses)
     for i in blend:
@@ -102,7 +103,7 @@ def interpolate_ruckig(waypoints,blend=(),speed_scale=1.):
             inp=ruckig.InputParameter(6);inp.current_position=poses[i].tolist();inp.target_position=poses[i+1].tolist()
             inp.current_velocity=velocities[i].tolist();inp.target_velocity=velocities[i+1].tolist()
             inp.current_acceleration=[0.]*6;inp.target_acceleration=[0.]*6
-            inp.max_velocity=vmax.tolist();inp.max_acceleration=FLOW_ACCELERATION.tolist();inp.max_jerk=FLOW_JERK.tolist()
+            inp.max_velocity=vmax.tolist();inp.max_acceleration=limits[1].tolist();inp.max_jerk=limits[2].tolist()
             inp.minimum_duration=max(float(minimum),1/30);inp.duration_discretization=ruckig.DurationDiscretization.Discrete
             trajectory=ruckig.Trajectory(6)
             if generator.calculate(inp,trajectory).value<0:raise ValueError('Ruckig could not generate a bounded motion')
@@ -127,5 +128,5 @@ def interpolate_ruckig(waypoints,blend=(),speed_scale=1.):
     return actions,timestamps,{'engine':'Ruckig '+ruckig.__version__,'knot_indices':knots,'segment_seconds':[t.duration for t in trajectories],
         'blended_knots':[i for i in sorted(blend) if np.any(abs(velocities[i])>1e-6)],'knot_velocities':velocities.tolist(),
         'max_velocity':maxima[0].tolist(),'max_acceleration':maxima[1].tolist(),'max_jerk':maxima[2].tolist(),
-        'acceleration_limits':FLOW_ACCELERATION.tolist(),'jerk_limits':FLOW_JERK.tolist(),
+        'acceleration_limits':limits[1].tolist(),'jerk_limits':limits[2].tolist(),
         'continuity':'C2 local S-curves; shared pass-through velocities; exact position-extrema bounds','cloud':False}

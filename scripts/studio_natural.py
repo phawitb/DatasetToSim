@@ -29,8 +29,8 @@ def _derivative_peaks(curve):
     return peaks
 
 
-def coordinated_curve(guides,minimum=0.,speed_scale=1.,grip_window=(0.,1.)):
-    guides=np.asarray(guides,float);limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK]
+def coordinated_curve(guides,minimum=0.,speed_scale=1.,grip_window=(0.,1.), derivative_limits=None):
+    guides=np.asarray(guides,float);limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK] if derivative_limits is None else np.asarray(derivative_limits,float)*np.array([[.92],[1.],[1.]])
     if guides.ndim!=2 or guides.shape[1]!=6 or len(guides)<2 or not np.isfinite(guides).all():raise ValueError('Natural requires finite six-joint guides')
     if not np.isfinite(minimum) or minimum<0:raise ValueError('Invalid Natural minimum duration')
     low,high=grip_window
@@ -50,19 +50,20 @@ def coordinated_curve(guides,minimum=0.,speed_scale=1.,grip_window=(0.,1.)):
         'max_jerk':(peaks[2]/duration**3).tolist(),'duration':duration,'grip_window':list(grip_window),'guide_count':len(guides)}
 
 
-def interpolate_natural(waypoints,names,speed_scale=1.):
+def interpolate_natural(waypoints,names,speed_scale=1.,derivative_limits=None):
     """Merge travel stages while keeping grasp/release/settle exact and stopped."""
     poses=np.asarray([q for q,_ in waypoints],float);seconds=np.asarray([s for _,s in waypoints],float)
     travel={'Unfold from rest','Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded','Home'}
     floors=np.array([s*.55/speed_scale if name in travel else s for s,name in zip(seconds,names)])
-    spans={0:names.index('Pregrasp') if 'Pregrasp' in names else names.index('Approach'),names.index('Grasp'):names.index('Lower onto cube') if 'Lower onto cube' in names else names.index('Transfer')}
-    if 'Home' in names:spans[names.index('Release on cube')]=names.index('Home')
+    lower=next((name for name in ['Lower onto cube','Lower onto table'] if name in names),'Transfer')
+    spans={0:names.index('Pregrasp') if 'Pregrasp' in names else names.index('Approach'),names.index('Grasp'):names.index(lower)}
+    if 'Home' in names:spans[names.index('Release on cube' if 'Release on cube' in names else 'Release on table')]=names.index('Home')
     out=[poses[:1]];knots=[0];end_names=['Start'];phases=[];task_knots={'Start':0}
     index=0
     while index<len(poses)-1:
         end=spans.get(index,index+1);guides=poses[index:end+1].copy()
         window=(0.,.4) if index==0 else (.4,.85) if names[end]=='Home' else (0.,1.)
-        q,t,info=coordinated_curve(guides,minimum=float(floors[index+1:end+1].sum()),speed_scale=speed_scale,grip_window=window)
+        q,t,info=coordinated_curve(guides,minimum=float(floors[index+1:end+1].sum()),speed_scale=speed_scale,grip_window=window,derivative_limits=derivative_limits)
         out.append(q[1:]);knots.append(knots[-1]+len(q)-1);end_names.append(names[end]);task_knots[names[end]]=knots[-1]
         phases.append({'from':names[index],'to':names[end],'soft_guides':names[index+1:end],**info})
         index=end
@@ -70,5 +71,5 @@ def interpolate_natural(waypoints,names,speed_scale=1.):
     return actions,timestamps,{'engine':'Quintic B-spline soft-guide paths with bounded derivatives','waypoints':end_names,'knot_indices':knots,
         'task_knot_indices':task_knots,'phases':phases,'max_velocity':np.max([p['max_velocity'] for p in phases],axis=0).tolist(),
         'max_acceleration':np.max([p['max_acceleration'] for p in phases],axis=0).tolist(),'max_jerk':np.max([p['max_jerk'] for p in phases],axis=0).tolist(),
-        'acceleration_limits':FLOW_ACCELERATION.tolist(),'jerk_limits':FLOW_JERK.tolist(),
+        'acceleration_limits':(FLOW_ACCELERATION if derivative_limits is None else np.asarray(derivative_limits)[1]).tolist(),'jerk_limits':(FLOW_JERK if derivative_limits is None else np.asarray(derivative_limits)[2]).tolist(),
         'continuity':'Arm C4 within travel; gripper C2; C2 task stops; soft guides; exact task endpoints','cloud':False}

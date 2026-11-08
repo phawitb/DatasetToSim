@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "dataset": "SIMCUBE_1O1B_VF",
+  "episodes": 72,
+  "fps": 30.0,
+  "task_coverage": [
+    "Put the red cube in the green bowl."
+  ],
+  "median_duration_s": 5.0,
+  "duration_p10_p90_s": [
+    4.373333333333333,
+    7.313333333333333
+  ],
+  "derivative_limits": [
+    [
+      92.62736767470194,
+      144.9839106087727,
+      145.03318959053055,
+      88.6105039191965,
+      102.11032239897028,
+      176.27526843427327
+    ],
+    [
+      369.2307753280415,
+      502.2632410619323,
+      494.89939356778865,
+      527.3013340343232,
+      532.3362065290486,
+      1357.8142337094637
+    ],
+    [
+      4207.794472676776,
+      4351.649093627836,
+      4987.016537514558,
+      7094.498166170879,
+      8221.3746721094,
+      21967.98342249601
+    ]
+  ],
+  "method": "Per-joint 95th percentile absolute native-command derivatives; Savitzky-Golay 9-frame cubic, interior samples only. Degrees for arm; 0\u2013100 gripper units. Simulation-only timing heuristic, not hardware limits or a fitted human motor model.",
+  "source_sha256": {
+    "meta/info.json": "9b3a26e679fde46ef78c8438d8530bcf52c0c0aca218c84ef572e6672edb1647",
+    "data/chunk-000/file-000.parquet": "74d3e14124fbfbb4ab895c2dcda185607d384b6e6f999a0abd2c495bb2908f9b",
+    "data/chunk-000/file-002.parquet": "8ae038862cdbaa293023027a2962c9c39dd134d709a3ff557478a939fc789f2f"
+  }
+}

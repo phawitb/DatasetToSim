@@ -195,7 +195,9 @@ class Hardware:
             if not plan.get('owner'):raise ValueError('Execution requires an owning browser page')
             if plan['id'] in self.consumed:raise ValueError('Plan already consumed')
             actions=np.asarray(plan['actions'],float);ts=np.asarray(plan['timestamps'],float)
-            validate_trajectory(actions,ts,native_limits(self.config),speed_scale=plan.get('speed_scale',1.))
+            from studio_timing import validated_motion_limits
+            validate_trajectory(actions,ts,native_limits(self.config),speed_scale=plan.get('speed_scale',1.),
+                                velocity_limits=validated_motion_limits(plan,require_simulated=True))
             validate_simulated_timing(plan,ts)
             actual_hash=hashlib.sha256(np.ascontiguousarray(actions,dtype='<f8').tobytes()).hexdigest()
             if actual_hash!=plan['action_hash'] or actual_hash!=plan.get('simulated_action_hash'):
