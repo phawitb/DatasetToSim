@@ -180,7 +180,8 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         add('Lower into bowl',np.r_[bowl[:2],place_z],close_grip,seconds=2.)
         waypoint('Placement settle',waypoints[-1][0].copy(),.5)
         add('Release in bowl',np.r_[bowl[:2],place_z],release_grip,seconds=1.)
-        add('Retreat',np.r_[bowl[:2],hover],release_grip,seconds=1.5)
+        # Not a travel stage: speed scaling never hurries the jaw out of the core.
+        add('Lift out of roll',np.r_[bowl[:2],hover],release_grip,seconds=2.)
         return_home()
     else:
         add('Release',np.r_[bowl[:2],hover],release_grip,seconds=1.)
