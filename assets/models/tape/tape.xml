@@ -1,0 +1,23 @@
+<!-- Clear packing-tape roll (1 inch x 36 yd). Built by build_tape.py in Blender.
+     Visual meshes keep the hole; collision is a solid cylinder proxy because
+     MuJoCo collides meshes by their convex hull anyway. Mass is an estimate. -->
+<mujoco model="tape">
+  <compiler angle="radian" meshdir="."/>
+  <asset>
+    <mesh name="tape_roll" file="tape_roll.obj"/>
+    <mesh name="tape_core" file="tape_core.obj"/>
+    <mesh name="tape_liner" file="tape_liner.obj"/>
+    <material name="clear_tape" rgba="0.93 0.91 0.84 0.55" specular="0.6" shininess="0.8"/>
+    <material name="cardboard_core" rgba="0.55 0.40 0.26 1"/>
+    <material name="printed_liner" rgba="0.88 0.90 0.95 1"/>
+  </asset>
+  <worldbody>
+    <body name="tape" pos="0 0 0.012">
+      <inertial pos="0 0 0" mass="0.06" diaginertia="1.4e-5 1.4e-5 2.2e-5"/>
+      <geom name="tape_roll" type="mesh" mesh="tape_roll" material="clear_tape" group="2" contype="0" conaffinity="0" mass="0"/>
+      <geom name="tape_core" type="mesh" mesh="tape_core" material="cardboard_core" group="2" contype="0" conaffinity="0" mass="0"/>
+      <geom name="tape_liner" type="mesh" mesh="tape_liner" material="printed_liner" group="2" contype="0" conaffinity="0" mass="0"/>
+      <geom name="tape_collision" type="cylinder" size="0.0245 0.012" group="3" mass="0" friction="0.8 0.005 0.0001"/>
+    </body>
+  </worldbody>
+</mujoco>

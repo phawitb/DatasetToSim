@@ -21,10 +21,16 @@ from studio_stack import build_scene_model
 ROOT = Path(__file__).resolve().parents[1]
 _LOCK = threading.RLock()
 REPLAY_SCENE = ROOT / 'output/shared-calibration-v10/episode-00/scene.xml'
+# Standalone library models that no workflow places in a scene yet.
+TAPE_MODEL = ROOT / 'assets/models/tape/tape.xml'
+_LIBRARY_BODIES = ('tape',)
 _DESCRIPTORS = {
     'red-cube': ('Red cube', 'Task object', 'Calibrated cube primitive, red generation material.'),
     'green-cube': ('Green cube', 'Task object', 'Calibrated cube primitive, green generation material.'),
     'green-bowl': ('Green bowl', 'Task object', 'Open bowl mesh with the calibrated tapered wall and floor.'),
+    'tape': ('Tape roll', 'Library object', 'Clear 1-inch packing-tape roll modelled in Blender from photos, '
+             'scaled against the 20 mm cube: about 49 mm outer diameter, 24 mm wide, 23 mm core hole. '
+             'Not used by any task yet.'),
     'so101': ('SO-101 robot', 'Robot', 'Current robot visual meshes, camera mount, and wrist camera in the saved Home pose.'),
     'work-mat': ('Work mat', 'Environment', 'Calibrated work surface used by every generated task.'),
     'table': ('Table', 'Environment', 'The actual tabletop box used by the simulation.'),
@@ -38,6 +44,7 @@ def _signature():
              ROOT / 'scripts/episode0.py', ROOT / 'scripts/episode0_physics.py',
              ROOT / 'src/dataset_to_sim/scene.py', ROOT / 'scripts/studio_stack.py',
              ROOT / 'scripts/studio_objects.py', REPLAY_SCENE, ROBOT]
+    files += sorted(TAPE_MODEL.parent.glob('*'))
     files += sorted((ROBOT.parent / 'assets').glob('*'))
     files += sorted((REPLAY_SCENE.parent.parent / 'assets').glob('*'))
     fingerprint = [(str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in files if path.is_file()]
@@ -105,7 +112,8 @@ def _visual_rgba(model, data):
 
 def _model_parts(model, home):
     data = mujoco.MjData(model)
-    data.qpos[:6] = home
+    if model.nq >= 6:
+        data.qpos[:6] = home
     mujoco.mj_forward(model, data)
     colors = _visual_rgba(model, data)
     parts = {}
@@ -115,13 +123,13 @@ def _model_parts(model, home):
         name, body = model.geom(i).name, model.body(model.geom_bodyid[i]).name
         if name in ('table', 'floor', 'work_mat'):
             identifier = name.replace('_', '-')
-        elif body in ('cube', 'target_cube', 'bowl'):
+        elif body in ('cube', 'target_cube', 'bowl', *_LIBRARY_BODIES):
             identifier = body
         else:
             identifier = 'so101'
         vertices, faces = _triangles(model, i)
         vertices = vertices @ data.geom_xmat[i].reshape(3, 3).T + data.geom_xpos[i]
-        if body in ('cube', 'target_cube', 'bowl'):
+        if body in ('cube', 'target_cube', 'bowl', *_LIBRARY_BODIES):
             # Object dimensions/variants describe local geometry, not the
             # arbitrary recorded placement yaw of an episode.
             bid = int(model.geom_bodyid[i])
@@ -133,6 +141,8 @@ def _model_parts(model, home):
 def _source_tasks(identifier, source_id):
     if source_id == 'generation':
         return _tasks(identifier)
+    if source_id == 'library':
+        return []
     if source_id == 'real-replay':
         role = {'real-red-cube': 'Manipulated object', 'green-bowl': 'Placement target',
                 'so101': 'Manipulator', 'floor': 'Background plane'}.get(identifier, 'Work surface')
@@ -162,12 +172,14 @@ def _snapshot(signature):
          mujoco.MjModel.from_xml_path(str(REPLAY_SCENE))),
         ('generation', 'Generate Data', 'scripts/studio_generation_scene.py', generation),
         ('new-run', 'New Run', 'scripts/studio_stack.py', new_run),
+        ('library', 'Model library', 'assets/models/tape/tape.xml',
+         mujoco.MjModel.from_xml_path(str(TAPE_MODEL))),
     ]
-    grouped = {key: [] for key in ('cube', 'green-bowl', 'so101', 'work-mat', 'table', 'floor')}
+    grouped = {key: [] for key in ('cube', 'green-bowl', 'tape', 'so101', 'work-mat', 'table', 'floor')}
     parts_by_id = {}
     labels = {'red-cube': 'Red · Generate Data', 'green-cube': 'Green · Generate Data',
               'real-red-cube': 'Red · Real dataset / New Run', 'tan-cube': 'Tan · New Run',
-              'green-bowl': 'Sage green', 'so101': 'Original materials', 'work-mat': 'Charcoal',
+              'green-bowl': 'Sage green', 'tape': 'Clear', 'so101': 'Original materials', 'work-mat': 'Charcoal',
               'table': 'Off-white', 'floor': 'Light gray'}
     for source_id, source_label, source_path, model in sources:
         source = {'id': source_id, 'label': source_label, 'path': source_path}

@@ -11,7 +11,7 @@ import studio_objects as objects
 def test_catalog_reports_current_geometry_and_task_roles():
     catalog = objects.catalog()
     entries = {item['id']: item for item in catalog['objects']}
-    assert set(entries) == {'cube', 'green-bowl', 'so101', 'work-mat', 'table', 'floor'}
+    assert set(entries) == {'cube', 'green-bowl', 'tape', 'so101', 'work-mat', 'table', 'floor'}
     config = json.loads((objects.ROOT / 'calibration/native-action-current.json').read_text())
     edge = config['base_calibration']['world']['cube']['size']
     assert entries['cube']['dimensions_m'] == pytest.approx([edge]*3)
@@ -37,7 +37,7 @@ def test_model_endpoint_rejects_non_catalog_ids(identifier):
         objects.object_mesh(identifier)
 
 
-@pytest.mark.parametrize('identifier', ['green-cube', 'green-bowl', 'so101', 'floor'])
+@pytest.mark.parametrize('identifier', ['green-cube', 'green-bowl', 'tape', 'so101', 'floor'])
 def test_preview_exports_finite_real_triangles_with_correct_dimensions(identifier):
     mesh = objects.object_mesh(identifier)
     assert mesh['id'] == identifier
@@ -116,3 +116,10 @@ def test_thumbnails_are_small_actual_geometry_images():
         assert (pixels[:,:,3] > 0).sum() > 100
         images.append(payload)
     assert len(set(images)) == len(images)
+
+
+def test_tape_roll_is_a_library_model_with_photo_scaled_dimensions():
+    tape = next(item for item in objects.catalog()['objects'] if item['id'] == 'tape')
+    assert tape['dimensions_m'] == pytest.approx([.049, .049, .024], abs=1e-6)
+    assert tape['tasks'] == [] and [s['id'] for s in tape['sources']] == ['library']
+    assert tape['part_count'] == 3 and tape['rgba'][3] < 1

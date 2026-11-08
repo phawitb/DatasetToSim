@@ -118,6 +118,7 @@ export class ObjectsView{
   this.find('.objects-name').textContent=model.name+(item.label==='Default'?'':' · '+item.label);this.find('.objects-category').textContent=item.category;this.find('.objects-description').textContent=item.description;
   const facts=this.find('.objects-facts');facts.replaceChildren();for(const [label,value] of [[item.dimension_note,formatDimensions(item.dimensions_m)],['Visual geometry',`${item.triangle_count.toLocaleString()} triangles · ${item.part_count} parts`]]){const fact=element('div');fact.append(element('span','',label),element('strong','',value));facts.append(fact);}
   const tasks=this.find('.objects-tasks');tasks.replaceChildren();for(const task of item.tasks){const row=element('div','objects-task');row.append(element('span','',task.instruction),element('span','objects-role',task.role));tasks.append(row);}
+  if(!item.tasks.length)tasks.append(element('p','objects-empty','Not used in any task yet.'));
   const status=this.find('.objects-preview-status');status.textContent='Loading model geometry…';this.preview?.clear();
   try{
    if(!this.preview)this.preview=new ObjectPreview(this.find('canvas'));
