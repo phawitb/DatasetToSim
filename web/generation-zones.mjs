@@ -5,7 +5,8 @@ export const defaultObjectZones=()=>Object.fromEntries(Object.keys(ZONE_OBJECTS)
 export const SCENE_OBJECTS=['red_cube','green_cube','bowl'];
 export const LEGACY_YAW_RANGE_DEG=11.46;
 // Zones are 135 mm wide; the bowl is rotationally symmetric, so only cubes rotate.
-export const ROTATION_OBJECTS=['red_cube','green_cube'];
+// Every physical object rotates; the unstack release area is a location, not an object.
+export const ROTATION_OBJECTS=['red_cube','green_cube','bowl'];
 const perObject=(value,keys,fallback)=>Object.fromEntries(keys.map(key=>[key,value!==null&&typeof value==='object'?(value[key]??fallback):(value??fallback)]));
 // Requests saved before scene-object selection always contained both cubes.
 export const LEGACY_EXTRA_OBJECTS=['red_cube','green_cube'];
@@ -69,7 +70,8 @@ export class ObjectZonePicker{
   this.spread=perObject(options.zone_spread_mm,Object.keys(ZONE_OBJECTS),null);
   for(const [key,value] of Object.entries(this.spread))if(value!==null)this.radius[key]=value;
   // Jobs saved before this control rotated cubes within ±0.10 rad.
-  this.yaw=perObject(options.object_yaw_range_deg,ROTATION_OBJECTS,Object.keys(options).length?LEGACY_YAW_RANGE_DEG:360);
+  const legacy=Object.keys(options).length&&options.object_yaw_range_deg==null;
+  this.yaw=legacy?{red_cube:LEGACY_YAW_RANGE_DEG,green_cube:LEGACY_YAW_RANGE_DEG,bowl:0}:perObject(options.object_yaw_range_deg,ROTATION_OBJECTS,360);
   this.update(this.tasks,this.enabled);}
  /** Optional objects to add; objects every selected task already needs are omitted. */
  extras(){const states=sceneObjectStates(this.tasks);return SCENE_OBJECTS.filter(key=>this.extraObjects.includes(key)&&states[key]!=='all');}

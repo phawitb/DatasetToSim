@@ -8,7 +8,8 @@ LEGACY_EXTRA_OBJECTS = ['red_cube', 'green_cube']
 
 
 SPREAD_OBJECTS = ('red_cube', 'green_cube', 'bowl', 'unstack_destination')
-ROTATION_OBJECTS = ('red_cube', 'green_cube')  # the bowl is rotationally symmetric
+# Every physical scene object can be rotated (the unstack release area is not an object).
+ROTATION_OBJECTS = ('red_cube', 'green_cube', 'bowl')
 
 
 def validate_zone_spread(value):
@@ -49,12 +50,14 @@ def layout_role_settings(task_id, options):
     other = 'green' if color == 'red' else 'red'
     spread = validate_zone_spread(options.get('zone_spread_mm'))
     legacy = 'object_yaw_range_deg' not in options
-    yaw = {key: LEGACY_YAW_RANGE_DEG for key in ROTATION_OBJECTS} if legacy else validate_rotation(options['object_yaw_range_deg'])
+    # Legacy requests: cubes within ±0.10 rad, bowl unrotated.
+    yaw = {'red_cube': LEGACY_YAW_RANGE_DEG, 'green_cube': LEGACY_YAW_RANGE_DEG, 'bowl': 0.} if legacy else validate_rotation(options['object_yaw_range_deg'])
     other_role = 'unstack_destination' if task_id == 'unstack' else other + '_cube'
     meters = lambda v: None if v is None else v / 1000
     return {'spread': {'source_cube': meters(spread[color + '_cube']), 'other_cube': meters(spread[other_role]), 'bowl': meters(spread['bowl'])},
             # Unstack: the bottom cube copies the top cube's pose; its draw only reserves space.
-            'yaw': {'source_cube': yaw[color + '_cube'], 'other_cube': yaw[color + '_cube'] if task_id == 'unstack' else yaw[other + '_cube']}}
+            'yaw': {'source_cube': yaw[color + '_cube'], 'other_cube': yaw[color + '_cube'] if task_id == 'unstack' else yaw[other + '_cube'],
+                    'bowl': yaw['bowl']}}
 
 
 def validate_extra_objects(value):

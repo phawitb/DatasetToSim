@@ -306,6 +306,7 @@ def build_model(cal,config,return_xml=False):
     for key,field in [('pos','position'),('quat','quaternion')]:camera.set(key,_numbers(wrist[field]))
     camera.set('fovy',str(wrist['fovy']))
     bowl=root.find(".//body[@name='bowl']");bowl.set('pos',_numbers(cal.world['bowl']['position']))
+    if 'quaternion' in cal.world['bowl']:bowl.set('quat',_numbers(cal.world['bowl']['quaternion']))
     for child in list(bowl):bowl.remove(child)
     asset=root.find('asset')
     for child in list(asset):

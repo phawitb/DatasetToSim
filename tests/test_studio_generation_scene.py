@@ -132,3 +132,11 @@ def test_scene_contains_only_task_objects_unless_extras_are_added(tmp_path):
     model = load_generation_scene(tmp_path / 'b')[-1]
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'bowl') >= 0
     assert model.geom('target_cube_geom').group != 3
+
+
+def test_bowl_rotation_reaches_the_compiled_model(tmp_path):
+    import mujoco
+    from studio_generation_scene import initialize_generation_scene, load_generation_scene
+    initialize_generation_scene(tmp_path, 'red_cube_to_green_bowl', 3, {'object_yaw_range_deg': {'bowl': 360}})
+    _, _, _, cal, model = load_generation_scene(tmp_path)
+    np.testing.assert_allclose(model.body('bowl').quat, cal.world['bowl']['quaternion'], atol=1e-9)

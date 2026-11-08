@@ -236,7 +236,9 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
 
     world['cube'] = pose(*source)
     world['target_cube'] = pose(*target)
+    bowl_yaw = float(draws.get('bowl', {}).get('yaw_rad', 0.))
     world['bowl']['position'] = [*map(float, bowl_xy), support]
+    world['bowl']['quaternion'] = [float(np.cos(bowl_yaw/2)), 0., 0., float(np.sin(bowl_yaw/2))]
     world['bowl_present'] = present['bowl']
     # Requests with the rotation control may rotate cubes freely: align the jaws to the cube faces.
     world['align_grasp_yaw'] = 'object_yaw_range_deg' in options

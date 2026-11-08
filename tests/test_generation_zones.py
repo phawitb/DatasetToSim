@@ -70,8 +70,7 @@ def test_balancer_restricts_choices_and_accounts_for_inherited_outside_zones():
 
 def test_zone_spread_keeps_objects_near_zone_centers_and_rotation_covers_full_range(tmp_path):
     from studio_generation_layout import workspace_grid_cells
-    centers = {}
-    yaws = []
+    yaws, bowl_yaws = [], []
     for seed in range(12):
         folder = tmp_path / str(seed)
         options = validate_request({'tasks': ['red_cube_to_green_bowl'], 'zone_spread_mm': {'red_cube': 20}, 'object_yaw_range_deg': {'red_cube': 360, 'green_cube': 0}})
@@ -84,14 +83,16 @@ def test_zone_spread_keeps_objects_near_zone_centers_and_rotation_covers_full_ra
         q = world['cube']['quaternion']; yaws.append(np.degrees(2 * np.arctan2(q[3], q[0])))
         assert world['align_grasp_yaw'] is True
         assert scene['layout_sampling']['zone_spread_mm']['red_cube'] == 20 and scene['layout_sampling']['zone_spread_mm']['bowl'] is None
-        assert scene['layout_sampling']['object_yaw_range_deg'] == {'source_cube': 360, 'other_cube': 0}
+        assert scene['layout_sampling']['object_yaw_range_deg'] == {'source_cube': 360, 'other_cube': 0, 'bowl': 360}
+        b = world['bowl']['quaternion']; bowl_yaws.append(np.degrees(2 * np.arctan2(b[3], b[0])))
     assert max(yaws) - min(yaws) > 90  # far beyond the legacy ±5.7°
+    assert max(bowl_yaws) - min(bowl_yaws) > 90  # the bowl rotates too
     with pytest.raises(ValueError, match='zone_spread_mm'):
         validate_request({'zone_spread_mm': 150})
     with pytest.raises(ValueError, match='object_yaw_range_deg'):
         validate_request({'object_yaw_range_deg': 400})
     defaults = validate_request({})
     assert all(v is None for v in defaults['zone_spread_mm'].values())
-    assert defaults['object_yaw_range_deg'] == {'red_cube': 360, 'green_cube': 360}
+    assert defaults['object_yaw_range_deg'] == {'red_cube': 360, 'green_cube': 360, 'bowl': 360}
     # One value still applies to every object.
     assert validate_request({'zone_spread_mm': 15})['zone_spread_mm']['bowl'] == 15

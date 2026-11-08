@@ -139,7 +139,12 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, all
             # Unstack reserves its destination even though no second cube sits there.
             destination = (cube('other_cube', STACKING_CENTER_SEPARATION_M if cells else .08 if task == 'unstack' else 0.)
                            if present['other_cube'] or task == 'unstack' else (np.asarray(PARKED_XY), 0.))
-            bowl = draw('bowl', float(world['bowl']['outer_radius']))[0] if present['bowl'] else np.asarray(world['bowl']['position'][:2])
+            # The bowl's footprint is a circle, so its yaw never changes the clearance check.
+            # No random draw at zero range keeps legacy seeded layouts identical.
+            bowl_range = np.deg2rad(yaw_range_deg.get('bowl', 0.))
+            bowl_yaw = float(rng.uniform(-bowl_range / 2, bowl_range / 2)) if bowl_range > 0 else 0.
+            # The sampled yaw is recorded in draws['bowl']['yaw_rad'].
+            bowl = draw('bowl', float(world['bowl']['outer_radius']), bowl_yaw)[0] if present['bowl'] else np.asarray(world['bowl']['position'][:2])
             break
         except SamplingExhausted:
             if not retry_layout or pair_attempt == 63:
