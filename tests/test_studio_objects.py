@@ -18,8 +18,8 @@ def test_catalog_reports_current_geometry_and_task_roles():
     # Default bowl is the current measured one (height derived from the 50 mm side length).
     assert entries['green-bowl']['dimensions_m'][:2] == pytest.approx([.118, .118], abs=1e-6)
     assert .044 < entries['green-bowl']['dimensions_m'][2] < .049
-    assert len([t for t in entries['green-bowl']['tasks'] if t['id'] in objects.TASKS]) == 2
-    assert len([t for t in entries['cube']['tasks'] if t['id'] in objects.TASKS]) == 5
+    assert len([t for t in entries['green-bowl']['tasks'] if t['id'] in objects.TASKS]) == 3
+    assert len([t for t in entries['cube']['tasks'] if t['id'] in objects.TASKS]) == 6
     variants = {variant['id']: variant for variant in entries['cube']['variants']}
     assert set(variants) == {'red-cube', 'green-cube', 'real-red-cube', 'tan-cube'}
     roles = {task['id']: task['role'] for task in variants['red-cube']['tasks']}
@@ -121,5 +121,6 @@ def test_thumbnails_are_small_actual_geometry_images():
 def test_tape_roll_is_a_library_model_with_measured_dimensions():
     tape = next(item for item in objects.catalog()['objects'] if item['id'] == 'tape')
     assert tape['dimensions_m'] == pytest.approx([.053, .053, .024], abs=1e-6)
-    assert tape['tasks'] == [] and [s['id'] for s in tape['sources']] == ['library']
+    assert [s['id'] for s in tape['sources']] == ['library']
+    assert {t['id']: t['role'] for t in tape['tasks']} == {'tape_to_green_bowl': 'Manipulated object', 'new-run-tape': 'Manipulated object'}
     assert tape['part_count'] == 3 and tape['rgba'][3] < 1

@@ -7,6 +7,9 @@ from strict_action_scene import episode_scene,build_model
 
 def scene_calibration(config,scene):
     cal=episode_scene(config,scene)
+    if scene.get('object')=='tape':
+        from tape_object import TAPE,dimensions
+        size=dimensions();cal.world['cube'].update(object=TAPE,width=size['width_m'],outer_diameter=size['outer_diameter_m'])
     if scene.get('task')=='stack':
         cal.world['target_cube']=copy.deepcopy(scene['target_cube'])
         cal.world['bowl_present']=bool(scene['bowl_present'])
@@ -14,8 +17,10 @@ def scene_calibration(config,scene):
 
 
 def build_scene_model(cal,config):
-    if 'target_cube' not in cal.world:return build_model(cal,config)
+    from tape_object import apply_tape,is_tape
+    if 'target_cube' not in cal.world and not is_tape(cal.world):return build_model(cal,config)
     root=ET.fromstring(build_model(cal,config,return_xml=True));world=root.find('worldbody')
+    if 'target_cube' not in cal.world:return mujoco.MjModel.from_xml_string(ET.tostring(apply_tape(root,cal.world),encoding='unicode'))
     if not cal.world.get('bowl_present',True):world.remove(root.find(".//body[@name='bowl']"))
     target=cal.world['target_cube'];body=ET.SubElement(world,'body',name='target_cube',pos=' '.join(map(str,target['position'])),quat=' '.join(map(str,target['quaternion'])))
     ET.SubElement(body,'freejoint',name='target_cube_free')

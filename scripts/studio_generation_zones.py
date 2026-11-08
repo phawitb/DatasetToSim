@@ -1,15 +1,31 @@
 """Public object identities mapped onto the existing full-mat nine-zone grid."""
 import math
-OBJECT_ZONE_KEYS = ('red_cube', 'green_cube', 'bowl', 'unstack_destination')
+OBJECT_ZONE_KEYS = ('red_cube', 'green_cube', 'tape', 'bowl', 'unstack_destination')
 ALL_ZONES = list(range(9))
 SCENE_OBJECTS = ('red_cube', 'green_cube', 'bowl')
 # Requests saved before scene-object selection always contained both cubes.
 LEGACY_EXTRA_OBJECTS = ['red_cube', 'green_cube']
 
 
-SPREAD_OBJECTS = ('red_cube', 'green_cube', 'bowl', 'unstack_destination')
+SPREAD_OBJECTS = ('red_cube', 'green_cube', 'tape', 'bowl', 'unstack_destination')
 # Every physical scene object can be rotated (the unstack release area is not an object).
 ROTATION_OBJECTS = ('red_cube', 'green_cube', 'bowl')
+
+
+def task_roles(task_id, options):
+    """Public object keys for the layout roles: (source, other cube color).
+
+    Cube tasks move a colored cube and the other color is the second cube.
+    The tape task moves the roll; its optional second cube is the one the
+    user added to the scene (red when none is added, then parked).
+    """
+    if task_id.startswith('tape_'):
+        cubes = [key for key in ('red_cube', 'green_cube') if key in options.get('extra_objects', [])]
+        if len(cubes) > 1:
+            raise ValueError('The tape task supports one extra cube: choose red or green')
+        return 'tape', (cubes[0] if cubes else 'red_cube').split('_')[0]
+    color = options.get('unstack_top', 'red') if task_id == 'unstack' else task_id.split('_')[0]
+    return color + '_cube', 'green' if color == 'red' else 'red'
 
 
 def validate_zone_spread(value):
@@ -46,17 +62,18 @@ def validate_rotation(value):
 def layout_role_settings(task_id, options):
     """Spread (m, None = whole zone) and cube yaw range for each sampled layout role."""
     from studio_generation_layout import LEGACY_YAW_RANGE_DEG
-    color = options.get('unstack_top', 'red') if task_id == 'unstack' else task_id.split('_')[0]
-    other = 'green' if color == 'red' else 'red'
+    source, other = task_roles(task_id, options)
     spread = validate_zone_spread(options.get('zone_spread_mm'))
     legacy = 'object_yaw_range_deg' not in options
     # Legacy requests: cubes within ±0.10 rad, bowl unrotated.
     yaw = {'red_cube': LEGACY_YAW_RANGE_DEG, 'green_cube': LEGACY_YAW_RANGE_DEG, 'bowl': 0.} if legacy else validate_rotation(options['object_yaw_range_deg'])
     other_role = 'unstack_destination' if task_id == 'unstack' else other + '_cube'
     meters = lambda v: None if v is None else v / 1000
-    return {'spread': {'source_cube': meters(spread[color + '_cube']), 'other_cube': meters(spread[other_role]), 'bowl': meters(spread['bowl'])},
+    # A round roll looks the same at every yaw.
+    source_yaw = 0. if source == 'tape' else yaw[source]
+    return {'spread': {'source_cube': meters(spread[source]), 'other_cube': meters(spread[other_role]), 'bowl': meters(spread['bowl'])},
             # Unstack: the bottom cube copies the top cube's pose; its draw only reserves space.
-            'yaw': {'source_cube': yaw[color + '_cube'], 'other_cube': yaw[color + '_cube'] if task_id == 'unstack' else yaw[other + '_cube'],
+            'yaw': {'source_cube': source_yaw, 'other_cube': source_yaw if task_id == 'unstack' else yaw[other + '_cube'],
                     'bowl': yaw['bowl']}}
 
 
@@ -69,9 +86,8 @@ def validate_extra_objects(value):
 
 def task_objects(task_id, options):
     """Objects a task needs (source cube, its target) and the other cube's color."""
-    color = options.get('unstack_top', 'red') if task_id == 'unstack' else task_id.split('_')[0]
-    other = 'green' if color == 'red' else 'red'
-    required = [color + '_cube'] + (['bowl'] if task_id.endswith('_bowl') else [other + '_cube'])
+    source, other = task_roles(task_id, options)
+    required = [source] + (['bowl'] if task_id.endswith('_bowl') else [other + '_cube'])
     return required, other
 
 
@@ -83,7 +99,8 @@ def scene_presence(task_id, options):
     their original scenes (both cubes always, bowl only for bowl tasks).
     """
     required, other = task_objects(task_id, options)
-    extras = options.get('extra_objects', LEGACY_EXTRA_OBJECTS)
+    # The tape task is new: no legacy requests, so no implicit extra cubes.
+    extras = options.get('extra_objects', [] if task_id.startswith('tape_') else LEGACY_EXTRA_OBJECTS)
     present = set(required) | set(extras)
     return {'other_cube': other + '_cube' in present, 'bowl': 'bowl' in present}
 
@@ -104,9 +121,8 @@ def validate_object_zones(value):
 
 def layout_zone_roles(task_id, options):
     zones = validate_object_zones(options.get('object_zones', {}))
-    color = options.get('unstack_top', 'red') if task_id == 'unstack' else task_id.split('_')[0]
-    other = 'green' if color == 'red' else 'red'
-    source, target = zones[color + '_cube'], zones[other + '_cube']
+    source_key, other = task_roles(task_id, options)
+    source, target = zones[source_key], zones[other + '_cube']
     if task_id == 'unstack':
         source = sorted(set(source) & set(target))
         if not source:

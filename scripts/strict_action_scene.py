@@ -341,7 +341,11 @@ def build_model(cal,config,return_xml=False):
 def containment(model,qpos,cube_pose,cal,config):
     d=mujoco.MjData(model);d.qpos[:6]=qpos;addr=model.jnt_qposadr[model.joint('cube_free').id]
     d.qpos[addr:addr+7]=cube_pose;mujoco.mj_forward(model,d)
-    geom=d.geom('cube_geom');v=np.array(list(itertools.product([-1,1],repeat=3)))*model.geom_size[geom.id]
+    geom=d.geom('cube_geom')
+    if model.geom_type[geom.id]==mujoco.mjtGeom.mjGEOM_MESH:
+        # Tape roll: the convex collision prism's own vertices (outer rim, top and bottom).
+        mesh=model.geom_dataid[geom.id];start=model.mesh_vertadr[mesh];v=model.mesh_vert[start:start+model.mesh_vertnum[mesh]]
+    else:v=np.array(list(itertools.product([-1,1],repeat=3)))*model.geom_size[geom.id]
     vertices=v@geom.xmat.reshape(3,3).T+geom.xpos-d.body('bowl').xpos
     e=config['estimates'];h=cal.world['bowl']['height'];r0=e['bowl_bottom_outer_radius_m'];r1=cal.world['bowl']['outer_radius'];wall=e['bowl_wall_radial_thickness_m'];tol=.0005
     normals=np.c_[np.cos((np.arange(32)+.5)*2*np.pi/32),np.sin((np.arange(32)+.5)*2*np.pi/32)]

@@ -37,7 +37,7 @@ LEGACY_YAW_RANGE_DEG = float(np.rad2deg(.20))
 
 
 def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, allowed_cells=None, present=None,
-                            zone_spread_m=None, yaw_range_deg=None):
+                            zone_spread_m=None, yaw_range_deg=None, source_radius_m=None):
     # Per layout role: spread radius in m (None = whole zone) and cube yaw range in degrees.
     zone_spread_m = zone_spread_m or {}
     yaw_range_deg = yaw_range_deg or {}
@@ -135,7 +135,8 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, all
         draws.clear()
         try:
             present = present or {'other_cube': True, 'bowl': task == 'bowl'}
-            source = cube('source_cube')
+            # A round source (tape roll) has a fixed circular footprint, including jaw clearance.
+            source = draw('source_cube', source_radius_m) if source_radius_m else cube('source_cube')
             # Unstack reserves its destination even though no second cube sits there.
             destination = (cube('other_cube', STACKING_CENTER_SEPARATION_M if cells else .08 if task == 'unstack' else 0.)
                            if present['other_cube'] or task == 'unstack' else (np.asarray(PARKED_XY), 0.))

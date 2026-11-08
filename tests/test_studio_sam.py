@@ -112,3 +112,29 @@ def test_wrist_bowl_may_fill_most_of_frame_but_not_entire_background():
     assert mask.sum()>150000
     assert mask_record(mask,[150,180],.95)['area']==int(mask.sum())
     with pytest.raises(ValueError):mask_record(np.ones((480,640),np.uint8),[100,100],.95)
+
+
+def test_tape_mask_fits_the_measured_roll_and_builds_a_tape_scene():
+    import json
+    from scipy.spatial.transform import Rotation
+    from studio_stack import scene_calibration,build_scene_model
+    import tape_object
+    root=Path(__file__).resolve().parents[1]
+    config=json.loads((root/'calibration/native-action-current.json').read_text())
+    camera=config['base_calibration']['cameras']['top'];world=config['base_calibration']['world']
+    support=world['mat']['position'][2]+world['mat']['size'][2]/2
+    size=tape_object.dimensions();radius,width=size['outer_diameter_m']/2,size['width_m']
+    rotation=Rotation.from_quat(np.array(camera['quaternion'])[[1,2,3,0]]).as_matrix();focal=240/np.tan(np.deg2rad(camera['fovy']/2))
+    def silhouette(center,r,height):
+        a=np.arange(64)*2*np.pi/64
+        rim=np.array([[center[0]+r*np.cos(t),center[1]+r*np.sin(t),z] for z in (support,support+height) for t in a])
+        p=(rim-camera['position'])@rotation@np.diag([1,-1,-1]);px=p[:,:2]/p[:,2:]*focal+[320,240]
+        mask=np.zeros((480,640),np.uint8);cv2.fillConvexPoly(mask,cv2.convexHull(np.rint(px).astype(np.int32)),1);return mask
+    truth=np.array([.30,.10])
+    tape=silhouette(truth,radius,width);bowl=silhouette([.24,-.14],.059,.046)
+    scene=scene_from_masks(config,tape,bowl,task='tape')
+    assert scene['object']=='tape' and np.linalg.norm(np.array(scene['cube_pose_from_initial_rgb']['position'][:2])-truth)<.002
+    cal=scene_calibration(config,scene);model=build_scene_model(cal,config)
+    assert tape_object.is_tape(cal.world) and model.geom('cube_geom').type==7  # mjGEOM_MESH: the roll's collision prism
+    assert model.body('cube').mass[0]==pytest.approx(size['mass_kg'])
+    with pytest.raises(ValueError,match='tape roll'):scene_from_masks(config,silhouette(truth,.006,.01),bowl,task='tape')

@@ -545,7 +545,7 @@ def capture(body:dict):
     global current
     with operation_lock:
         task=body.get('task','bowl')
-        if task not in ['bowl','stack']:raise ValueError('Choose Place in bowl or Stack on cube')
+        if task not in ['bowl','stack','tape']:raise ValueError('Choose Place in bowl, Stack on cube or Place tape in bowl')
         if 'bowl_present' in body and not isinstance(body['bowl_present'],bool):raise ValueError('Bowl presence must be true or false')
         if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
@@ -553,6 +553,7 @@ def capture(body:dict):
         identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
         source=body.get('source','live')
         if task=='stack' and source!='live':raise ValueError('Stacking requires a live two-cube capture')
+        if task=='tape' and source!='live':raise ValueError('Place tape in bowl requires a live capture with the tape roll')
         if source=='live':
             snapshot=hardware.call('snapshot')
             for view,image in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(image))

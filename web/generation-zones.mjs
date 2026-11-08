@@ -1,5 +1,7 @@
 /** Initial-center constraints use exactly the coverage map's world X/Y zones. */
-export const ZONE_OBJECTS={red_cube:'Red cube',green_cube:'Green cube',bowl:'Bowl',unstack_destination:'Unstack release area'};
+export const ZONE_OBJECTS={red_cube:'Red cube',green_cube:'Green cube',tape:'Tape',bowl:'Bowl',unstack_destination:'Unstack release area'};
+// Objects with an initial position; the tape appears only in the tape task (never as an extra).
+const PLACED_OBJECTS=['red_cube','green_cube','tape','bowl'];
 export const ZONE_DISPLAY_ORDER=[6,7,8,3,4,5,0,1,2];
 export const defaultObjectZones=()=>Object.fromEntries(Object.keys(ZONE_OBJECTS).map(key=>[key,[0,1,2,3,4,5,6,7,8]]));
 export const SCENE_OBJECTS=['red_cube','green_cube','bowl'];
@@ -12,6 +14,7 @@ const perObject=(value,keys,fallback)=>Object.fromEntries(keys.map(key=>[key,val
 export const LEGACY_EXTRA_OBJECTS=['red_cube','green_cube'];
 /** Objects named by a task instruction (mirrors studio_generation_zones.task_objects). */
 export function taskObjects(task,unstackTop='red'){
+ if(task.startsWith('tape_'))return ['tape','bowl'];
  const color=task==='unstack'?unstackTop:task.split('_')[0],other=color==='red'?'green':'red';
  return [color+'_cube',...(task.endsWith('_bowl')?['bowl']:[other+'_cube'])];
 }
@@ -21,10 +24,11 @@ export function sceneObjectStates(tasks,unstackTop='red'){
 }
 export function activeZoneObjects(tasks,extras=LEGACY_EXTRA_OBJECTS,unstackTop='red'){
  const present=new Set([...tasks.flatMap(t=>taskObjects(t,unstackTop)),...extras]);
- return [...SCENE_OBJECTS.filter(key=>present.has(key)),...(tasks.includes('unstack')?['unstack_destination']:[])];
+ return [...PLACED_OBJECTS.filter(key=>present.has(key)),...(tasks.includes('unstack')?['unstack_destination']:[])];
 }
 export function zoneSelectionError(zones,tasks,extras=LEGACY_EXTRA_OBJECTS){
  for(const key of activeZoneObjects(tasks,extras))if(!zones[key]?.length)return `Select at least one zone for ${ZONE_OBJECTS[key]}.`;
+ if(tasks.some(t=>t.startsWith('tape_'))&&extras.includes('red_cube')&&extras.includes('green_cube'))return 'The tape task can add one extra cube: choose red or green.';
  if(tasks.includes('unstack')&&!zones.red_cube.some(z=>zones.green_cube.includes(z)))return 'Unstack needs at least one shared zone for both cubes to start stacked.';
  return '';
 }

@@ -65,8 +65,9 @@ def fit_mask_pose(mask,camera,initial,edge,support):
 
 def scene_from_masks(config,source,target,obstacle=None,*,task='bowl',bowl_present=True):
     from strict_action_scene import episode_scene
-    if task not in ['bowl','stack']:raise ValueError('Choose Place in bowl or Stack on cube')
+    if task not in ['bowl','stack','tape']:raise ValueError('Choose Place in bowl, Stack on cube or Place tape in bowl')
     validate_pair(source,target)
+    if task=='tape':return tape_scene_from_masks(config,source,target)
     if task=='stack' and bowl_present and obstacle is None:raise ValueError('Select the bowl obstacle, or mark that no bowl is present before Capture')
     contours,_=cv2.findContours(np.asarray(source,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     contour=max(contours,key=cv2.contourArea);x,y,w,h=cv2.boundingRect(contour)
@@ -92,6 +93,24 @@ def scene_from_masks(config,source,target,obstacle=None,*,task='bowl',bowl_prese
         if np.linalg.norm(np.array(scene['target_cube']['position'][:2])-scene['cube_pose_from_initial_rgb']['position'][:2])<.045:raise ValueError('Separate the two cubes by at least 45 mm for a clear grasp')
         if obstacle is not None:
             validate_pair(source,obstacle);validate_pair(target,obstacle)
+    return scene
+
+
+def tape_scene_from_masks(config,source,target):
+    """From = the 53 mm tape roll, To = the bowl."""
+    from strict_action_scene import episode_scene
+    from tape_object import fit_tape_mask,dimensions
+    contours,_=cv2.findContours(np.asarray(source,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    contour=max(contours,key=cv2.contourArea);x,y,w,h=cv2.boundingRect(contour)
+    if not (20<=w<=170 and 20<=h<=170):raise ValueError('From must match the 53 mm tape roll profile')
+    corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
+    scene={'object':'tape','cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(source))],
+           'bowl_pixel':list(bowl_from_mask(target)),'method':'SAM 2.1 user-selected From/To masks; calibrated metric projection'}
+    # The cube projection only seeds the support surface and an initial XY.
+    cal=episode_scene(config,scene);support=cal.data['scene_estimation']['cube_support_z_m']
+    xy,fit=fit_tape_mask(source,cal.camera('top'),cal.world['cube']['position'][:2],support)
+    scene['cube_pose_from_initial_rgb']={'position':[float(xy[0]),float(xy[1]),support+dimensions()['width_m']/2+.0002],'quaternion':[1.,0.,0.,0.]}
+    scene['tape_pose_fit']=fit
     return scene
 
 

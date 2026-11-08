@@ -18,7 +18,7 @@ def zone(world, xy):
 
 
 def test_defaults_and_partial_zone_request_are_normalized():
-    assert validate_request({})['object_zones']=={k:ALL for k in ['red_cube','green_cube','bowl','unstack_destination']}
+    assert validate_request({})['object_zones']=={k:ALL for k in ['red_cube','green_cube','tape','bowl','unstack_destination']}
     assert validate_request({'object_zones':{'red_cube':[8,0,4]}})['object_zones']['red_cube']==[0,4,8]
 
 @pytest.mark.parametrize('zones',[[],{'unknown':[1]},{'red_cube':[]},{'red_cube':[True]}, {'red_cube':[9]}, {'bowl':['2']}, {'red_cube':[1,1]}])

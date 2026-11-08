@@ -74,6 +74,13 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # edge, so small real tracking errors make it land on top instead of straddle.
     # For closing/holding, retain the nominal occupied aperture, not empty closure.
     aperture=.15
+    # Native gripper commands: open around the object, and open to release.
+    open_grip,release_grip,close_grip=35.,40.,0.
+    from tape_object import is_tape,grasp_width,jaw_openings
+    tape=is_tape(cal.world)
+    if tape:
+        # The roll is grasped across its outer diameter, far wider than a cube.
+        aperture,open_grip,close_grip=jaw_openings(m,d,adapter,current,grasp_width());release_grip=open_grip
     def center(q):
         d.qpos[:6]=q;d.qpos[5]=max(aperture,q[5]);mujoco.mj_forward(m,d)
         return (d.geom('fixed_pad').xpos+d.geom('moving_pad').xpos)/2
@@ -110,7 +117,13 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         def residual(x):
             q=np.r_[x,opening];c=center(q)
             roll=.05*wrap90(jaw_angle()-yaw) if yaw is not None else .008*(x[4]-x[0]-roll_offset)
-            return np.r_[c-xyz,.012*(x[1:4].sum()-np.pi/2),roll,.00003*(x-prior[:5])]
+            level=[]
+            if tape:
+                # The moving jaw swings in an arc. Across a 53 mm roll it would meet the
+                # top face unless both pads are level at the held width: tilt the wrist.
+                d.qpos[:6]=np.r_[x,aperture];mujoco.mj_forward(m,d)
+                level=[d.geom('fixed_pad').xpos[2]-d.geom('moving_pad').xpos[2]];c=center(q)
+            return np.r_[c-xyz,.012*(x[1:4].sum()-np.pi/2),roll,level,.00003*(x-prior[:5])]
         fit=least_squares(residual,np.clip(seed[:5],lo,hi),bounds=(lo,hi),max_nfev=180,gtol=1e-10)
         current=np.r_[fit.x,opening]
         err=float(np.linalg.norm(center(current)-xyz)); errors.append(err)
@@ -128,16 +141,16 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     source_yaw=yaw_of(cal.world['cube'])
     # Stacking turns the held cube to the lower cube's faces; other placements are free.
     place_yaw=yaw_of(cal.world['target_cube']) if stacking else None
-    add('Open above cube',np.r_[cube[:2],hover],35.,reference,1.5,yaw=source_yaw)
+    add('Open above cube',np.r_[cube[:2],hover],open_grip,reference,1.5,yaw=source_yaw)
     if technique=='natural':
         # End the coordinated travel above contact height. The short final
         # descent keeps the yaw aligned before the jaws surround the object.
-        add('Pregrasp',np.r_[cube[:2],grasp_z+.045],35.,seconds=.6,yaw=source_yaw)
-    add('Approach',np.r_[cube[:2],grasp_z],35.,seconds=1.5,yaw=source_yaw)
+        add('Pregrasp',np.r_[cube[:2],grasp_z+.045],open_grip,seconds=.6,yaw=source_yaw)
+    add('Approach',np.r_[cube[:2],grasp_z],open_grip,seconds=1.5,yaw=source_yaw)
     if technique=='natural':waypoint('Grasp settle',waypoints[-1][0].copy(),.4)
-    add('Grasp',np.r_[cube[:2],grasp_z],0.,seconds=1.,yaw=source_yaw)
-    add('Lift',np.r_[cube[:2],hover],0.,seconds=1.5,yaw=source_yaw)
-    add('Transfer',np.r_[placement[:2],hover],0.,seconds=2.,yaw=place_yaw)
+    add('Grasp',np.r_[cube[:2],grasp_z],close_grip,seconds=1.,yaw=source_yaw)
+    add('Lift',np.r_[cube[:2],hover],close_grip,seconds=1.5,yaw=source_yaw)
+    add('Transfer',np.r_[placement[:2],hover],close_grip,seconds=2.,yaw=place_yaw)
     if placing:
         place_z=grasp_z+(placement[2]-cube[2])+(cal.world['target_cube']['size'] if stacking else 0)+.005
         add('Lower onto cube' if stacking else 'Lower onto table',np.r_[placement[:2],place_z],0.,seconds=2.,yaw=place_yaw)
@@ -152,7 +165,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
         waypoint('Final settle',waypoints[-1][0].copy(),2.)
     else:
-        add('Release',np.r_[bowl[:2],hover],40.,seconds=1.)
+        add('Release',np.r_[bowl[:2],hover],release_grip,seconds=1.)
         waypoint('Final settle',waypoints[-1][0].copy(),1.5)
     # Compare against the original Classic route, not Natural's added grasp guards.
     classic_actions,classic_times=interpolate_native([w for w,name in zip(waypoints,names) if name not in {'Pregrasp','Grasp settle'}])

@@ -2,18 +2,20 @@
 
 Run: blender --background --python assets/models/tape/build_tape.py
 
-Dimensions are the user's measurements of the real roll: 53 mm outer
+Dimensions come from tape.json, the user's measurements of the real roll: 53 mm outer
 diameter, 24 mm wide, 26 mm core hole, 30 mm core outer diameter (2 mm wall).
 """
+import json
 from pathlib import Path
 import bpy
 
 HERE = Path(__file__).resolve().parent
-OUTER_DIAMETER = 0.053   # tape outer diameter (m)
-CORE_OUTER_DIAMETER = 0.030  # cardboard core outer diameter
-CORE_INNER_DIAMETER = 0.026  # hole
+DIMENSIONS = json.loads((HERE / 'tape.json').read_text())
+OUTER_DIAMETER = DIMENSIONS['outer_diameter_m']
+CORE_OUTER_DIAMETER = DIMENSIONS['core_outer_diameter_m']
+CORE_INNER_DIAMETER = DIMENSIONS['core_inner_diameter_m']
 LINER = 0.0004           # printed paper liner on the inside of the core
-WIDTH = 0.024            # roll width (1 inch tape)
+WIDTH = DIMENSIONS['width_m']
 SEGMENTS = 96
 
 bpy.ops.wm.read_factory_settings(use_empty=True)

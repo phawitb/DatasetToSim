@@ -27,6 +27,7 @@ from strict_action_scene import build_model, containment
 from strict_action_replay import score
 from studio_stack import stack_verdict
 from studio_generation_layout import LEGACY_YAW_RANGE_DEG, PARKED_XY, sample_workspace_layout
+import tape_object
 
 TASKS = {
     'green_cube_to_green_bowl': ('bowl', 'green', 'Put the green cube in the green bowl.'),
@@ -34,6 +35,7 @@ TASKS = {
     'red_cube_to_green_cube': ('stack', 'red', 'Stack the red cube on the green cube.'),
     'green_cube_to_red_cube': ('stack', 'green', 'Stack the green cube on the red cube.'),
     'unstack': ('unstack', 'red', 'Lift the red cube off the green cube and place it on the empty mat.'),
+    'tape_to_green_bowl': ('bowl', 'tape', 'Put the tape in the green bowl.'),
 }
 COLORS = {'red': [.85, .045, .035, 1.], 'green': [.045, .65, .09, 1.]}
 # Empirical proposal preference, not a hard reachability/safety limit: screening
@@ -162,8 +164,9 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
             raise ValueError('unstack_top must be red or green')
         other = 'green' if color == 'red' else 'red'
         instruction = f'Lift the {color} cube off the {other} cube and place it on the empty mat.'
-    other = 'green' if color == 'red' else 'red'
-    from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES
+    from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES, task_roles
+    other = task_roles(task_id, options)[1]
+    tape = color == 'tape'
     object_zones = validate_object_zones(options.get('object_zones', {}))
     zone_roles = layout_zone_roles(task_id, options)
     from studio_generation_zones import scene_presence, layout_role_settings
@@ -199,7 +202,8 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
             role_settings = layout_role_settings(task_id, options)
             source, target, bowl_xy, draws, layout_sampling = sample_workspace_layout(
                 world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles, present,
-                zone_spread_m=role_settings['spread'], yaw_range_deg=role_settings['yaw'])
+                zone_spread_m=role_settings['spread'], yaw_range_deg=role_settings['yaw'],
+                source_radius_m=tape_object.footprint_radius() if tape else None)
             if descriptor is None:
                 break
             screen['proposal_count'] += 1
@@ -234,14 +238,14 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
         return {'position': [*map(float, xy), z], 'size': edge,
                 'quaternion': [float(np.cos(yaw/2)), 0., 0., float(np.sin(yaw/2))]}
 
-    world['cube'] = pose(*source)
+    world['cube'] = tape_object.tape_pose(*source, support, edge) if tape else pose(*source)
     world['target_cube'] = pose(*target)
     bowl_yaw = float(draws.get('bowl', {}).get('yaw_rad', 0.))
     world['bowl']['position'] = [*map(float, bowl_xy), support]
     world['bowl']['quaternion'] = [float(np.cos(bowl_yaw/2)), 0., 0., float(np.sin(bowl_yaw/2))]
     world['bowl_present'] = present['bowl']
     # Requests with the rotation control may rotate cubes freely: align the jaws to the cube faces.
-    world['align_grasp_yaw'] = 'object_yaw_range_deg' in options
+    world['align_grasp_yaw'] = 'object_yaw_range_deg' in options and not tape
     world['other_cube_present'] = present['other_cube'] or task == 'unstack'
     if not world['other_cube_present']:
         world['target_cube']['position'] = [*PARKED_XY, -1.]
@@ -258,6 +262,8 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
     if options.get('physics_randomization', False):
         mass_scale = float(rng.uniform(.9, 1.1))
         config['estimates']['cube_mass_kg'] *= mass_scale
+        if tape:
+            world['cube']['mass_kg'] = tape_object.dimensions()['mass_kg'] * mass_scale
         physics_draws['cube_mass_scale'] = mass_scale
         physics_draws['friction_scales'] = {}
         for material, values in config.get('contact_materials', {}).items():
@@ -302,7 +308,8 @@ def load_generation_scene(folder):
     # RGBA is shared with the frozen real-dataset Simulation; cube green is a
     # separate material and must not recolor the bowl or its collision proxies.
     source = root.find(".//geom[@name='cube_geom']")
-    source.set('rgba', ' '.join(map(str, COLORS[cal.world['cube']['color']])))
+    if cal.world['cube']['color'] in COLORS:
+        source.set('rgba', ' '.join(map(str, COLORS[cal.world['cube']['color']])))
     target = cal.world['target_cube']
     body = ET.SubElement(world, 'body', name='target_cube',
                          pos=' '.join(map(str, target['position'])), quat=' '.join(map(str, target['quaternion'])))
@@ -316,6 +323,8 @@ def load_generation_scene(folder):
         body.set('gravcomp', '1')
         geom.set('contype', '0'); geom.set('conaffinity', '0'); geom.set('group', '3')
     body.append(geom)
+    # After the second cube copied the box geometry: turn the source into the roll.
+    tape_object.apply_tape(root, cal.world)
     model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding='unicode'))
     return capture, config, scene, cal, model
 

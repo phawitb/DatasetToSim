@@ -30,7 +30,7 @@ _DESCRIPTORS = {
     'green-bowl': ('Green bowl', 'Task object', 'Open bowl mesh with the calibrated tapered wall and floor.'),
     'tape': ('Tape roll', 'Library object', 'Clear 1-inch packing-tape roll modelled in Blender from measurements: '
              '53 mm outer diameter, 24 mm wide, 26 mm core hole, 30 mm cardboard core. '
-             'Not used by any task yet.'),
+             'Grasped across its outer diameter in Put the tape in the green bowl.'),
     'so101': ('SO-101 robot', 'Robot', 'Current robot visual meshes, camera mount, and wrist camera in the saved Home pose.'),
     'work-mat': ('Work mat', 'Environment', 'Calibrated work surface used by every generated task.'),
     'table': ('Table', 'Environment', 'The actual tabletop box used by the simulation.'),
@@ -142,18 +142,22 @@ def _source_tasks(identifier, source_id):
     if source_id == 'generation':
         return _tasks(identifier)
     if source_id == 'library':
-        return []
+        # The roll replaces the manipulated cube in its tasks.
+        return [{'id': task_id, 'instruction': instruction, 'role': 'Manipulated object'}
+                for task_id, (kind, color, instruction) in TASKS.items() if color == identifier] + \
+               [{'id': 'new-run-tape', 'instruction': 'New Run · Place tape in bowl', 'role': 'Manipulated object'}]
     if source_id == 'real-replay':
         role = {'real-red-cube': 'Manipulated object', 'green-bowl': 'Placement target',
                 'so101': 'Manipulator', 'floor': 'Background plane'}.get(identifier, 'Work surface')
         return [{'id': 'real-replay-bowl', 'instruction': 'Real dataset · Put the red cube in the green bowl.', 'role': role}]
     rows = [('new-run-bowl', 'New Run · Place in bowl'), ('new-run-stack', 'New Run · Stack on cube')]
     if identifier == 'tan-cube': rows = rows[1:]
+    if not identifier.endswith('-cube'): rows.append(('new-run-tape', 'New Run · Place tape in bowl'))
     result = []
     for task_id, instruction in rows:
         role = {'real-red-cube': 'Manipulated object', 'tan-cube': 'Stack support',
                 'so101': 'Manipulator', 'floor': 'Background plane'}.get(identifier, 'Work surface')
-        if identifier == 'green-bowl': role = 'Placement target' if task_id.endswith('bowl') else 'Optional obstacle'
+        if identifier == 'green-bowl': role = 'Optional obstacle' if task_id == 'new-run-stack' else 'Placement target'
         result.append(dict(id=task_id, instruction=instruction, role=role))
     return result
 

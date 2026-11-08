@@ -29,7 +29,10 @@ def geom_classes(model):
         names[i]=name
         color=model.mat_rgba[model.geom_matid[i],:3] if model.geom_matid[i]>=0 else model.geom_rgba[i,:3]
         if name in ('table','work_mat','floor'):kind=name
-        elif name in ('cube_geom','target_cube_geom'):kind='red' if color[0]>color[1] else 'green'
+        elif name in ('cube_geom','target_cube_geom') and model.geom_type[i]==mujoco.mjtGeom.mjGEOM_BOX:kind='red' if color[0]>color[1] else 'green'
+        elif name=='cube_geom':kind='tape'
+        # The tape roll keeps its own measured material colors (no real-image profile yet).
+        elif name.startswith('tape_'):kind='tape'
         elif 'bowl' in name or 'bowl' in (mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_BODY,model.geom_bodyid[i]) or ''):
             # The visible bowl mesh is unnamed; its body identifies it.
             kind='bowl'

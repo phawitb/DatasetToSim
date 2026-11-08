@@ -12,7 +12,7 @@ from studio_generation_scene import (COLORS, TASKS, initialize_generation_scene,
                                      load_generation_scene, unstack_verdict)
 
 
-@pytest.mark.parametrize('task', TASKS)
+@pytest.mark.parametrize('task', [t for t in TASKS if not t.startswith('tape_')])
 def test_seeded_scene_is_reproducible_and_has_two_contact_cubes(tmp_path, task):
     paths = [tmp_path / 'a', tmp_path / 'b']
     for folder in paths:
@@ -140,3 +140,31 @@ def test_bowl_rotation_reaches_the_compiled_model(tmp_path):
     initialize_generation_scene(tmp_path, 'red_cube_to_green_bowl', 3, {'object_yaw_range_deg': {'bowl': 360}})
     _, _, _, cal, model = load_generation_scene(tmp_path)
     np.testing.assert_allclose(model.body('bowl').quat, cal.world['bowl']['quaternion'], atol=1e-9)
+
+
+def test_tape_task_scene_moves_the_measured_roll_into_the_bowl(tmp_path):
+    from studio_generation_scene import generate_episode
+    import tape_object
+    initialize_generation_scene(tmp_path / 'scene', 'tape_to_green_bowl', 3, {'physics_randomization': True})
+    capture, config, scene, cal, model = load_generation_scene(tmp_path / 'scene')
+    size = tape_object.dimensions()
+    # The manipulated body is the roll: convex outer collision, three visual parts, its own mass.
+    geom = model.geom('cube_geom')
+    assert geom.type == mujoco.mjtGeom.mjGEOM_MESH and geom.contype > 0
+    assert model.body('cube').mass[0] == pytest.approx(size['mass_kg'] * scene['physics_draws']['cube_mass_scale'])
+    assert all(model.geom(name + '_visual').contype == 0 for name in ('tape_roll', 'tape_core', 'tape_liner'))
+    assert cal.world['cube']['position'][2] == pytest.approx(cal.world['mat']['position'][2] + cal.world['mat']['size'][2] / 2 + size['width_m'] / 2 + .0002)
+    # No extra cube unless the user adds one: the second cube is parked out of the scene.
+    assert capture['other_cube_present'] is False and capture['instruction'] == 'Put the tape in the green bowl.'
+    report = generate_episode(tmp_path / 'episode', 'tape_to_green_bowl', 0, {'randomize_layout': False, 'motion_technique': 'natural'})
+    assert report['outcome'] == 'success' and report['transfer_checks_passed']
+    assert report['bowl_containment']['inside']
+
+
+def test_tape_task_allows_one_extra_cube():
+    from studio_generation_zones import scene_presence, task_roles
+    assert scene_presence('tape_to_green_bowl', {}) == {'other_cube': False, 'bowl': True}
+    assert task_roles('tape_to_green_bowl', {'extra_objects': ['green_cube']}) == ('tape', 'green')
+    assert scene_presence('tape_to_green_bowl', {'extra_objects': ['green_cube']})['other_cube'] is True
+    with pytest.raises(ValueError, match='one extra cube'):
+        task_roles('tape_to_green_bowl', {'extra_objects': ['red_cube', 'green_cube']})
