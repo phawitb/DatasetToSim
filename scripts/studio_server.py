@@ -472,14 +472,10 @@ def robot_command(command:str,request:Request):
                 except (ValueError,OSError):pass
             if not references:raise ValueError('Select From and To in a capture first, or support the arm and use Torque off to clear the camera')
             references.sort(key=lambda p:json.loads((p.parent/'capture.json').read_text()).get('captured_at',0),reverse=True)
+            # The newest selected capture is the reference. Its Wrist recovery applies only if it
+            # is itself a completed placement: never fall back to an older placement (which made a
+            # fresh Capture + From/To unusable whenever any earlier run had completed).
             reference=references[0].parent
-            for candidate in references:
-                try:
-                    old=json.loads((candidate.parent/'plan.json').read_text());trace=json.loads((candidate.parent/'hardware-trace.json').read_text())
-                    if old.get('source')=='live' and old.get('purpose')!='home' and old.get('executed') and trace.get('completed'):
-                        # Never search older placements merely because their pose matches.
-                        reference=candidate.parent;break
-                except (OSError,ValueError):pass
             identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
             for view,data in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(data))
             snapshot.update(id=identifier,purpose='home');(folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
