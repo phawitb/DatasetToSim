@@ -3,18 +3,19 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {generationTaskCounts,generationTaskLabel} from '../web/generation-coverage.mjs';
+import {ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary} from '../web/generation-zones.mjs';
 
 // Exercise the generation workspace without starting a server or robot session.
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function workspace(){
  const nodes=new Map();
  const element=()=>({value:'',textContent:'',dataset:{},children:[],checked:false,
-  classList:{toggle(){},remove(){},add(){}},setAttribute(){},removeAttribute(){},
+  classList:{toggle(){},remove(){},add(){}},setAttribute(){},removeAttribute(){},querySelectorAll:()=>[],querySelector:()=>({}),
   append(...items){this.children.push(...items);},replaceChildren(...items){this.children=items;},reportValidity:()=>true});
  const $=selector=>{if(!nodes.has(selector))nodes.set(selector,element());return nodes.get(selector);};
  const task=Object.assign(element(),{value:'unstack',checked:true,nextElementSibling:element(),closest:()=>element()});
  const $$=selector=>selector.includes('generation-task')?[task]:selector==='#generation-episode-list button'?$('#generation-episode-list').children:[];
- const context=vm.createContext({$,$$,document:{createElement:element},GenerationVisualizer:class{load(){}suspend(){}},GenerationCoverage:class{load(){}select(){}},generationTaskCounts,generationTaskLabel,
+ const context=vm.createContext({$,$$,document:{createElement:element},GenerationVisualizer:class{load(){}suspend(){}},GenerationCoverage:class{load(){}select(){}},generationTaskCounts,generationTaskLabel,ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary,
   state:{page:'generate',restarting:false},pretty:value=>value||'',motionLabels:{natural:'Natural'},
   history:{replaceState(){}},URLSearchParams,Option:class{constructor(text,value){this.text=text;this.value=value;}},
   api:async()=>({}),toast(){},setTimeout,clearTimeout});
@@ -256,4 +257,27 @@ test('stale deletion prompt never deletes a different selected dataset',async()=
  const w=workspace();w.run("generation.job={id:'first',name:'First',status:'completed'}");w.$('#generation-delete').onclick();
  w.run("generation.job={id:'second',name:'Second',status:'completed'}");
  let called=false;w.context.api=async()=>{called=true;};await w.$('#generation-delete-confirm').onclick();assert.equal(called,false);
+});
+
+test('object zones round-trip through Add episodes settings, preview payload and saved summary',()=>{
+ const w=workspace();w.$('#generation-layout').checked=true;
+ w.run("restoreGenerationSettings({tasks:['unstack'],randomize_layout:true,object_zones:{red_cube:[0,4],green_cube:[4,8],unstack_destination:[2]}});updateGenerationForm()");
+ const settings=w.run('collectGenerationSettings()');
+ assert.deepEqual(settings.object_zones.red_cube,[0,4]);
+ assert.deepEqual(settings.object_zones.green_cube,[4,8]);
+ assert.deepEqual(settings.object_zones.unstack_destination,[2]);
+ w.run('generation.job={options:collectGenerationSettings()};renderGenerationBatchSettings()');
+ assert.ok(w.$('#generation-batch-values').children.some(n=>n.textContent==='Z1, Z5'));
+});
+
+test('invalid zone selection blocks both preview and submit; fixed layout emits unrestricted zones',async()=>{
+ const w=workspace();let calls=0;w.context.api=async()=>{calls++;return {};};
+ w.run("generation.loaded=true;restoreGenerationSettings({tasks:['unstack'],randomize_layout:true,object_zones:{red_cube:[0],green_cube:[8]}});updateGenerationForm()");
+ assert.equal(w.$('#generation-submit').disabled,true);
+ assert.equal(w.$('#generation-preview-button').disabled,true);
+ await w.run('startGenerationStills()');await w.$('#generation-form').onsubmit({preventDefault(){}});
+ assert.equal(calls,0);
+ w.$('#generation-layout').checked=false;
+ const settings=w.run('collectGenerationSettings()');assert.equal(settings.object_zones.red_cube.length,9);
+ w.$('#generation-layout').checked=true;assert.deepEqual(w.run('collectGenerationSettings().object_zones.red_cube'),[0]);
 });

@@ -39,7 +39,7 @@
 <label class="generation-field" for="generation-timing">Motion timing<select id="generation-timing"><option value="recorded">Recorded robot pace</option><option value="conservative">Conservative studio pace</option></select><small>Recorded pace uses joint speeds measured from 72 real demonstrations. Simulation tracking limits can cap the requested speed. Every generated motion is checked again in simulation.</small></label>
 <label class="generation-field" for="generation-speed"><span>Travel speed <output id="generation-speed-value" for="generation-speed">100%</output></span><input id="generation-speed" type="range" min="0.5" max="1.5" step="0.05" value="1"><small>50% slower · 100% selected pace · 150% faster</small></label>
 <fieldset class="generation-options"><legend>Variation</legend>
-<label class="generation-field" for="generation-layout-strategy">Layout distribution<select id="generation-layout-strategy"><option value="uniform">Uniform proposals</option><option value="balanced">Balanced workspace zones</option></select><small>Balance accepted pick and destination positions across a 3 × 3 workspace grid.</small></label>
+<label class="generation-field" for="generation-layout-strategy">Layout distribution<select id="generation-layout-strategy"><option value="uniform">Uniform proposals</option><option value="balanced">Balanced workspace zones</option></select><small>For stacking tasks, balance accepted pick and destination positions within allowed zones. Other tasks use uniform proposals.</small></label>
 <label><input id="generation-layout" type="checkbox" checked><span>Randomize object layout<small>Sample across the work mat; keep reachable, validated layouts.</small></span></label>
 <label><input id="generation-real-background" type="checkbox"><span>Use selected background image<small>Choose a saved background or upload an image below.</small></span></label>
 <label><input id="generation-real-processing" type="checkbox"><span>Match real camera appearance<small>Match brightness, color, and contrast to real camera references.</small></span></label>
@@ -48,6 +48,7 @@
 <label><input id="generation-sensor" type="checkbox" checked><span>Sensor augmentation<small>Vary image exposure and sensor noise.</small></span></label>
 <label><input id="generation-physics" type="checkbox"><span>Physics randomization<small>Vary contact and object properties.</small></span></label>
 </fieldset>
+<section id="generation-object-zones" class="generation-object-zones" aria-label="Object placement zones"></section>
 <fieldset class="generation-appearance"><legend>Background library</legend>
 <label class="generation-field" for="generation-background">Background<select id="generation-background"><option value="calibrated-real">Calibrated real workcell</option></select></label>
 <div class="generation-background-library"><img id="generation-background-image" class="hidden" alt="Selected background image"><div><label class="generation-field" for="generation-background-upload">Upload a background<input id="generation-background-upload" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPEG or WebP · saved locally for reuse.</small></label><p id="generation-background-status" class="generation-help" role="status"></p></div></div>

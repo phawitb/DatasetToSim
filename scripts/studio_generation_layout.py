@@ -28,7 +28,7 @@ def workspace_grid_cells(world, grid_shape=(3, 3)):
             for y in range(grid_shape[1]) for x in range(grid_shape[0])]
 
 
-def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None):
+def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, allowed_cells=None):
     """Draw footprints over the whole calibrated mat, without reachability bias.
 
     Circumscribed circles conservatively separate objects, while yaw-aware box
@@ -44,6 +44,13 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None):
     draws = {}
     base_low, base_high = np.asarray(base_bounds, dtype=float)
     cells = {}
+    zone_grid = workspace_grid_cells(world)
+    allowed_cells = allowed_cells or {}
+    for name, ids in allowed_cells.items():
+        if (name not in ('source_cube', 'other_cube', 'bowl') or not isinstance(ids, list) or not ids
+                or any(type(i) is not int or not 0 <= i < 9 for i in ids)):
+            raise ValueError(f'Invalid allowed zones for {name}')
+    restricted = {name: ids for name, ids in allowed_cells.items() if sorted(ids) != list(range(9))}
     if layout_cell is not None:
         if task != 'stack' or not isinstance(layout_cell, dict):
             raise ValueError('layout_cell must be a cell descriptor for stacking')
@@ -54,19 +61,29 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None):
             if isinstance(cell_id, bool) or not isinstance(cell_id, (int, np.integer)) or not 0 <= cell_id < len(grid):
                 raise ValueError(f'{key} must be a valid cell index in grid {list(grid_shape)}')
             cells[name] = grid[cell_id]
+            if name in restricted and (list(grid_shape) != [3, 3] or cell_id not in restricted[name]):
+                raise ValueError(f'{name}: requested cell is outside allowed object zones')
 
     class SamplingExhausted(ValueError):
         pass
 
     def draw(name, radius, yaw=0., extent=None, minimum_separation=0.):
         extent = np.full(2, radius) if extent is None else np.asarray(extent)
-        lower, upper = low + extent + EDGE_CLEARANCE_M, high - extent - EDGE_CLEARANCE_M
+        mat_lower, mat_upper = low + extent + EDGE_CLEARANCE_M, high - extent - EDGE_CLEARANCE_M
+        lower, upper = mat_lower, mat_upper
         if name in cells:
             cell_low, cell_high = np.asarray(cells[name]['bounds_xy_m'])
             lower, upper = np.maximum(lower, cell_low), np.minimum(upper, cell_high)
         if np.any(lower >= upper):
             raise ValueError(f'{name} does not fit on the calibrated mat in requested cell {cells.get(name)}')
-        for attempt in range(128 if cells else 1000):
+        for attempt in range(128 if cells or restricted else 1000):
+            selected = cells.get(name)
+            if name in restricted and name not in cells:
+                selected = zone_grid[int(rng.choice(restricted[name]))]
+                cell_low, cell_high = np.asarray(selected['bounds_xy_m'])
+                lower, upper = np.maximum(mat_lower, cell_low), np.minimum(mat_upper, cell_high)
+                if np.any(lower >= upper):
+                    continue
             xy = rng.uniform(lower, upper)
             nearest_base = np.clip(xy, base_low, base_high)
             if np.linalg.norm(xy - nearest_base) < radius + OBJECT_CLEARANCE_M:
@@ -78,33 +95,39 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None):
             draws[name] = {'position_xy_m': xy.tolist(), 'yaw_rad': float(yaw),
                            'center_bounds_xy_m': [lower.tolist(), upper.tolist()],
                            'proposal_count': attempt + 1, 'footprint_radius_m': float(radius)}
-            if name in cells:
-                draws[name].update(cell_id=int(cells[name]['cell_id']), cell_bounds_xy_m=cells[name]['bounds_xy_m'])
+            if selected is not None:
+                draws[name].update(cell_id=int(selected['cell_id']), cell_bounds_xy_m=selected['bounds_xy_m'])
             return xy, yaw
-        raise SamplingExhausted(f'Could not sample a separated {name} on the calibrated mat in requested cell {cells.get(name)}')
+        raise SamplingExhausted(f'Could not sample a separated {name} on the calibrated mat in requested cell {cells.get(name)} / allowed zones {restricted.get(name)}')
 
     def cube(name, separation=0.):
         yaw = float(rng.uniform(-.10, .10))
         extent = edge / 2 * (abs(np.cos(yaw)) + abs(np.sin(yaw)))
         return draw(name, edge / np.sqrt(2), yaw, [extent, extent], separation)
 
-    for pair_attempt in range(64 if cells else 1):
+    retry_layout = bool(cells or restricted)
+    for pair_attempt in range(64 if retry_layout else 1):
         occupied.clear()
         draws.clear()
         try:
             source = cube('source_cube')
             destination = cube('other_cube', STACKING_CENTER_SEPARATION_M if cells else .08 if task == 'unstack' else 0.)
+            bowl = draw('bowl', float(world['bowl']['outer_radius']))[0] if task == 'bowl' else np.asarray(world['bowl']['position'][:2])
             break
         except SamplingExhausted:
-            if not cells or pair_attempt == 63:
+            if not retry_layout or pair_attempt == 63:
                 raise
-    bowl = draw('bowl', float(world['bowl']['outer_radius']))[0] if task == 'bowl' else np.asarray(world['bowl']['position'][:2])
     policy = {'version': 2, 'distribution': 'uniform_xy_over_full_calibrated_mat_with_footprint_rejection',
               'mat_bounds_xy_m': [low.tolist(), high.tolist()],
               'robot_base_bounds_xy_m': [base_low.tolist(), base_high.tolist()],
               'edge_clearance_m': EDGE_CLEARANCE_M, 'object_clearance_m': OBJECT_CLEARANCE_M,
               'reachability_filter': 'none_at_sampling; planner_and_contact_audit_must_pass',
               'acceptance_note': 'Accepted episodes are the reachable, physically valid subset of full-mat proposals.'}
+    if restricted:
+        policy.update(version=4, distribution='uniform_allowed_zone_proposals_with_footprint_rejection',
+                      grid_shape=[3, 3], grid_cells=zone_grid, allowed_role_cells=allowed_cells,
+                      constraint_scope='initial object centers; task destination for empty-mat unstack release',
+                      pair_proposal_count=pair_attempt + 1)
     if cells:
         policy.update(version=3, distribution='uniform_xy_within_requested_full_mat_grid_cells_with_footprint_rejection',
                       grid_shape=list(map(int, grid_shape)), grid_cells=grid,

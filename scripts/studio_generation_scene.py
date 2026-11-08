@@ -163,6 +163,11 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
         other = 'green' if color == 'red' else 'red'
         instruction = f'Lift the {color} cube off the {other} cube and place it on the empty mat.'
     other = 'green' if color == 'red' else 'red'
+    from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES
+    object_zones = validate_object_zones(options.get('object_zones', {}))
+    zone_roles = layout_zone_roles(task_id, options)
+    if not options.get('randomize_layout', True) and any(z != ALL_ZONES for z in object_zones.values()):
+        raise ValueError('Object zones require Randomize object layout')
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     config_path = ROOT / 'calibration/native-action-current.json'
@@ -190,7 +195,7 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
                           'previously accepted episodes remain valid and are retained.')
         for _ in range(maximum_proposals if descriptor is not None else 1):
             source, target, bowl_xy, draws, layout_sampling = sample_workspace_layout(
-                world, rng, _robot_base_bounds(config_json), task, descriptor)
+                world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles)
             if descriptor is None:
                 break
             screen['proposal_count'] += 1
@@ -216,6 +221,7 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
                  for name, (xy, yaw) in [('source_cube', source), ('other_cube', target)]}
         draws['bowl'] = {'position_xy_m': list(bowl_xy), 'xy_offset_m': [0., 0.]}
         layout_sampling = {'version': 2, 'distribution': 'fixed_reference_layout'}
+    layout_sampling['object_zones'] = object_zones
 
     def pose(xy, yaw):
         return {'position': [*map(float, xy), z], 'size': edge,

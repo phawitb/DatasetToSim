@@ -34,7 +34,7 @@ def trajectory_group(scene, action_hash):
 
 def validate_request(body):
     from studio_generation_visuals import VISUAL_DEFAULTS, validate_visual_options
-    defaults = dict(name='synthetic-demonstrations', tasks=list(TASKS), episodes_per_task=1,
+    defaults = dict(name='synthetic-demonstrations', tasks=list(TASKS), episodes_per_task=1, object_zones={},
                     seed=0, motion_technique='natural', timing_profile='recorded', speed_scale=1., randomize_layout=True,
                     visual_randomization=True, camera_jitter=False, sensor_augmentation=True,
                     physics_randomization=False, real_background=False, real_image_processing=False, validation_fraction=.2, unstack_top='red', parent_job_id=None, target_counts=None, layout_strategy="uniform") | VISUAL_DEFAULTS
@@ -70,6 +70,12 @@ def validate_request(body):
     validate_technique(result['motion_technique'])
     if result['unstack_top'] not in ('red', 'green'):
         raise ValueError('Unstack top must be red or green')
+    from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES
+    result['object_zones'] = validate_object_zones(result['object_zones'])
+    if not result['randomize_layout'] and any(z != ALL_ZONES for z in result['object_zones'].values()):
+        raise ValueError('Object zones require Randomize object layout')
+    for task in tasks if 'tasks' in body or not result['parent_job_id'] else []:
+        layout_zone_roles(task, result)
     return validate_visual_options(result)
 
 
@@ -313,8 +319,12 @@ def work(folder):
             if options.get('layout_strategy') == 'balanced' and options['randomize_layout'] and task_id in ('red_cube_to_green_cube', 'green_cube_to_red_cube'):
                 world = json.loads((ROOT / 'calibration/native-action-current.json').read_text())['base_calibration']['world']
                 inherited = [path for path, item in zip([folder/'episodes'/f'{i:05d}' for i in range(len(job['episodes']))], job['episodes']) if item.get('status') == 'accepted' and item['task_id'] == task_id]
-                balancer = BalancedLayouts(world, options['seed'], len(inherited) + requested)
+                from studio_generation_zones import layout_zone_roles
+                zones = layout_zone_roles(task_id, options)
+                balancer = BalancedLayouts(world, options['seed'], len(inherited) + requested,
+                                           source_cells=zones['source_cube'], target_cells=zones['other_cube'])
                 for path in inherited: balancer.accept_world(json.loads((path/'generation-scene.json').read_text())['world'])
+                balancer.prepare_additions(requested)
             count = 0
             for attempt in range(max(30, requested * 30) if options['randomize_layout'] else requested * 4):
                 if count >= requested: break

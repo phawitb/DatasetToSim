@@ -3,6 +3,7 @@ import {GenerationVisualizer} from './generation-view.mjs';
 import {GenerationCoverage,generationTaskCounts,generationTaskLabel} from './generation-coverage.mjs';
 import {ObjectsView} from './objects-view.mjs';
 import {ReplayDatasetBuilder} from './replay-builder.mjs';
+import {ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary} from './generation-zones.mjs';
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const clientId=crypto.randomUUID();
 const state={token:'',runs:[],historyMode:false,page:'datasets',datasets:[],selectedDataset:null,restarting:false,instance:null,activeCapture:null,episodes:[],episode:null,index:0,frame:0,view:'top',mode:'dataset',capture:null,selection:null,selectionRole:'from',selecting:false,plan:null,robot:{},busy:false,filter:'all',lastJob:'',request:0};
@@ -176,6 +177,7 @@ $('#open-replay-builder').onclick=()=>{video.pause();replayBuilder.open(state.se
 const generationViewer=new GenerationVisualizer(api);
 const generationCoverage=new GenerationCoverage(api,$('#generation-coverage'),selectGenerationEpisode,generationTaskName);
 const generation={tab:'build',jobs:[],job:null,busy:false,submitting:false,cancelling:false,request:0,timer:null,episodeIndex:0,episodesSignature:'',loaded:false,parent:null,deleting:false,deleteId:null,backgrounds:[{id:'calibrated-real',name:'Calibrated real workcell',mode:'calibrated'}],uploading:false,assetsLoaded:false,preview:{request:0,busy:false,timer:null,signature:null}};
+const generationZones=new ObjectZonePicker($('#generation-object-zones'),()=>{invalidateGenerationStills();updateGenerationForm();});
 const generationActive=job=>['queued','running'].includes(job?.status);
 const generationTaskInstructions={green_cube_to_green_bowl:'Put the green cube in the green bowl.',red_cube_to_green_bowl:'Put the red cube in the green bowl.',red_cube_to_green_cube:'Stack the red cube on the green cube.',green_cube_to_red_cube:'Stack the green cube on the red cube.'};
 function generationTaskName(id,options=generation.job?.options){
@@ -192,6 +194,7 @@ const generationFields={
 function collectGenerationSettings(){
  const settings={name:$('#generation-name').value.trim(),tasks:[...$$('[name="generation-task"]:checked')].map(input=>input.value)};
  for(const [key,[id,fallback,type]] of Object.entries(generationFields)){const input=$('#generation-'+id);settings[key]=type==='boolean'?input.checked:type==='number'?Number(input.value===''?fallback:input.value):(input.value||fallback);}
+ generationZones.update(settings.tasks,settings.randomize_layout);settings.object_zones=generationZones.settings();
  if(generation.parent)settings.parent_job_id=generation.parent.id;
  return settings;
 }
@@ -200,6 +203,7 @@ function restoreGenerationSettings(options){
  const saved={...options,timing_profile:options.timing_profile||'conservative'};
  for(const [key,[id,fallback,type]] of Object.entries(generationFields)){const input=$('#generation-'+id),value=saved[key]??fallback;if(type==='boolean')input.checked=value;else input.value=String(value);}
  for(const input of $$('[name="generation-task"]'))input.checked=(saved.tasks||[]).includes(input.value);
+ generationZones.restore(saved.object_zones||{});
 }
 function beginGenerationExtension(){
  const job=generation.job;if(job?.status!=='completed'||job.export?.valid!==true||generation.submitting)return;
@@ -261,7 +265,7 @@ function renderGenerationStills(result,settings){
 }
 async function startGenerationStills(){
  if(generation.preview.busy||generation.submitting||generation.uploading||generation.busy||!generation.loaded||!$('#generation-form').reportValidity())return;
- const settings=collectGenerationSettings();if(!settings.tasks.length)return;
+ const settings=collectGenerationSettings();if(!settings.tasks.length||generationZones.error){updateGenerationForm();return;}
  invalidateGenerationStills();const preview=generation.preview,request=preview.request,signature=JSON.stringify(settings);
  preview.signature=signature;preview.busy=true;updateGenerationForm();$('#generation-still-status').textContent='Preparing five appearance and layout previews…';
  const current=()=>request===preview.request&&signature===JSON.stringify(collectGenerationSettings());
@@ -282,19 +286,20 @@ function updateGenerationForm(){
  $('#generation-layout-strategy').disabled=!$('#generation-layout').checked;
  if(!$('#generation-layout').checked)$('#generation-layout-strategy').value='uniform';
  const tasks=[...$$('[name="generation-task"]:checked')].map(input=>input.value),count=Number($('#generation-count').value);
+ generationZones.update(tasks,$('#generation-layout').checked);
  for(const input of $$('[name="generation-task"]'))input.nextElementSibling.textContent=generationTaskName(input.value,{unstack_top:$('#generation-unstack').value});
  $('#generation-unstack-field').classList.toggle('hidden',!tasks.includes('unstack'));
  $('#generation-speed-value').textContent=Math.round(Number($('#generation-speed').value)*100)+'%';
  const total=tasks.length*count;
  $('#generation-estimate').textContent=`${tasks.length} task${tasks.length===1?'':'s'} · ${Number.isFinite(total)?total:0} requested episode${total===1?'':'s'}`;
- $('#generation-submit').disabled=!generation.loaded||generation.submitting||generation.busy||generation.uploading||generation.preview.busy||!tasks.length||state.restarting;
+ $('#generation-submit').disabled=!generation.loaded||generation.submitting||generation.busy||generation.uploading||generation.preview.busy||!tasks.length||state.restarting||!!generationZones.error;
  $('#generation-preview-button').disabled=$('#generation-submit').disabled;
  $('#generation-preview-button').textContent=generation.preview.busy?'Rendering preview…':'Preview 5 scenes';
  $('#generation-extension').classList.toggle('hidden',!generation.parent);
  $('#generation-build-title').textContent=generation.parent?'Add episodes':'Build a dataset';
  if(generation.parent){$('#generation-extension-title').textContent='Extend '+generation.parent.name;$('#generation-extension-summary').textContent=`${generation.parent.count} existing + ${Number.isFinite(total)?total:0} new requested = ${generation.parent.count+(Number.isFinite(total)?total:0)} episodes if all pass validation.`;}
  $('#generation-submit').textContent=generation.submitting?'Starting generation…':generation.parent?'Generate extended dataset':'Generate dataset';
- $('#generation-form-status').textContent=generation.submitting?'Submitting your generation settings…':generation.uploading?'Saving your background before generation…':generation.preview.busy?'Rendering the preview before generation…':generation.busy?'A generation job is active. Review its progress or cancel it in Visualize data.':!tasks.length?'Select at least one task.':!generation.loaded?'Connecting to the generation service…':'Generation runs locally in simulation.';
+ $('#generation-form-status').textContent=generation.submitting?'Submitting your generation settings…':generation.uploading?'Saving your background before generation…':generation.preview.busy?'Rendering the preview before generation…':generation.busy?'A generation job is active. Review its progress or cancel it in Visualize data.':!tasks.length?'Select at least one task.':generationZones.error||(!generation.loaded?'Connecting to the generation service…':'Generation runs locally in simulation.');
 }
 function generationURL(){const params=new URLSearchParams({page:'generate',tab:generation.tab});if(generation.job?.id)params.set('job',generation.job.id);if(generation.tab==='visualize')params.set('episode',String(generation.episodeIndex));history.replaceState(null,'','/?'+params);}
 function setGenerationTab(tab){
@@ -333,6 +338,7 @@ function renderGenerationBatchSettings(){
  add('Episodes per task',options.episodes_per_task??'Not recorded');
  if(options.target_counts)add('Target totals',Object.entries(options.target_counts).map(([task,total])=>`${generationTaskName(task,options)} ${total}`).join(' · '));
  add('Layout distribution',options.layout_strategy==='balanced'?'Balanced workspace zones':'Uniform proposals');
+ if(options.randomize_layout!==false)for(const key of activeZoneObjects(tasks))add(ZONE_OBJECTS[key]+' initial zones',zoneSummary(options.object_zones?.[key]));
  for(const [task,coverage] of Object.entries(job.coverage||{}))add(generationTaskName(task,options),`Pick zones: ${coverage.source_counts.join(' / ')} · Destination zones: ${coverage.target_counts.join(' / ')}`);
  add('Random seed',options.seed??'Not recorded');
  const motion=motionLabels[options.motion_technique]||pretty(options.motion_technique)||'Not recorded';
@@ -442,6 +448,7 @@ $('#generation-form').onsubmit=async event=>{
  const tasks=[...$$('[name="generation-task"]:checked')].map(input=>input.value);if(!tasks.length){updateGenerationForm();return;}
  const name=$('#generation-name').value.trim();if(!name){$('#generation-name').focus();toast('Enter a dataset name.',true);return;}
  const payload=collectGenerationSettings();
+ if(generationZones.error){updateGenerationForm();return;}
  try{generation.submitting=true;updateGenerationForm();const job=await api('/api/generation',payload);generation.parent=null;invalidateGenerationStills();generation.busy=generationActive(job);if(state.page==='generate'){generation.request++;generation.job=job;generation.episodeIndex=0;generation.episodesSignature='';renderGenerationJob();setGenerationTab('visualize');}await refreshGeneration();}
  catch(error){toast(error.message,true);}
  finally{generation.submitting=false;updateGenerationForm();}
