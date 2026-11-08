@@ -37,7 +37,7 @@ def validate_request(body):
     defaults = dict(name='synthetic-demonstrations', tasks=list(TASKS), episodes_per_task=1, object_zones={},
                     seed=0, motion_technique='natural', timing_profile='recorded', speed_scale=1., randomize_layout=True,
                     visual_randomization=True, camera_jitter=False, sensor_augmentation=True,
-                    physics_randomization=False, real_background=False, real_image_processing=False, validation_fraction=.2, unstack_top='red', parent_job_id=None, target_counts=None, layout_strategy="uniform") | VISUAL_DEFAULTS
+                    physics_randomization=False, real_background=False, real_image_processing=False, validation_fraction=.2, unstack_top='red', parent_job_id=None, target_counts=None, layout_strategy="uniform", extra_objects=[]) | VISUAL_DEFAULTS
     if not isinstance(body, dict) or set(body) - set(defaults):
         raise ValueError('Unknown generation options')
     result = defaults | body
@@ -70,8 +70,9 @@ def validate_request(body):
     validate_technique(result['motion_technique'])
     if result['unstack_top'] not in ('red', 'green'):
         raise ValueError('Unstack top must be red or green')
-    from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES
+    from studio_generation_zones import validate_object_zones, validate_extra_objects, layout_zone_roles, ALL_ZONES
     result['object_zones'] = validate_object_zones(result['object_zones'])
+    result['extra_objects'] = validate_extra_objects(result['extra_objects'])
     if not result['randomize_layout'] and any(z != ALL_ZONES for z in result['object_zones'].values()):
         raise ValueError('Object zones require Randomize object layout')
     for task in tasks if 'tasks' in body or not result['parent_job_id'] else []:
@@ -218,6 +219,9 @@ class GenerationManager:
         inherited.setdefault('timing_profile', 'conservative')
         # Extensions keep the parent's appearance; parents predating profiles are standard.
         inherited.setdefault('appearance_profile', 'standard')
+        # Parents predating scene-object selection always contained both cubes.
+        from studio_generation_zones import LEGACY_EXTRA_OBJECTS
+        inherited.setdefault('extra_objects', list(LEGACY_EXTRA_OBJECTS))
         # Add episodes is additive unless this request explicitly supplies totals.
         inherited['target_counts'] = None
         next_seed = self.next_seed(parent)

@@ -111,3 +111,24 @@ def test_full_contact_generation_and_saved_trace_without_graphics(tmp_path, monk
         home = json.loads((studio_planner.ROOT / 'calibration/studio-home.json').read_text())['home']
         np.testing.assert_allclose(plan['actions'][-1], home)
         assert 'Home' in report['motion']['task_knot_indices']
+
+
+def test_scene_contains_only_task_objects_unless_extras_are_added(tmp_path):
+    import mujoco
+    from studio_generation_scene import initialize_generation_scene, load_generation_scene
+    from studio_generation_zones import scene_presence
+    assert scene_presence('red_cube_to_green_bowl', {'extra_objects': []}) == {'other_cube': False, 'bowl': True}
+    assert scene_presence('red_cube_to_green_bowl', {'extra_objects': ['green_cube']}) == {'other_cube': True, 'bowl': True}
+    assert scene_presence('red_cube_to_green_cube', {'extra_objects': []}) == {'other_cube': True, 'bowl': False}
+    assert scene_presence('red_cube_to_green_cube', {'extra_objects': ['bowl']}) == {'other_cube': True, 'bowl': True}
+    # Saved requests without the key keep both cubes.
+    assert scene_presence('red_cube_to_green_bowl', {}) == {'other_cube': True, 'bowl': True}
+    initialize_generation_scene(tmp_path / 'a', 'red_cube_to_green_bowl', 0, {'extra_objects': []})
+    model = load_generation_scene(tmp_path / 'a')[-1]
+    geom = model.geom('target_cube_geom')
+    assert geom.contype == 0 and geom.conaffinity == 0 and geom.group == 3
+    assert model.body_gravcomp[model.body('target_cube').id] == 1
+    initialize_generation_scene(tmp_path / 'b', 'red_cube_to_green_cube', 0, {'extra_objects': ['bowl']})
+    model = load_generation_scene(tmp_path / 'b')[-1]
+    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'bowl') >= 0
+    assert model.geom('target_cube_geom').group != 3

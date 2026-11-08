@@ -3,7 +3,7 @@ import {GenerationVisualizer} from './generation-view.mjs';
 import {GenerationCoverage,generationTaskCounts,generationTaskLabel} from './generation-coverage.mjs';
 import {ObjectsView} from './objects-view.mjs';
 import {ReplayDatasetBuilder} from './replay-builder.mjs';
-import {ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary} from './generation-zones.mjs';
+import {ObjectZonePicker,ZONE_OBJECTS,LEGACY_EXTRA_OBJECTS,activeZoneObjects,zoneSummary} from './generation-zones.mjs';
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 // Simulation appearance is display only: archived states are re-rendered, never re-simulated.
 const APPEARANCES={raw:{label:'MUJOCO',name:'Raw'},background:{label:'REAL BG',name:'Real background'},realistic:{label:'REALISTIC',name:'Realistic'}};
@@ -212,7 +212,7 @@ const generationFields={
 function collectGenerationSettings(){
  const settings={name:$('#generation-name').value.trim(),tasks:[...$$('[name="generation-task"]:checked')].map(input=>input.value)};
  for(const [key,[id,fallback,type]] of Object.entries(generationFields)){const input=$('#generation-'+id);settings[key]=type==='boolean'?input.checked:type==='number'?Number(input.value===''?fallback:input.value):(input.value||fallback);}
- generationZones.update(settings.tasks,settings.randomize_layout);settings.object_zones=generationZones.settings();
+ generationZones.update(settings.tasks,settings.randomize_layout);settings.object_zones=generationZones.settings();settings.extra_objects=generationZones.extras();
  if(generation.parent)settings.parent_job_id=generation.parent.id;
  return settings;
 }
@@ -221,7 +221,7 @@ function restoreGenerationSettings(options){
  const saved={...options,timing_profile:options.timing_profile||'conservative'};
  for(const [key,[id,fallback,type]] of Object.entries(generationFields)){const input=$('#generation-'+id),value=saved[key]??fallback;if(type==='boolean')input.checked=value;else input.value=String(value);}
  for(const input of $$('[name="generation-task"]'))input.checked=(saved.tasks||[]).includes(input.value);
- generationZones.restore(saved.object_zones||{});
+ generationZones.restore(saved.object_zones||{},saved.extra_objects??LEGACY_EXTRA_OBJECTS);
 }
 function beginGenerationExtension(){
  const job=generation.job;if(job?.status!=='completed'||job.export?.valid!==true||generation.submitting)return;
@@ -362,7 +362,8 @@ function renderGenerationBatchSettings(){
  add('Episodes per task',options.episodes_per_task??'Not recorded');
  if(options.target_counts)add('Target totals',Object.entries(options.target_counts).map(([task,total])=>`${generationTaskName(task,options)} ${total}`).join(' · '));
  add('Layout distribution',options.layout_strategy==='balanced'?'Balanced workspace zones':'Uniform proposals');
- if(options.randomize_layout!==false)for(const key of activeZoneObjects(tasks))add(ZONE_OBJECTS[key]+' initial zones',zoneSummary(options.object_zones?.[key]));
+ if(options.randomize_layout!==false)for(const key of activeZoneObjects(tasks,options.extra_objects??LEGACY_EXTRA_OBJECTS))add(ZONE_OBJECTS[key]+' initial zones',zoneSummary(options.object_zones?.[key]));
+ {const extras=options.extra_objects??LEGACY_EXTRA_OBJECTS;add('Extra objects in scene',options.extra_objects===undefined?'Both cubes in every task (earlier default)':extras.length?extras.map(key=>ZONE_OBJECTS[key]).join(' · '):'Task objects only');}
  for(const [task,coverage] of Object.entries(job.coverage||{}))add(generationTaskName(task,options),`Pick zones: ${coverage.source_counts.join(' / ')} · Destination zones: ${coverage.target_counts.join(' / ')}`);
  add('Random seed',options.seed??'Not recorded');
  const motion=motionLabels[options.motion_technique]||pretty(options.motion_technique)||'Not recorded';

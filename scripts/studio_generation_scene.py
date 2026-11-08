@@ -26,7 +26,7 @@ from dataset_to_sim.studio import native_limits, validate_trajectory
 from strict_action_scene import build_model, containment
 from strict_action_replay import score
 from studio_stack import stack_verdict
-from studio_generation_layout import sample_workspace_layout
+from studio_generation_layout import PARKED_XY, sample_workspace_layout
 
 TASKS = {
     'green_cube_to_green_bowl': ('bowl', 'green', 'Put the green cube in the green bowl.'),
@@ -166,6 +166,8 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
     from studio_generation_zones import validate_object_zones, layout_zone_roles, ALL_ZONES
     object_zones = validate_object_zones(options.get('object_zones', {}))
     zone_roles = layout_zone_roles(task_id, options)
+    from studio_generation_zones import scene_presence
+    present = scene_presence(task_id, options)
     if not options.get('randomize_layout', True) and any(z != ALL_ZONES for z in object_zones.values()):
         raise ValueError('Object zones require Randomize object layout')
     folder = Path(folder)
@@ -195,7 +197,7 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
                           'previously accepted episodes remain valid and are retained.')
         for _ in range(maximum_proposals if descriptor is not None else 1):
             source, target, bowl_xy, draws, layout_sampling = sample_workspace_layout(
-                world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles)
+                world, rng, _robot_base_bounds(config_json), task, descriptor, zone_roles, present)
             if descriptor is None:
                 break
             screen['proposal_count'] += 1
@@ -230,7 +232,10 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
     world['cube'] = pose(*source)
     world['target_cube'] = pose(*target)
     world['bowl']['position'] = [*map(float, bowl_xy), support]
-    world['bowl_present'] = task == 'bowl'
+    world['bowl_present'] = present['bowl']
+    world['other_cube_present'] = present['other_cube'] or task == 'unstack'
+    if not world['other_cube_present']:
+        world['target_cube']['position'] = [*PARKED_XY, -1.]
     if task == 'unstack':
         # Reserve the independently sampled destination as empty mat space.
         # Only initial freejoint poses are assigned.
@@ -262,6 +267,7 @@ def initialize_generation_scene(folder, task_id, seed, options=None):
     home = json.loads((ROOT / 'calibration/studio-home.json').read_text())
     capture = {'source': 'synthetic', 'task': task, 'task_id': task_id, 'instruction': instruction,
                'seed': int(seed), 'initial_native': home['home'], 'bowl_present': world['bowl_present'],
+               'other_cube_present': world['other_cube_present'],
                'calibration_hash': config['follower_calibration_sha256'], 'generation_options': options,
                'simulation_only': True, 'executed': False}
     _save(folder / 'generation-config.json', config)
@@ -295,6 +301,11 @@ def load_generation_scene(folder):
     geom = copy.deepcopy(source)
     geom.set('name', 'target_cube_geom')
     geom.set('rgba', ' '.join(map(str, COLORS[target['color']])))
+    if not cal.world.get('other_cube_present', True):
+        # Not in the scene: keep the body so traces/renderers stay uniform, but
+        # park it out of view, hidden, collision-free and weightless.
+        body.set('gravcomp', '1')
+        geom.set('contype', '0'); geom.set('conaffinity', '0'); geom.set('group', '3')
     body.append(geom)
     model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding='unicode'))
     return capture, config, scene, cal, model

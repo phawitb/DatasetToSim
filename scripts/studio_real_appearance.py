@@ -179,11 +179,9 @@ class RealAppearance:
                 # Wrist background pixels come from the Top plate: Top real stats are the source.
                 sim=appearance['top'][kind]['real'] if view=='wrist' and kind in ('work_mat','table','floor') else None
                 appearance[view][kind]={'real':{k:stats[k] for k in ('mean','std','pixels')},'sim':sim,'measured':True,'wrist_measured':view=='wrist'}
-        top,wrist=real['appearance']['top'],real['appearance']['wrist']
-        if 'red' in top and 'red' in wrist:
-            # No real green reference in Wrist: transfer the measured red Top-to-Wrist exposure change (L only).
-            green=dict(appearance['top']['green']['real']);green['mean']=list(green['mean']);green['mean'][0]+=wrist['red']['mean'][0]-top['red']['mean'][0]
-            appearance['wrist']['green']={'real':green,'sim':None,'measured':True,'wrist_measured':True}
+        # No real green cube was recorded (the profile's 'green' reference is the
+        # tan New Run cube), so the green cube keeps its rendered color.
+        for view in ('top','wrist'):appearance[view].pop('green',None)
         # Hard MuJoCo shadows are never rendered directly, including the
         # neutral reference light used for color matching.
         self.model.light_castshadow[:]=0
@@ -213,9 +211,12 @@ class RealAppearance:
         finally:
             data.qpos[:]=original
             mujoco.mj_forward(self.model,data)
+        # Objects left out of the scene are hidden (geom group 3) and have no colors to match.
+        hidden={c for c in set(self.classes.values()) if all(self.model.geom_group[j]>=3 for j,k in self.classes.items() if k==c)}
         for view in samples:
             for kind in kinds:
                 if kind not in self.profile['appearance'][view]:continue
+                if kind in hidden:self.profile['appearance'][view].pop(kind);continue
                 if kind in REALISTIC_OBJECTS:
                     # Shared-profile object never visible in this view: leave it unprocessed.
                     if samples[view][kind]:self.profile['appearance'][view][kind]['sim']=robust_stats(np.concatenate(samples[view][kind]))

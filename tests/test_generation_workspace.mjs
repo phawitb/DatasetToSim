@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {generationTaskCounts,generationTaskLabel} from '../web/generation-coverage.mjs';
-import {ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary} from '../web/generation-zones.mjs';
+import {ObjectZonePicker,ZONE_OBJECTS,LEGACY_EXTRA_OBJECTS,activeZoneObjects,zoneSummary} from '../web/generation-zones.mjs';
 
 // Exercise the generation workspace without starting a server or robot session.
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
@@ -15,7 +15,7 @@ function workspace(){
  const $=selector=>{if(!nodes.has(selector))nodes.set(selector,element());return nodes.get(selector);};
  const task=Object.assign(element(),{value:'unstack',checked:true,nextElementSibling:element(),closest:()=>element()});
  const $$=selector=>selector.includes('generation-task')?[task]:selector==='#generation-episode-list button'?$('#generation-episode-list').children:[];
- const context=vm.createContext({$,$$,document:{createElement:element},GenerationVisualizer:class{load(){}suspend(){}},GenerationCoverage:class{load(){}select(){}},generationTaskCounts,generationTaskLabel,ObjectZonePicker,ZONE_OBJECTS,activeZoneObjects,zoneSummary,
+ const context=vm.createContext({$,$$,document:{createElement:element},GenerationVisualizer:class{load(){}suspend(){}},GenerationCoverage:class{load(){}select(){}},generationTaskCounts,generationTaskLabel,ObjectZonePicker,ZONE_OBJECTS,LEGACY_EXTRA_OBJECTS,activeZoneObjects,zoneSummary,
   state:{page:'generate',restarting:false},pretty:value=>value||'',motionLabels:{natural:'Natural'},
   history:{replaceState(){}},URLSearchParams,Option:class{constructor(text,value){this.text=text;this.value=value;}},
   api:async()=>({}),toast(){},setTimeout,clearTimeout});

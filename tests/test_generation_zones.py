@@ -42,7 +42,9 @@ def test_saved_scene_respects_object_colors_and_unstack_intersection(tmp_path,ta
         options=validate_request({'tasks':[task],'unstack_top':top,'object_zones':zones})
         initialize_generation_scene(folder,task,seed,options)
         scene=json.loads((folder/'generation-scene.json').read_text());world=scene['world']
-        for key in ['cube','target_cube']:
+        # By default bowl tasks hold only the task cube; the other one is parked out of the scene.
+        assert world['other_cube_present']==(not task.endswith('bowl'))
+        for key in ['cube','target_cube'] if world['other_cube_present'] else ['cube']:
             body=world[key]
             assert zone(world,body['position'][:2]) in zones[body['color']+'_cube']
         if task.endswith('bowl'):assert zone(world,world['bowl']['position'][:2]) in zones['bowl']

@@ -28,7 +28,11 @@ def workspace_grid_cells(world, grid_shape=(3, 3)):
             for y in range(grid_shape[1]) for x in range(grid_shape[0])]
 
 
-def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, allowed_cells=None):
+# Absent optional cubes are parked here (out of view, collision-free, gravity-compensated).
+PARKED_XY = (-2., -2.)
+
+
+def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, allowed_cells=None, present=None):
     """Draw footprints over the whole calibrated mat, without reachability bias.
 
     Circumscribed circles conservatively separate objects, while yaw-aware box
@@ -110,9 +114,12 @@ def sample_workspace_layout(world, rng, base_bounds, task, layout_cell=None, all
         occupied.clear()
         draws.clear()
         try:
+            present = present or {'other_cube': True, 'bowl': task == 'bowl'}
             source = cube('source_cube')
-            destination = cube('other_cube', STACKING_CENTER_SEPARATION_M if cells else .08 if task == 'unstack' else 0.)
-            bowl = draw('bowl', float(world['bowl']['outer_radius']))[0] if task == 'bowl' else np.asarray(world['bowl']['position'][:2])
+            # Unstack reserves its destination even though no second cube sits there.
+            destination = (cube('other_cube', STACKING_CENTER_SEPARATION_M if cells else .08 if task == 'unstack' else 0.)
+                           if present['other_cube'] or task == 'unstack' else (np.asarray(PARKED_XY), 0.))
+            bowl = draw('bowl', float(world['bowl']['outer_radius']))[0] if present['bowl'] else np.asarray(world['bowl']['position'][:2])
             break
         except SamplingExhausted:
             if not retry_layout or pair_attempt == 63:
