@@ -146,7 +146,7 @@ function applyLayout(){
  document.body.dataset.page=state.page;
  state.historyMode=historyPage;
  for(const [id,on] of [['nav-data',dataset],['nav-live',fresh],['nav-history',historyPage],['nav-generate',generate],['nav-objects',objects]])$('#'+id).classList.toggle('active',on);
- $('#page-title').textContent=dataset?(selected?state.selectedDataset:'Datasets'):fresh?'New Run':generate?'Generate data':objects?'3D-Objects':'Run history';
+ $('#page-title').textContent=dataset?(selected?state.selectedDataset:'Real Datasets'):fresh?'New Run':generate?'Generate data':objects?'3D-Objects':'Run history';
  $('#page-description').textContent=dataset?(selected?'Browse episodes and compare real and simulated motion.':'Choose a dataset to explore its recorded episodes.'):fresh?'Start a fresh session from the current robot and camera state.':generate?'Create, inspect, and export synthetic demonstrations for policy research.':objects?'Explore the calibrated object models and see how each task uses them.':'Review actual robot executions, including interrupted and unsuccessful runs.';
  $('#generation-page').classList.toggle('hidden',!generate);
  $('#objects-page').classList.toggle('hidden',!objects);

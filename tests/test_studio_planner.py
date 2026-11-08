@@ -29,7 +29,8 @@ def test_open_approach_centers_cube_between_both_jaws(tmp_path,monkeypatch,techn
            'cube_pose_from_initial_rgb':{'position':[.166864,-.136652,.01295],
                                        'quaternion':[.72033934,0,0,.69362182]}}
     cal=episode_scene(cfg,scene);model=build_model(cal,cfg)
-    capture={'source':'live','initial_native':[-.747253,-98.153846,96.395604,40.879121,-8.923077,.947867]}
+    capture={'source':'live','initial_native':[-.747253,-98.153846,96.395604,40.879121,-8.923077,.947867],
+             'calibration_hash':json.loads((planner.ROOT/'calibration/studio-home.json').read_text())['calibration_sha256']}
     monkeypatch.setattr(planner,'load_scene',lambda folder:(capture,cfg,scene,cal,model))
     monkeypatch.setattr(planner,'render_preview',lambda *args:None)
     report=planner.plan(tmp_path,technique=technique)

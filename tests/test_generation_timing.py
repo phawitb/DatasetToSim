@@ -21,7 +21,7 @@ def test_recorded_pace_is_synthetic_only():
         validate_trajectory([[0]*6, [3]*6], [0, 1/30], [[-180,180]]*6)
 
 
-@pytest.mark.parametrize('task', ['green_cube_to_green_bowl', 'red_cube_to_green_bowl', 'red_cube_to_green_cube', 'green_cube_to_red_cube', 'unstack'])
+@pytest.mark.parametrize('task', ['green_cube_to_green_bowl', 'red_cube_to_green_bowl', 'tape_to_green_bowl', 'red_cube_to_green_cube', 'green_cube_to_red_cube', 'unstack'])
 def test_recorded_pace_contact_validation(tmp_path, task):
     from studio_generation_scene import generate_episode
     report = generate_episode(tmp_path, task, 0, {'randomize_layout': False, 'timing_profile': 'recorded'})
@@ -29,7 +29,9 @@ def test_recorded_pace_contact_validation(tmp_path, task):
     assert report['transfer_checks_passed']
     assert report['audit']['post_initial_state_writes'] == 0
     assert report['motion']['timing_profile'] == 'recorded'
-    assert report['duration'] < (12 if 'bowl' in task else 20)
+    # Every task, including place-in-bowl, now ends back at Home.
+    assert report['duration'] < 20
+    assert 'Home' in report['motion']['waypoints']
     actions=np.load(tmp_path/'plan.npz')
     np.testing.assert_allclose(np.diff(actions['timestamps']), 1/30)
     trace=np.load(tmp_path/'trace.npz')

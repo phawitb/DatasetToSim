@@ -545,7 +545,7 @@ def capture(body:dict):
     global current
     with operation_lock:
         task=body.get('task','bowl')
-        if task not in ['bowl','stack','tape']:raise ValueError('Choose Place in bowl, Stack on cube or Place tape in bowl')
+        if task not in ['bowl','stack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube or Place tape in bowl')
         if 'bowl_present' in body and not isinstance(body['bowl_present'],bool):raise ValueError('Bowl presence must be true or false')
         if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')

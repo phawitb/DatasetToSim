@@ -136,6 +136,14 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         if err>.004: raise ValueError(f'{name}: IK target unreachable ({err*1000:.1f} mm error)')
         q=adapter.to_native(current);q[5]=grip
         waypoint(name,q,seconds);stages.append({'name':name,'target_m':np.asarray(xyz).tolist(),'ik_error_mm':err*1000})
+    def return_home():
+        # Every episode ends at Home through the calibrated raised/unfolded corridor.
+        home=json.loads((ROOT/'calibration/studio-home.json').read_text())
+        if capture['calibration_hash']!=home['calibration_sha256']:raise ValueError('Home calibration changed')
+        closed=waypoints[-1][0].copy();closed[5]=1.
+        for name,q,seconds in [('Close after retreat',closed,1.5),('Return raised',home['raised'],3.),('Return unfolded',home['unfolded'],6.),('Home',home['home'],2.5)]:waypoint(name,q,seconds)
+        stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
+        waypoint('Final settle',waypoints[-1][0].copy(),2.)
     # Unfold the distal joint before a vertical lift from the compact rest pose.
     # Otherwise an IK solution can drive the jaws through the shoulder housing.
     if start[2] < .08 and start[0] < cube[0]:
@@ -164,12 +172,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         placement_knot=len(waypoints)-1
         add('Release on cube' if stacking else 'Release on table',np.r_[placement[:2],place_z],40.,seconds=1.5,yaw=place_yaw)
         add('Retreat',np.r_[placement[:2],hover],40.,seconds=2.)
-        home=json.loads((ROOT/'calibration/studio-home.json').read_text())
-        if capture['calibration_hash']!=home['calibration_sha256']:raise ValueError('Home calibration changed')
-        closed=waypoints[-1][0].copy();closed[5]=1.
-        for name,q,seconds in [('Close after retreat',closed,1.5),('Return raised',home['raised'],3.),('Return unfolded',home['unfolded'],6.),('Home',home['home'],2.5)]:waypoint(name,q,seconds)
-        stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
-        waypoint('Final settle',waypoints[-1][0].copy(),2.)
+        return_home()
     elif tape:
         # The roll hangs on the fixed jaw through its hole, so it cannot be dropped:
         # lower it onto the bowl floor, open a little, then lift the jaw out.
@@ -178,10 +181,10 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         waypoint('Placement settle',waypoints[-1][0].copy(),.5)
         add('Release in bowl',np.r_[bowl[:2],place_z],release_grip,seconds=1.)
         add('Retreat',np.r_[bowl[:2],hover],release_grip,seconds=1.5)
-        waypoint('Final settle',waypoints[-1][0].copy(),1.5)
+        return_home()
     else:
         add('Release',np.r_[bowl[:2],hover],release_grip,seconds=1.)
-        waypoint('Final settle',waypoints[-1][0].copy(),1.5)
+        return_home()
     # Compare against the original Classic route, not Natural's added grasp guards.
     classic_actions,classic_times=interpolate_native([w for w,name in zip(waypoints,names) if name not in {'Pregrasp','Grasp settle'}])
     motion={'technique':technique,'label':TECHNIQUES[technique],'classic_duration':float(classic_times[-1]+1/30)}

@@ -150,7 +150,7 @@ def _source_tasks(identifier, source_id):
         role = {'real-red-cube': 'Manipulated object', 'green-bowl': 'Placement target',
                 'so101': 'Manipulator', 'floor': 'Background plane'}.get(identifier, 'Work surface')
         return [{'id': 'real-replay-bowl', 'instruction': 'Real dataset · Put the red cube in the green bowl.', 'role': role}]
-    rows = [('new-run-bowl', 'New Run · Place in bowl'), ('new-run-stack', 'New Run · Stack on cube')]
+    rows = [('new-run-bowl', 'New Run · Place cube in bowl'), ('new-run-stack', 'New Run · Stack on cube')]
     if identifier == 'tan-cube': rows = rows[1:]
     if not identifier.endswith('-cube'): rows.append(('new-run-tape', 'New Run · Place tape in bowl'))
     result = []

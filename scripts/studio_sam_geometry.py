@@ -65,7 +65,7 @@ def fit_mask_pose(mask,camera,initial,edge,support):
 
 def scene_from_masks(config,source,target,obstacle=None,*,task='bowl',bowl_present=True):
     from strict_action_scene import episode_scene
-    if task not in ['bowl','stack','tape']:raise ValueError('Choose Place in bowl, Stack on cube or Place tape in bowl')
+    if task not in ['bowl','stack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube or Place tape in bowl')
     validate_pair(source,target)
     if task=='tape':return tape_scene_from_masks(config,source,target)
     if task=='stack' and bowl_present and obstacle is None:raise ValueError('Select the bowl obstacle, or mark that no bowl is present before Capture')
