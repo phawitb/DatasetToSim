@@ -28,8 +28,8 @@ _DESCRIPTORS = {
     'red-cube': ('Red cube', 'Task object', 'Calibrated cube primitive, red generation material.'),
     'green-cube': ('Green cube', 'Task object', 'Calibrated cube primitive, green generation material.'),
     'green-bowl': ('Green bowl', 'Task object', 'Open bowl mesh with the calibrated tapered wall and floor.'),
-    'tape': ('Tape roll', 'Library object', 'Clear 1-inch packing-tape roll modelled in Blender from photos, '
-             'scaled against the 20 mm cube: about 49 mm outer diameter, 24 mm wide, 23 mm core hole. '
+    'tape': ('Tape roll', 'Library object', 'Clear 1-inch packing-tape roll modelled in Blender from measurements: '
+             '53 mm outer diameter, 24 mm wide, 26 mm core hole, 30 mm cardboard core. '
              'Not used by any task yet.'),
     'so101': ('SO-101 robot', 'Robot', 'Current robot visual meshes, camera mount, and wrist camera in the saved Home pose.'),
     'work-mat': ('Work mat', 'Environment', 'Calibrated work surface used by every generated task.'),

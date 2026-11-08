@@ -2,17 +2,16 @@
 
 Run: blender --background --python assets/models/tape/build_tape.py
 
-Dimensions were estimated from photos with the 20 mm red cube as scale
-reference (top view for the diameters, side view for the width). They are
-estimates, roughly ±2 mm; edit the constants and re-run to refine.
+Dimensions are the user's measurements of the real roll: 53 mm outer
+diameter, 24 mm wide, 26 mm core hole, 30 mm core outer diameter (2 mm wall).
 """
 from pathlib import Path
 import bpy
 
 HERE = Path(__file__).resolve().parent
-OUTER_DIAMETER = 0.049   # tape outer diameter (m)
-CORE_OUTER_DIAMETER = 0.028  # cardboard core outer diameter
-CORE_INNER_DIAMETER = 0.023  # hole
+OUTER_DIAMETER = 0.053   # tape outer diameter (m)
+CORE_OUTER_DIAMETER = 0.030  # cardboard core outer diameter
+CORE_INNER_DIAMETER = 0.026  # hole
 LINER = 0.0004           # printed paper liner on the inside of the core
 WIDTH = 0.024            # roll width (1 inch tape)
 SEGMENTS = 96

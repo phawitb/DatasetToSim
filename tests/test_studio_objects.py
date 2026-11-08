@@ -118,8 +118,8 @@ def test_thumbnails_are_small_actual_geometry_images():
     assert len(set(images)) == len(images)
 
 
-def test_tape_roll_is_a_library_model_with_photo_scaled_dimensions():
+def test_tape_roll_is_a_library_model_with_measured_dimensions():
     tape = next(item for item in objects.catalog()['objects'] if item['id'] == 'tape')
-    assert tape['dimensions_m'] == pytest.approx([.049, .049, .024], abs=1e-6)
+    assert tape['dimensions_m'] == pytest.approx([.053, .053, .024], abs=1e-6)
     assert tape['tasks'] == [] and [s['id'] for s in tape['sources']] == ['library']
     assert tape['part_count'] == 3 and tape['rgba'][3] < 1
