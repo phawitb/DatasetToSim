@@ -28,3 +28,15 @@ test('a submitted job may finish after navigation without pulling the user away'
  const submitted=builder.submit();builder.suspend();response.resolve({id:'job',status:'queued'});await submitted;
  assert.equal(opened,0);assert.equal(builder.pending,false);
 });
+import {extensionSelection,restoreReplaySettings} from '../web/replay-builder.mjs';
+test('extending a replay dataset keeps parent recordings and adds only new successful ones',()=>{
+ const episodes=[0,1,2,3].map(i=>({episode_index:i,success:i!==2}));
+ assert.deepEqual(extensionSelection(episodes,{included_episode_ids:[0,1]}),{existing:[0,1],added:[3],selected:[0,1,3]});
+ assert.deepEqual(extensionSelection(episodes,{included_episode_ids:[0,1,3]}).added,[]);
+});
+test('parent appearance settings restore into the replay form',()=>{
+ const inputs={};const read=id=>inputs[id]??=({checked:false,value:''});
+ restoreReplaySettings(read,{real_background:false,visual_randomization:true,light_intensity:1.4,background_id:'bg',speed_scale:3});
+ assert.equal(inputs['real-background'].checked,false);assert.equal(inputs.visual.checked,true);
+ assert.equal(inputs['light-intensity'].value,'1.4');assert.equal(inputs.background.value,'bg');
+});

@@ -217,6 +217,12 @@ function beginGenerationExtension(){
  $('#generation-seed').value=String(job.next_seed??((job.options?.seed??42)+(job.progress?.attempts??0)+1));
  updateGenerationBackground();updateGenerationForm();setGenerationTab('build');
 }
+// Real replay datasets can only grow with more recordings, so extension reopens the replay builder on their source.
+async function beginReplayExtension(job){
+ const source=job.options?.source_id;if(job?.status!=='completed'||job.export?.valid!==true||!source)return;
+ await chooseDataset(source);if(state.selectedDataset!==source)return;
+ video.pause();await replayBuilder.open(source,0,job);$('#replay-builder').scrollIntoView({behavior:'smooth',block:'start'});
+}
 function endGenerationExtension(){generation.parent=null;invalidateGenerationStills();updateGenerationForm();}
 function renderGenerationBackgrounds(selected=$('#generation-background').value||'calibrated-real'){
  const select=$('#generation-background');select.replaceChildren();
@@ -394,7 +400,7 @@ function renderGenerationJob(){
  if(generation.deleteId!==job?.id)dismissGenerationDelete();
  const ready=job?.status==='completed'&&job.export?.valid===true&&!!job.export?.url,download=$('#generation-download');
  download.classList.toggle('hidden',!ready);
- $('#generation-add-episodes').classList.toggle('hidden',job?.source_type==='real_replay'||job?.status!=='completed'||job.export?.valid!==true);
+ $('#generation-add-episodes').classList.toggle('hidden',job?.kind==='preview'||job?.status!=='completed'||job.export?.valid!==true);
  $('#generation-add-episodes').disabled=generation.submitting||generation.uploading;
  if(ready)download.href=`/api/generation/${encodeURIComponent(job.id)}/download`;else download.removeAttribute('href');
  const split=job?.export?.splits,splitNote=Array.isArray(split?.train)&&Array.isArray(split?.val)?` · ${split.train.length} training / ${split.val.length} validation${split.val.length?'':' (no validation split)'}`:'';
@@ -439,7 +445,7 @@ async function showGeneration(id,tab=generation.tab,episodeIndex=0){
 }
 $('#nav-generate').onclick=()=>showGeneration();
 $('#generation-form').oninput=event=>{if(event?.target?.id==='generation-background-upload')return;invalidateGenerationStills();updateGenerationBackground();updateGenerationForm();};
- $('#generation-add-episodes').onclick=beginGenerationExtension;
+ $('#generation-add-episodes').onclick=()=>generation.job?.source_type==='real_replay'?beginReplayExtension(generation.job):beginGenerationExtension();
  $('#generation-new-dataset').onclick=endGenerationExtension;
  $('#generation-background-upload').onchange=uploadGenerationBackground;
  $('#generation-preview-button').onclick=startGenerationStills;

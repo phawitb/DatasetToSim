@@ -100,3 +100,26 @@ def test_rejects_corrupt_trace_timing_and_targets(local_source):
         altered = dict(trace); altered[field] = trace[field].copy(); altered[field].flat[0] += .001
         with pytest.raises(ValueError):
             verify_trace(episode,altered,report,source.settings)
+
+
+def _replay_job(root, identifier, **fields):
+    folder = root / identifier
+    (folder / 'dataset').mkdir(parents=True)
+    job = dict(id=identifier, name='parent', source_type='real_replay', kind='dataset', status='completed',
+               export={'valid': True}, included_episode_ids=[0, 1]) | fields
+    (folder / 'job.json').write_text(json.dumps(job))
+    (folder / 'dataset/export_manifest.json').write_text(json.dumps({'episodes': [
+        {'group_id': 'real-S-0', 'split': 'train'}, {'group_id': 'real-S-1', 'split': 'val'}]}))
+    return folder
+
+
+def test_extension_accepts_parent_and_inherits_its_splits(tmp_path):
+    assert validate_request({'episode_ids': [0], 'parent_job_id': 'a' * 32})['parent_job_id'] == 'a' * 32
+    with pytest.raises(ValueError, match='parent'):
+        validate_request({'episode_ids': [0], 'parent_job_id': '../x'})
+    manager = ReplayDatasetManager(tmp_path)
+    _replay_job(tmp_path, 'a' * 32)
+    assert manager.parent_splits('a' * 32) == {'real-S-0': 'train', 'real-S-1': 'val'}
+    _replay_job(tmp_path, 'b' * 32, status='failed', export={})
+    with pytest.raises(ValueError, match='completed'):
+        manager.parent_splits('b' * 32)

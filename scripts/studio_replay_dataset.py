@@ -31,7 +31,7 @@ def save(path, value):
 def validate_request(body):
     defaults = dict(name='real-action-simulation',source_id=SOURCE_ID,episode_ids=[],success_only=True,
                     seed=0,validation_fraction=.2,visual_randomization=False,camera_jitter=False,
-                    sensor_augmentation=False,real_background=True,real_image_processing=True) | VISUAL_DEFAULTS
+                    sensor_augmentation=False,real_background=True,real_image_processing=True,parent_job_id=None) | VISUAL_DEFAULTS
     if not isinstance(body,dict) or set(body) - set(defaults):
         raise ValueError('Unknown replay options; only appearance changes are supported')
     result = defaults | body
@@ -49,6 +49,9 @@ def validate_request(body):
     for key in ('success_only','visual_randomization','camera_jitter','sensor_augmentation','real_background','real_image_processing'):
         if type(result[key]) is not bool:
             raise ValueError(key + ' must be boolean')
+    parent = result['parent_job_id']
+    if parent is not None and (not isinstance(parent,str) or not re.fullmatch('[a-f0-9]{32}',parent)):
+        raise ValueError('Invalid parent dataset identifier')
     fraction = result['validation_fraction']
     if type(fraction) not in (int,float) or not math.isfinite(fraction) or not 0 <= fraction <= .4:
         raise ValueError('validation_fraction must be between 0 and 0.4')
@@ -116,6 +119,9 @@ class ReplayDatasetManager:
             if self.busy():
                 raise ValueError('A real replay dataset operation is already running')
             source = ReplaySource()
+            inherited = self.parent_splits(options['parent_job_id']) if options['parent_job_id'] and not preview else {}
+            if preview:
+                options['parent_job_id'] = None
             selected = [source.reports[i] for i in options['episode_ids']]
             included = [item for item in selected if not options['success_only'] or item['outcome'] == 'success']
             if not included:
@@ -133,7 +139,8 @@ class ReplayDatasetManager:
                        options=options,background_asset=asset,media_prefix=self.media_prefix,
                        selected_episode_ids=options['episode_ids'],included_episode_ids=[item['episode'] for item in included],
                        progress=dict(requested=len(included),attempts=0,accepted=0,rejected=0),
-                       episodes=[],images=[],skipped=skipped,errors=[],
+                       episodes=[],images=[],skipped=skipped,errors=[],parent_job_id=options['parent_job_id'],
+                       inherited_group_splits=inherited,
                        note='Original recorded actions; frozen physics traces; appearance-only variation. Failed tasks are reported and excluded from training export. No hardware commands.')
             save(folder / 'job.json',job)
             try:
@@ -145,6 +152,14 @@ class ReplayDatasetManager:
                 raise ValueError('Unable to start replay worker') from exc
             self.active = identifier
             return job
+
+    def parent_splits(self, identifier):
+        """Train/val assignment of a completed replay dataset, so revisions never move a recording across splits."""
+        job = self.get(identifier)
+        if job['status'] != 'completed' or job.get('kind') != 'dataset' or job.get('export',{}).get('valid') is not True:
+            raise ValueError('Only a completed, validated replay dataset can be extended')
+        manifest = json.loads((self.folder(identifier) / 'dataset/export_manifest.json').read_text())
+        return {str(item['group_id']): item['split'] for item in manifest['episodes']}
 
     def cancel(self, identifier):
         with self.lock:
@@ -220,8 +235,11 @@ def work(folder):
             save(folder / 'job.json',job)
         if accepted:
             update('Writing and auditing LeRobot v3 export')
+            groups = {json.loads((path/'episode.json').read_text()).get('group_id') for path in accepted}
+            inherited = {group: split for group, split in job.get('inherited_group_splits',{}).items() if group in groups}
             exported = export_dataset(accepted,folder/'dataset',name=options['name'],validation_fraction=options['validation_fraction'],
-                                      lineage={'source_type':'real_replay','source_id':SOURCE_ID,
+                                      inherited_group_splits=inherited,
+                                      lineage={'source_type':'real_replay','source_id':SOURCE_ID,'parent_job_id':job.get('parent_job_id'),
                                                'source_settings_sha256':source.settings_hash,'selected_episode_ids':options['episode_ids']})
             # The full build report includes explicit failures even though the
             # validated training export intentionally contains successes only.
