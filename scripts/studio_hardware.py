@@ -19,7 +19,7 @@ sys.path.insert(0,str(ROOT/'src'))
 import cv2  # Load OpenCV before LeRobot/Torch to avoid duplicate OpenMP on macOS.
 import numpy as np
 from studio_recording import Recording
-from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits, validate_simulated_timing
+from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits, validate_simulated_timing, motion_speed_limits
 
 
 def open_calibrated_connection(robot):
@@ -246,6 +246,36 @@ class Hardware:
         threading.Thread(target=run,daemon=True).start()
         return {'running':True,'id':self.execution}
 
+    def go_home(self,target):
+        """Direct joint-space move to Home from any pose, as the user requested: no camera,
+        scene or collision checks. Stop still interrupts it and holds the measured pose."""
+        target=np.asarray(target,float)
+        with self.io:
+            if self.torque_enabled is not True:raise ValueError('Torque is off; enable torque first')
+            if self.running:raise ValueError('Robot execution already running')
+            if target.shape!=(6,) or not np.isfinite(target).all():raise ValueError('Invalid Home pose')
+            start=self.positions()
+            # Smoothstep peak speed is 1.5 x mean: keep it at 60% of the Studio joint speed limits.
+            duration=max(1.5,float(np.max(1.5*np.abs(target-start)/(.6*motion_speed_limits()))))
+            steps=max(1,int(np.ceil(duration*30)))
+            a=np.arange(1,steps+1)/steps;a=a*a*(3-2*a)
+            path=start+(target-start)*a[:,None]
+            self.running=True;self.error=None;self.stopped.clear();self.progress=0.;self.execution=None;self.started_at=time.monotonic()
+        def run():
+            begin=time.monotonic()
+            try:
+                for i,q in enumerate(path):
+                    if self.stopped.wait(max(0,begin+(i+1)/30-time.monotonic())):break
+                    self.send(q);self.progress=(i+1)/len(path)
+                if not self.stopped.is_set():self.stopped.wait(.5)
+            except Exception as exc:self.error=str(exc)
+            finally:
+                try:self.stop()
+                except Exception as exc:self.error=f'Hold failed: {exc}'
+                self.running=False
+        threading.Thread(target=run,daemon=True).start()
+        return {'homing':True,'duration_s':duration}
+
     def disconnect(self):
         if self.running:raise ValueError('Stop the running motion before disconnecting')
         self.stop();self.connected=False
@@ -264,8 +294,8 @@ def main():
         for line in sys.stdin:
             try:
                 request=json.loads(line);command=request['command']
-                if command not in ['connect','status','snapshot','preview','execute','stop','disconnect','torque_off','torque_on']:raise ValueError('Unknown command')
-                result=hardware.execute(request['plan']) if command=='execute' else hardware.status(request.get('client_id')) if command=='status' else hardware.preview(request.get('view')) if command=='preview' else getattr(hardware,command)()
+                if command not in ['connect','status','snapshot','preview','execute','go_home','stop','disconnect','torque_off','torque_on']:raise ValueError('Unknown command')
+                result=hardware.execute(request['plan']) if command=='execute' else hardware.go_home(request['target']) if command=='go_home' else hardware.status(request.get('client_id')) if command=='status' else hardware.preview(request.get('view')) if command=='preview' else getattr(hardware,command)()
                 response={'ok':True,'result':result}
             except Exception as exc:response={'ok':False,'error':str(exc)}
             protocol.write(json.dumps(response)+'\n');protocol.flush()

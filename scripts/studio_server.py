@@ -456,64 +456,12 @@ def robot_command(command:str,request:Request):
             if pose is not None and np.all(np.abs(np.asarray(pose)-home['home'])<3):
                 current=None
                 return {'already_home':True}
-            captures=[]
-            for path in WORK.glob('*/capture.json'):
-                try:
-                    saved=json.loads(path.read_text())
-                    if saved.get('source')=='live' and saved.get('purpose')!='home':captures.append(saved)
-                except (OSError,ValueError):pass
-            if captures and max(captures,key=lambda c:c.get('captured_at',0)).get('task')=='stack':
-                raise ValueError('Interrupted stack: automatic Home cannot verify both cubes from this pose. Keep torque on and recover the scene before starting another run. A completed stack returns Home within its validated plan.')
-            snapshot=hardware.call('snapshot')
-            references=[]
-            for path in WORK.glob('*/selection.json'):
-                try:
-                    load_selection(path.parent);references.append(path)
-                except (ValueError,OSError):pass
-            if not references:raise ValueError('Select From and To in a capture first, or support the arm and use Torque off to clear the camera')
-            references.sort(key=lambda p:json.loads((p.parent/'capture.json').read_text()).get('captured_at',0),reverse=True)
-            # The newest selected capture is the reference. Its Wrist recovery applies only if it
-            # is itself a completed placement: never fall back to an older placement (which made a
-            # fresh Capture + From/To unusable whenever any earlier run had completed).
-            reference=references[0].parent
-            identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
-            for view,data in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(data))
-            snapshot.update(id=identifier,purpose='home');(folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
-            home_generation=requested_generation;owner=request.headers.get('x-studio-client')
-            current=identifier;jobs[identifier]={'id':identifier,'status':'running','stage':'prepare'}
-            def return_home():
-                try:
-                    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-                    try:released_reference(reference,snapshot['initial_native'],snapshot['calibration_hash']);use_wrist=True
-                    except ValueError as exc:use_wrist=False;association_error=str(exc)
-                    if use_wrist:
-                        try:wrist_home_scene(sam,folder,reference,folder/'wrist.jpg',cfg,snapshot['initial_native'])
-                        except ValueError as wrist_error:
-                            try:home_scene(sam,folder,reference,folder/'top.jpg',cfg)
-                            except ValueError as top_error:raise ValueError(f'Wrist: {wrist_error}; Top: {top_error}') from top_error
-                    else:
-                        try:home_scene(sam,folder,reference,folder/'top.jpg',cfg)
-                        except ValueError as top_error:raise ValueError(f'Wrist recovery: {association_error}; Top: {top_error}') from top_error
-                    result=subprocess.run([sys.executable,str(ROOT/'scripts/studio_home.py'),str(folder),str(reference)],capture_output=True,text=True,timeout=120)
-                    if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1])
-                    report=json.loads((folder/'plan.json').read_text())
-                    with operation_lock:
-                        fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
-                        verify_home_scene(folder,reference,report,fresh,cfg)
-                        latest=hardware.call('snapshot');execution_gate(report,latest['initial_native'],latest['calibration_hash'])
-                        validate_vision_age(fresh.get('image_captured_at',{}).get(report.get('home_view','top'),fresh['captured_at']),time.time())
-                        saved=np.load(folder/'plan.npz')
-                        payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'owner':owner,'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get(report.get('home_view','top'),fresh['captured_at'])}
-                        with stop_lock:
-                            if restarting:raise ValueError('Server restarting; Home cancelled')
-                            if home_generation!=stop_generation:raise ValueError('Stop requested; Home cancelled')
-                            if time.monotonic()-client_heartbeats.get(owner,0)>3:raise ValueError('Control page closed; Home cancelled')
-                            hardware.call('execute',plan=payload)
-                        report['executed']=True;(folder/'plan.json').write_text(json.dumps(report,indent=2))
-                        jobs[identifier]={'id':identifier,'status':'executing','stage':'prepare'}
-                except Exception as exc:job_error(identifier,'prepare',exc)
-            threading.Thread(target=return_home,daemon=True).start()
-            return {'preparing_home':True,'id':identifier}
+            # Requested by the user: Home goes straight back from any pose, with no camera,
+            # scene or collision checks. Stop still interrupts it.
+            current=None
+            with stop_lock:
+                if restarting:raise ValueError('Server restarting')
+                return hardware.call('go_home',target=home['home'])
         if command in ['torque_on','torque_off','disconnect']:
             with stop_lock:
                 if restarting:raise ValueError('Server restarting')

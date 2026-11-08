@@ -125,38 +125,21 @@ def test_home_requires_control_page_owner(monkeypatch):
     assert response.status_code==409 and 'page' in response.json()['error'].lower()
 
 
-def test_stop_during_home_snapshot_prevents_dispatch(tmp_path,monkeypatch):
-    import json,threading,time,base64,numpy as np
+def test_home_moves_straight_back_without_camera_or_scene_checks(monkeypatch):
+    import json
     from types import SimpleNamespace
-    reference=tmp_path/('e'*32);reference.mkdir();(reference/'scene.xml').write_text('model')
-    (reference/'capture.json').write_text(json.dumps({'captured_at':time.time()}))
-    (reference/'plan.json').write_text(json.dumps({'source':'live'}))
-    entered=threading.Event();release=threading.Event();sent=[];snapshots=[]
+    home=json.loads((server.ROOT/'calibration/studio-home.json').read_text())['home']
+    calls=[]
     def hardware(command,**kwargs):
-        if command=='status':return {'running':False}
-        if command=='snapshot':
-            if not snapshots:entered.set();release.wait(2)
-            snapshots.append(1)
-            return {'source':'live','captured_at':time.time(),'initial_native':[0]*6,'calibration_hash':'x','stop_generation':0,'images':{'top':base64.b64encode(__import__('cv2').imencode('.jpg',np.zeros((2,2,3),np.uint8))[1]).decode()}}
-        if command=='execute':sent.append(kwargs)
-        return {}
-    def simulation(args,**kwargs):
-        folder=Path(args[2]);report=json.loads((folder/'capture.json').read_text())|{'outcome':'success','transfer_checks_passed':True,'executed':False,'bowl_pixel':[0,0]}
-        (folder/'plan.json').write_text(json.dumps(report));np.savez(folder/'plan.npz',actions=np.zeros((2,6)),timestamps=[0,.1])
-        return SimpleNamespace(returncode=0)
-    (reference/'selection.json').write_text('{}')
-    monkeypatch.setattr(server,'load_selection',lambda *a: ({'revision':None},[]))
-    monkeypatch.setattr(server,'home_scene',lambda *a: None)
-    monkeypatch.setattr(server,'verify_home_scene',lambda *a: None)
-    monkeypatch.setattr(server,'verify_selected_scene',lambda *a: None)
-    monkeypatch.setattr(server,'WORK',tmp_path);monkeypatch.setattr(server,'current',None);monkeypatch.setattr(server,'jobs',{});monkeypatch.setattr(server,'stop_generation',0)
-    monkeypatch.setattr(server,'hardware',SimpleNamespace(call=hardware));monkeypatch.setattr(server.subprocess,'run',simulation)
+        calls.append((command,kwargs))
+        if command=='status':return {'running':False,'positions':[0.]*6}
+        if command=='go_home':return {'homing':True,'duration_s':4.}
+        raise AssertionError(f'Home must not call {command}')
+    monkeypatch.setattr(server,'hardware',SimpleNamespace(call=hardware));monkeypatch.setattr(server,'current',None);monkeypatch.setattr(server,'jobs',{})
     headers={'X-Studio-Token':server.TOKEN,'X-Studio-Client':'owner'}
-    result=[];thread=threading.Thread(target=lambda:result.append(client.post('/api/robot/home',json={},headers=headers)));thread.start();assert entered.wait(2)
-    client.post('/api/robot/stop',json={},headers=headers);release.set();thread.join(3)
-    deadline=time.monotonic()+2
-    while time.monotonic()<deadline and server.jobs.get(server.current,{}).get('status')!='error':time.sleep(.01)
-    assert not sent and 'Stop requested' in server.jobs[server.current]['error']
+    result=client.post('/api/robot/home',json={},headers=headers).json()
+    assert result['homing'] is True
+    assert [c for c,_ in calls if c!='status']==['go_home'] and calls[-1][1]['target']==home
 
 
 def test_opening_history_does_not_activate_archived_run(tmp_path,monkeypatch):
