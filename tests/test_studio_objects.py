@@ -15,7 +15,9 @@ def test_catalog_reports_current_geometry_and_task_roles():
     config = json.loads((objects.ROOT / 'calibration/native-action-current.json').read_text())
     edge = config['base_calibration']['world']['cube']['size']
     assert entries['cube']['dimensions_m'] == pytest.approx([edge]*3)
-    assert entries['green-bowl']['dimensions_m'] == pytest.approx([.118, .118, .05], abs=1e-6)
+    # Default bowl is the current measured one (height derived from the 50 mm side length).
+    assert entries['green-bowl']['dimensions_m'][:2] == pytest.approx([.118, .118], abs=1e-6)
+    assert .044 < entries['green-bowl']['dimensions_m'][2] < .049
     assert len([t for t in entries['green-bowl']['tasks'] if t['id'] in objects.TASKS]) == 2
     assert len([t for t in entries['cube']['tasks'] if t['id'] in objects.TASKS]) == 5
     variants = {variant['id']: variant for variant in entries['cube']['variants']}
@@ -74,7 +76,9 @@ def test_bowl_default_and_future_generation_match_frozen_real_simulation(tmp_pat
     assert actual[0] == pytest.approx(expected)
     bowl = next(item for item in objects.catalog()['objects'] if item['id'] == 'green-bowl')
     assert bowl['variants'][0]['rgba'] == pytest.approx(expected)
-    assert any(source['id'] == 'real-replay' for source in bowl['variants'][0]['sources'])
+    assert any(source['id'] == 'generation' for source in bowl['variants'][0]['sources'])
+    archived = [v for v in bowl['variants'] if any(source['id'] == 'real-replay' for source in v['sources'])]
+    assert archived and archived[0]['dimensions_m'] == pytest.approx([.118, .118, .05], abs=1e-6)
 
 
 def test_catalog_includes_real_replay_and_new_run_materials_without_inventing_variants():

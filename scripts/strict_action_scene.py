@@ -186,15 +186,10 @@ def add_historical_bowl(asset,bowl,cal,estimates):
         ET.SubElement(bowl,'geom',name=name,type='mesh',mesh=name+'_mesh',**COLLISION)
 
 
-def add_rounded_bowl(asset,bowl,cal,estimates):
-    """Measured cross-section revolved: normal wall thickness, rounded inner and outer bottom."""
-    r0=estimates['bowl_bottom_outer_radius_m'];r1=cal.world['bowl']['outer_radius'];h=cal.world['bowl']['height']
-    floor=estimates['bowl_floor_thickness_m'];wall=estimates['bowl_wall_thickness_m']
-    profile,radial=bowl_profile(r0,r1,h,wall,floor,estimates.get('bowl_outer_fillet_radius_m',0.),estimates.get('bowl_inner_fillet_radius_m',0.))
-    if not (0<radial<r0<r1 and 0<floor<h):raise ValueError('Inconsistent bowl dimensions')
-    rim=int(np.flatnonzero(np.isclose(profile[:,0],r1)&np.isclose(profile[:,1],h))[0])
-    outer,inner=profile[1:rim+1],profile[rim+1:-1]  # without the two axis points
-    n=96;angles=np.arange(n)*2*np.pi/n;rings=np.vstack([outer,inner]);vertices=[];faces=[]
+def revolve_profile(profile,rim,n=96):
+    """Closed surface of revolution for a bowl cross-section (axis points at both ends)."""
+    outer,inner=profile[1:rim+1],profile[rim+1:-1]
+    angles=np.arange(n)*2*np.pi/n;rings=np.vstack([outer,inner]);vertices=[];faces=[]
     for radius,z in rings:vertices.extend([[radius*np.cos(a),radius*np.sin(a),z]for a in angles])
     for ring in range(len(rings)-1):
         for j in range(n):
@@ -203,6 +198,29 @@ def add_rounded_bowl(asset,bowl,cal,estimates):
     top,bottom=len(rings)*n,len(rings)*n+1;last=(len(rings)-1)*n
     vertices+= [[0,0,profile[-1][1]],[0,0,profile[0][1]]]
     faces.extend([[top,last+j,last+(j+1)%n]for j in range(n)]);faces.extend([[bottom,(j+1)%n,j]for j in range(n)])
+    return vertices,faces
+
+
+def current_bowl_visual(config):
+    """Vertices/faces of the measured bowl in a configuration, or None for a historical one."""
+    estimates=config['estimates'];world=config['base_calibration']['world']['bowl']
+    if 'bowl_wall_thickness_m' not in estimates:return None
+    r1,h=world['outer_radius'],world['height']
+    profile,_=bowl_profile(estimates['bowl_bottom_outer_radius_m'],r1,h,estimates['bowl_wall_thickness_m'],estimates['bowl_floor_thickness_m'],
+                           estimates.get('bowl_outer_fillet_radius_m',0.),estimates.get('bowl_inner_fillet_radius_m',0.))
+    rim=int(np.flatnonzero(np.isclose(profile[:,0],r1)&np.isclose(profile[:,1],h))[0])
+    return revolve_profile(profile,rim)
+
+
+def add_rounded_bowl(asset,bowl,cal,estimates):
+    """Measured cross-section revolved: normal wall thickness, rounded inner and outer bottom."""
+    r0=estimates['bowl_bottom_outer_radius_m'];r1=cal.world['bowl']['outer_radius'];h=cal.world['bowl']['height']
+    floor=estimates['bowl_floor_thickness_m'];wall=estimates['bowl_wall_thickness_m']
+    profile,radial=bowl_profile(r0,r1,h,wall,floor,estimates.get('bowl_outer_fillet_radius_m',0.),estimates.get('bowl_inner_fillet_radius_m',0.))
+    if not (0<radial<r0<r1 and 0<floor<h):raise ValueError('Inconsistent bowl dimensions')
+    rim=int(np.flatnonzero(np.isclose(profile[:,0],r1)&np.isclose(profile[:,1],h))[0])
+    outer,inner=profile[1:rim+1],profile[rim+1:-1]  # without the two axis points
+    vertices,faces=revolve_profile(profile,rim);angles=np.arange(96)*2*np.pi/96
     ET.SubElement(asset,'mesh',name='bowl_visual',vertex=_numbers(vertices),face=' '.join(map(str,np.ravel(faces))))
     ET.SubElement(bowl,'geom',type='mesh',mesh='bowl_visual',rgba='.5 .65 .6 1',contype='0',conaffinity='0')
     # Convex collision pieces follow the inner surface: a floor disk out to the

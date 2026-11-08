@@ -16,6 +16,7 @@ from dataset_to_sim.archive import load_saved_model
 from dataset_to_sim.dataset import DatasetIndex
 from dataset_to_sim.observations import camera_sample_indices
 from episode0 import DATA
+from strict_action_scene import current_bowl_visual, _numbers
 from studio_real_appearance import REFERENCE, RealAppearance, robust_stats, segmentation_ids
 
 # Rendered light falloff on the background is removed: the real plate already
@@ -43,6 +44,17 @@ def real_filter(kind, hsv):
             'table': (sat < 60) & (val > 100)}[kind]
 
 
+def with_bowl_visual(scene, vertices, faces):
+    """Archived scene with only the bowl's visual mesh replaced."""
+    import xml.etree.ElementTree as ET
+    root = ET.parse(scene).getroot()
+    compiler = root.find('compiler'); compiler.set('meshdir', str((Path(scene).parent / compiler.get('meshdir', '.')).resolve()))
+    mesh = root.find(".//asset/mesh[@name='bowl_visual']")
+    if mesh is None: raise ValueError('Archived scene has no bowl visual mesh')
+    mesh.set('vertex', _numbers(vertices)); mesh.set('face', ' '.join(map(str, np.ravel(faces))))
+    return mujoco.MjModel.from_xml_string(ET.tostring(root, encoding='unicode'))
+
+
 def light_direction(azimuth, elevation):
     az, el = np.deg2rad([azimuth, elevation])
     return np.array([np.cos(el) * np.cos(az), np.cos(el) * np.sin(az), np.sin(el)])
@@ -55,7 +67,7 @@ def gray(rgb):
 LABELS = {'background': 'MuJoCo | real background', 'realistic': 'MuJoCo | realistic appearance'}
 RUN = ROOT / 'output/shared-calibration-v10'
 # Bump when rendering changes so cached videos and stills are not reused.
-APPEARANCE_VERSION = 3
+APPEARANCE_VERSION = 4
 
 
 def video_name(mode):
@@ -76,6 +88,13 @@ class EpisodeAppearance:
         report = json.loads((folder / 'report.json').read_text())
         self.ep = DatasetIndex(DATA).episode(index)
         self.model = load_saved_model(folder, self.settings, report['model_archive_sha256'])
+        self.bowl_note = None
+        bowl = current_bowl_visual(json.loads((ROOT / 'calibration/native-action-current.json').read_text()))
+        if bowl is not None:
+            # Display only: the archived physics states are unchanged; the static
+            # bowl is drawn with the current measured geometry.
+            self.model = with_bowl_visual(folder / 'scene.xml', *bowl)
+            self.bowl_note = 'Bowl drawn with current measured geometry (2 mm wall, rounded bottom); archived physics used the original bowl.'
         camera = self.settings['wrist_camera']; cid = self.model.camera('wrist_cam').id
         self.model.cam_pos[cid] = camera['position']; self.model.cam_quat[cid] = camera['quaternion']; self.model.cam_fovy[cid] = camera['fovy']
         self.model.light_castshadow[:] = 0
@@ -120,6 +139,7 @@ class EpisodeAppearance:
             saved['profile'] = self.appearance.profile['appearance']  # complete, so a cached load needs no rendering
             cache.write_text(json.dumps(saved, indent=1))
         self.shadow = saved['shadow']
+        if self.bowl_note: self.appearance.provenance['bowl_geometry'] = self.bowl_note
         self.appearance.provenance['episode_calibration'] = {'shadow': saved['shadow'], 'measured': saved.get('measured'),
             'method': 'Per-episode, per-camera Lab statistics from eroded rendered masks and hue-filtered real pixels on paired camera-delayed frames. '
                       'Shadow light direction, blur and strength fitted to real-frame/background-plate luminance on Top background pixels; strength capped at %.2f.' % MAX_SHADOW}

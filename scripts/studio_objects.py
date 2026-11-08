@@ -211,6 +211,16 @@ def _snapshot(signature):
                         'Display extent; plane is infinite' if identifier == 'floor' else 'Model bounds')
             grouped[group].append(item)
             parts_by_id[identifier] = parts
+    # The current measured bowl (Generate Data / New Run) is shown first; the
+    # real-dataset Simulation keeps its archived bowl for frozen benchmark runs.
+    archived = lambda item: [source['id'] for source in item['sources']] == ['real-replay']
+    if len(grouped['green-bowl']) > 1:
+        grouped['green-bowl'].sort(key=archived)
+        for item in grouped['green-bowl']:
+            if archived(item):
+                item.update(label='Archived · Real dataset', description='Original bowl frozen in the recorded real-dataset Simulation runs (benchmark physics). Realistic dataset views draw the current measured bowl.')
+            else:
+                item.update(label='Measured · current', description='Current measured bowl: 2 mm wall and rounded inner/outer bottom, used by Generate Data and New Run.')
     order = {'red-cube': 0, 'green-cube': 1, 'real-red-cube': 2, 'tan-cube': 3}
     grouped['cube'].sort(key=lambda item: order.get(item['id'], 9))
     entries = []
