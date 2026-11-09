@@ -287,7 +287,22 @@ def bootstrap():
 @app.get('/api/datasets')
 def datasets():
     data=bootstrap()
-    return {'datasets':[{'id':DATA.name,'name':DATA.name,'episode_count':data['total'],'successes':data['successes'],'fps':30,'profile':data['profile']}]}
+    imported=[{'id':item['id'],'name':item['name'],'episode_count':item['completed'],'successes':item['successes'],'fps':30,'profile':'auto-calibrated import','source':'import'}
+              for item in imports.list() if item['status']=='complete' and item.get('completed')]
+    return {'datasets':[{'id':DATA.name,'name':DATA.name,'episode_count':data['total'],'successes':data['successes'],'fps':30,'profile':data['profile']}]+imported}
+
+def imported_dataset(identifier):
+    """Folder, request and results of a completed import, or None for the built-in dataset."""
+    if not identifier or identifier==DATA.name:return None
+    folder=imports.folder(identifier);request=json.loads((folder/'request.json').read_text())
+    results=json.loads((folder/'results.json').read_text()) if (folder/'results.json').is_file() else None
+    if results is None:raise ValueError('Import has no replay results yet')
+    return folder,request,results
+
+def imported_episode_folder(folder,index):
+    path=folder/f'episode-{index:03d}'
+    if index<0 or not (path/'report.json').is_file():raise ValueError('Episode not found')
+    return path
 
 @app.get('/api/imports')
 def import_index():return {'imports':imports.list(),'busy':imports.busy()}
@@ -306,6 +321,12 @@ def import_cancel(identifier:str):return imports.cancel(identifier)
 
 @app.get('/api/datasets/{identifier}')
 def selected_dataset(identifier:str):
+    found=imported_dataset(identifier)
+    if found:
+        folder,request,results=found
+        episodes=[{'episode':r['episode'],'outcome':r['outcome'],'frames':r.get('frames'),'joint_state_rmse_native':r.get('joint_state_rmse_native'),
+                   'has_video':(folder/f"episode-{r['episode']:03d}/real-vs-sim.mp4").is_file()} for r in results['results'] if r.get('frames')]
+        return {'dataset':request['name'],'episodes':episodes,'successes':results['successes'],'total':len(episodes),'profile':'auto-calibrated import'}
     if identifier!=DATA.name:raise ValueError('Dataset not found')
     data=bootstrap()
     return {k:data[k] for k in ['dataset','episodes','successes','total','profile']}
@@ -381,7 +402,14 @@ def status(request:Request):
     return {'robot':robot,'job':jobs.get(current),'current':current}
 
 @app.get('/api/episodes/{index}')
-def episode(index:int):
+def episode(index:int,dataset:str|None=None):
+    found=imported_dataset(dataset)
+    if found:
+        folder,request,_=found;path=imported_episode_folder(folder,index)
+        ep=DatasetIndex(request['dataset_path']).episode(index);report=json.loads((path/'report.json').read_text())
+        with np.load(path/'trace.npz') as trace:sim=trace['native'][:ep.frame_count].tolist()
+        video=f'/media/imports/{folder.name}/episode-{index:03d}/real-vs-sim.mp4' if (path/'real-vs-sim.mp4').is_file() else None
+        return {'episode':index,'frames':ep.frame_count,'duration':ep.frame_count/30,'timestamps':ep.timestamps.tolist(),'real':ep.state_deg.tolist(),'sim':sim,'actions':ep.action_deg.tolist(),'report':report,'video':video}
     ds=DatasetIndex(DATA)
     if not 0<=index<ds.episode_count:raise ValueError('Episode not found')
     ep=ds.episode(index);folder=RUN/f'episode-{index:02d}'
@@ -408,10 +436,19 @@ def episode_video_status(index,appearance='raw'):
     return video_jobs.get((index,'raw'),{'status':'idle'})
 
 @app.get('/api/episodes/{index}/video')
-def video_status(index:int,appearance:str='raw'):return episode_video_status(index,appearance_mode(appearance))
+def video_status(index:int,appearance:str='raw',dataset:str|None=None):return imported_video(index,dataset) or episode_video_status(index,appearance_mode(appearance))
+
+def imported_video(index,dataset):
+    """Imported datasets have one recorded-appearance video per episode."""
+    found=imported_dataset(dataset)
+    if not found:return None
+    path=imported_episode_folder(found[0],index)/'real-vs-sim.mp4'
+    return {'status':'ready','video':f'/media/imports/{found[0].name}/episode-{index:03d}/real-vs-sim.mp4'} if path.is_file() else {'status':'error','error':'Replay video missing'}
 
 @app.post('/api/episodes/{index}/video')
-def prepare_video(index:int,appearance:str='raw'):
+def prepare_video(index:int,appearance:str='raw',dataset:str|None=None):
+    status=imported_video(index,dataset)
+    if status:return status
     appearance=appearance_mode(appearance);key=(index,appearance)
     with video_lock:
         status=episode_video_status(index,appearance)
@@ -430,7 +467,15 @@ def prepare_video(index:int,appearance:str='raw'):
         return video_jobs[key]
 
 @app.get('/api/episodes/{index}/frame/{frame}')
-def frame(index:int,frame:int,appearance:str='raw'):
+def frame(index:int,frame:int,appearance:str='raw',dataset:str|None=None):
+    found=imported_dataset(dataset)
+    if found:
+        path=imported_episode_folder(found[0],index);target=path/f'frame-{frame:03d}.jpg'
+        if not target.is_file():
+            capture=cv2.VideoCapture(str(path/'real-vs-sim.mp4'));capture.set(cv2.CAP_PROP_POS_FRAMES,frame);ok,image=capture.read();capture.release()
+            if not ok:raise ValueError('Frame out of bounds')
+            cv2.imwrite(str(target),image)
+        return FileResponse(target)
     appearance=appearance_mode(appearance)
     folder=RUN/f'episode-{index:02d}'
     if index<0 or frame<0 or not folder.is_dir():raise ValueError('Frame unavailable')

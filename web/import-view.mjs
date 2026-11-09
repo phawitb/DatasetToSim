@@ -6,7 +6,7 @@ const STAGES={starting:'Starting',camera:'Fitting top camera',mat:'Fitting work 
 const OUTCOMES={success:'success',not_lifted:'not lifted',no_bilateral_grasp:'no grasp',missed_bowl:'missed bowl',not_released:'not released',not_settled:'not settled',error:'error',scene_not_fitted:'scene not found'};
 
 export class ImportView{
- constructor(root,api,toast){this.root=root;this.api=api;this.toast=toast;this.mode='list';this.items=[];this.library=[];this.selected=new Set(['eraser','green-bowl']);this.timer=null;this.current=null;this.episode=null;}
+ constructor(root,api,toast,openDataset){this.root=root;this.api=api;this.toast=toast;this.openDataset=openDataset;this.mode='list';this.items=[];this.library=[];this.selected=new Set(['eraser','green-bowl']);this.timer=null;this.current=null;this.episode=null;}
  suspend(){clearTimeout(this.timer);this.timer=null;const v=this.root.querySelector('video');if(v)v.pause();}
  async show(id){this.suspend();this.signature=null;if(id){this.mode='detail';this.currentId=id;await this.refreshDetail();}else{this.mode='list';await this.refreshList();}}
  async refreshList(){try{const data=await this.api('/api/imports');this.items=data.imports;this.busy=data.busy;}catch(e){this.toast(e.message,true);}if(this.mode==='list')this.renderList();if(this.mode==='list'&&this.items.some(i=>i.status==='running'))this.timer=setTimeout(()=>this.refreshList(),3000);}
@@ -60,6 +60,7 @@ export class ImportView{
   const back=el('button','text-button','← Imported datasets');back.onclick=()=>this.show();
   const head=el('div','import-head');const title=el('div');title.append(el('span','eyebrow','IMPORTED DATASET'),el('h2',null,job.name),el('p','import-help',job.dataset_path));head.append(title);
   if(job.status==='running'){const cancel=el('button','button','Cancel');cancel.onclick=async()=>{try{await this.api(`/api/imports/${encodeURIComponent(job.id)}/cancel`,{});await this.refreshDetail();}catch(e){this.toast(e.message,true);}};head.append(cancel);}
+  if(job.status==='complete'&&this.openDataset){const open=el('button','button primary','Open in episode viewer');open.onclick=()=>this.openDataset(job.id);head.append(open);}
   root.append(back,head);
   const stats=el('div','import-stats');
   const stat=(label,value,note)=>{const d=el('div');d.append(el('span',null,label),el('strong',null,value),el('small',null,note||''));stats.append(d);};

@@ -195,13 +195,14 @@ def main():
     parser.add_argument('--output', type=Path, required=True); parser.add_argument('--episodes', type=int, nargs='*')
     parser.add_argument('--reuse-camera', type=Path, help='calibration.json whose top camera is reused')
     parser.add_argument('--no-render', action='store_true'); parser.add_argument('--skip-replay', action='store_true')
+    parser.add_argument('--replay-only', action='store_true', help='reuse calibration.json in --output and redo the replay')
     args = parser.parse_args()
     folder = args.output.resolve(); folder.mkdir(parents=True, exist_ok=True); log = Progress(folder)
     try:
         dataset = DatasetIndex(args.dataset)
         log(f'{dataset.episode_count} episodes · {dataset.root.name}', stage='camera', name=dataset.root.name, total=dataset.episode_count)
         camera = json.loads(args.reuse_camera.read_text())['top_camera'] if args.reuse_camera else None
-        calibration = calibrate(dataset, args.objects, folder, log, camera)
+        calibration = json.loads((folder / 'calibration.json').read_text()) if args.replay_only else calibrate(dataset, args.objects, folder, log, camera)
         if not args.skip_replay:
             rows = replay(dataset, calibration, folder, log, args.episodes, render=not args.no_render)
             log(f'Done · {sum(r["outcome"] == "success" for r in rows)}/{len(rows)} task successes', stage='complete', status='complete', done=len(rows))

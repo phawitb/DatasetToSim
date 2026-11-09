@@ -115,7 +115,12 @@ def run_episode(config, dataset, index, poses, folder, calibration, render=True)
 
 
 def render_comparison(model, cal, config, ep, trace, folder):
-    """Real | sim video for top and wrist at source resolution; returns per-frame orange-robot mask IoU (top)."""
+    """Real | sim video in the Studio viewer layout (1280 x 1024: top row, wrist row, 32 px labels).
+
+    Real frames are upscaled from the source resolution; sim renders at 640 x 480
+    with the same field of view. Returns per-frame orange-robot mask IoU (top,
+    at source resolution).
+    """
     frames = {view: ic.read_frames(ep, view, range(ep.frame_count)) for view in ('top', 'wrist')}
     height, width = frames['top'][0].shape[:2]
     delays = config.get('camera_delay_frames', {})
@@ -124,20 +129,24 @@ def render_comparison(model, cal, config, ep, trace, folder):
     option = mujoco.MjvOption(); option.geomgroup[3:] = 0; option.sitegroup[:] = 0
     silhouette = ic.RobotSilhouette(model, width, height)
     raw = folder / 'comparison-raw.mp4'
-    writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'mp4v'), 30, (width * 2, height * 2))
+    writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'mp4v'), 30, (1280, 1024))
+    if not writer.isOpened(): raise RuntimeError('Video encoder unavailable')
     ious = []
     try:
-        with mujoco.Renderer(model, height, width) as renderer:
+        with mujoco.Renderer(model, 480, 640) as renderer:
             for f in range(ep.frame_count):
                 rows = []
                 for view, camera in (('top', 'top_cam'), ('wrist', 'wrist_cam')):
                     k = int(sensors[view][f])
                     d.qpos[:6] = trace['qpos'][k]; d.qpos[addr:addr + 7] = trace['cube_pose'][k]; mujoco.mj_forward(model, d)
-                    renderer.update_scene(d, camera=camera, scene_option=option); sim = renderer.render().copy()
-                    real = frames[view][f].copy()
-                    for image, text in ((real, f'REAL {view} {f:03d}'), (sim, f'SIM {view}')):
-                        cv2.putText(image, text, (5, 14), cv2.FONT_HERSHEY_SIMPLEX, .4, (255, 255, 255), 1, cv2.LINE_AA)
-                    rows.append(np.hstack([real, sim]))
+                    renderer.update_scene(d, camera=camera, scene_option=option); sim = renderer.render()
+                    canvas = np.zeros((512, 1280, 3), np.uint8)
+                    canvas[32:, :640] = cv2.resize(frames[view][f], (640, 480), interpolation=cv2.INTER_CUBIC); canvas[32:, 640:] = sim
+                    delay = f' | camera delay {delays.get(view, 0)}f' if delays.get(view, 0) else ''
+                    for text, pos in ((f'REAL | EP {ep.index:02d} | {view} | frame {f:03d} | {f / 30:.2f}s', (10, 23)),
+                                      (f'MuJoCo | ORIGINAL actions | {view}{delay}', (650, 23))):
+                        cv2.putText(canvas, text, pos, cv2.FONT_HERSHEY_SIMPLEX, .49, (255, 255, 255), 1, cv2.LINE_AA)
+                    rows.append(canvas)
                     if view == 'top':
                         sim_mask = silhouette.render(trace['qpos'][k]); real_mask = ic.robot_mask(frames['top'][f])
                         ious.append(float((sim_mask & real_mask).sum() / max(1, (sim_mask | real_mask).sum())))
