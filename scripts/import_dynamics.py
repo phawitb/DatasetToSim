@@ -121,3 +121,55 @@ def identify(calibration, folder, log=print, train_count=6, budget=70):
               'used': bool(after_held.mean() < before_held.mean() - .02)}
     log(f'motor model: arm RMSE after {after_train.mean():.3f} deg (train), {after_held.mean():.3f} deg (held-out) · ' + ('accepted' if report['used'] else 'kept shared model'))
     return (dynamics if report['used'] else None), report
+
+
+def held_frames(episode):
+    """Stable plateau where the real gripper is blocked by the object (commanded closed, state above it)."""
+    state, action = episode.state_deg[:, 5], episode.action_deg[:, 5]
+    stable = np.abs(np.gradient(state)) < .25
+    return (state > 2) & (state < 25) & (action < 3) & (state - action > 2) & stable
+
+
+def fit_grasp_width(calibration, log=print, count=6):
+    """Effective width of the picked object between the jaws so that the simulated
+    gripper holds it at the same native opening as the real one (rubber squeezes).
+
+    Bisection on the collision width only; actions/states are never modified.
+    """
+    from dataset_to_sim.dataset import DatasetIndex
+    specs = calibration['objects'][calibration['manipulated']]
+    if specs['shape'] != 'box': return None, {'used': False, 'reason': 'box objects only'}
+    dataset = DatasetIndex(calibration['dataset']); measured = float(specs['size_m'][1])
+    episodes = []
+    for key in sorted(calibration['episode_poses'], key=int):
+        ep = dataset.episode(int(key)); held = held_frames(ep)
+        if held.sum() >= 8: episodes.append((key, ep, held))
+    episodes = episodes[::max(1, len(episodes) // count)][:count]
+    if len(episodes) < 3: return None, {'used': False, 'reason': 'no stable held-gripper plateaus'}
+    real = float(np.median(np.concatenate([ep.state_deg[held, 5] for _, ep, held in episodes])))
+
+    def simulated(width):
+        trial = dict(calibration, grasp_width_m=width); config = ir.replay_config(ir.ic.load_config(), trial)
+        adapter = NativeJointAdapter(**config['adapter']); values = []
+        for key, ep, held in episodes:
+            cal = ir.episode_calibration(config, trial['episode_poses'][key], trial['manipulated'], trial['container'])
+            q = adapter.to_native(fast_trace(ir.scene_model(cal, config, trial), ep, adapter))
+            # Only frames where the simulated jaws are actually blocked (object between them).
+            blocked = held & (q[:, 5] > 2)
+            if blocked.sum() >= 4: values.append(np.median(q[blocked, 5]))
+        return float(np.median(values)) if len(values) >= 2 else None
+    at_measured = simulated(measured)
+    log(f'grasp: real gripper holds at {real:.1f} native; simulated {at_measured if at_measured is None else round(at_measured, 1)} with the measured {measured * 1000:.1f} mm width')
+    if at_measured is None or at_measured <= real + .5:
+        return None, {'used': False, 'real_hold_native': real, 'simulated_hold_native': at_measured, 'reason': 'simulated hold already matches or no simulated grasps'}
+    low, high = .5 * measured, measured; history = [(measured, at_measured)]
+    for _ in range(7):
+        mid = (low + high) / 2; value = simulated(mid); history.append((mid, value))
+        if value is None or value < real: low = mid
+        else: high = mid
+    width = (low + high) / 2; final = simulated(width)
+    report = {'used': True, 'real_hold_native': real, 'simulated_hold_native_measured_width': at_measured, 'simulated_hold_native': final,
+              'measured_width_m': measured, 'effective_width_m': width, 'episodes': [k for k, _, _ in episodes], 'search': history,
+              'method': 'bisection on collision width so the simulated held gripper opening matches the recorded plateau'}
+    log(f'grasp: effective width {width * 1000:.1f} mm (measured {measured * 1000:.1f} mm) -> simulated hold {final}')
+    return width, report

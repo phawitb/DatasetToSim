@@ -41,7 +41,7 @@ from studio_episode_appearance import EpisodeAppearance, MODES, as_640, APPEARAN
 from studio_real_appearance import RealAppearance, complete_background, geom_classes, robust_stats, segmentation_ids  # noqa: E402
 
 IMPORTS = ROOT / 'output/imports'
-REFERENCE_VERSION = 7
+REFERENCE_VERSION = 8
 FILTERS = {
     # Warm-lit recordings: the robot is strongly saturated orange, the mat is a
     # less saturated brown of similar hue, so value/saturation floors matter.
@@ -111,6 +111,10 @@ def build_reference(scene, log=print):
         delays = scene.config.get('camera_delay_frames', {})
         frames = sorted({int((ep.frame_count - 1) * f) for f in (0, .15, .3, .45, .6, .75, .9, 1.)})
         reals = {view: ic.read_frames(ep, view, frames) for view in ('top', 'wrist')}
+        lens = scene.config['wrist_camera'].get('distortion'); maps = None
+        if lens:
+            fovy = scene.config['wrist_camera']['fovy']; render_fovy = ic.covering_fovy(fovy, *lens, 640, 480)
+            model.cam_fovy[model.camera('wrist_cam').id] = render_fovy; maps = ic.distortion_maps(fovy, *lens, 640, 480, render_fovy)
         with mujoco.Renderer(model, 480, 640) as renderer:
             for n, frame in enumerate(frames):
                 for view in ('top', 'wrist'):
@@ -118,6 +122,9 @@ def build_reference(scene, log=print):
                     data.qpos[:6] = qpos[k]; data.qpos[addr:addr + 7] = cube[k]; mujoco.mj_forward(model, data)
                     renderer.update_scene(data, camera=view + '_cam', scene_option=option)
                     sim = renderer.render().copy(); ids = segmentation_ids(renderer)
+                    if view == 'wrist' and maps is not None:
+                        sim = ic.distort_render(sim, maps)
+                        ids = cv2.remap(ids.astype(np.float32), maps[0], maps[1], cv2.INTER_NEAREST, borderValue=-1).astype(int)
                     rgb = as_640(reals[view][n]); hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
                     for kind in set(classes.values()):
                         mask = np.isin(ids, [i for i, c in classes.items() if c == kind]).astype('uint8')
@@ -212,6 +219,11 @@ class ImportedEpisodeAppearance(EpisodeAppearance):
         self.appearance = RealAppearance(self.work, self.model, MODES[mode] | {'background_id': 'calibrated-real', '_background_asset': asset}, reference=reference)
         self.appearance.min_gain = .35
         self.reference_profile = json.loads((reference / 'profile.json').read_text())
+        lens = self.settings['wrist_camera'].get('distortion'); self.lens_maps = None
+        if lens:
+            cid = self.model.camera('wrist_cam').id; fovy = self.settings['wrist_camera']['fovy']
+            render_fovy = ic.covering_fovy(fovy, *lens, 640, 480); self.model.cam_fovy[cid] = render_fovy
+            self.lens_maps = ic.distortion_maps(fovy, *lens, 640, 480, render_fovy)
         self.response = self.reference_profile.get('camera_response', {})
         yy, xx = np.mgrid[:480, :640]; self.radius = np.hypot(xx - 320, yy - 240) / np.hypot(320, 240)
 
@@ -236,11 +248,14 @@ class ImportedEpisodeAppearance(EpisodeAppearance):
         """Rendered view with the real camera's fitted vignetting and blur."""
         result = super().sim_rgb(renderer, view, frame).astype(np.float32)
         response = self.response.get(view)
-        if not response: return result.astype(np.uint8)
+        if not response:
+            result = result.astype(np.uint8)
+            return ic.distort_render(result, self.lens_maps) if view == 'wrist' and self.lens_maps is not None else result
         a, b = response['vignetting']; gain = np.exp(a * self.radius ** 2 + b * self.radius ** 4)
         gain /= gain[self.radius < .35].mean()  # colour matching already set the central level
         result *= gain[..., None]
         if response['blur_sigma_px'] > 0: result = cv2.GaussianBlur(result, (0, 0), response['blur_sigma_px'])
+        if view == 'wrist' and self.lens_maps is not None: result = ic.distort_render(result, self.lens_maps)
         return np.clip(result, 0, 255).astype(np.uint8)
 
 

@@ -46,6 +46,13 @@ def robot_mask(rgb):
     return mask.astype(bool)
 
 
+def jaw_mask(rgb):
+    """Orange jaws in the (darker) wrist camera: strong saturation, any brightness above shadow."""
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    mask = (hsv[..., 0] <= 22) & (hsv[..., 1] > 120) & (hsv[..., 2] > 40)
+    return cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8)).astype(bool)
+
+
 def read_frames(episode, view, indices):
     """Decode selected frames of one episode view (RGB)."""
     wanted = sorted(set(int(i) for i in indices)); out = {}
@@ -86,6 +93,11 @@ def camera_matrices(camera, width, height):
 def project(points, camera, width, height):
     K, R, p = camera_matrices(camera, width, height)
     local = (np.asarray(points) - p) @ R.T
+    distortion = camera.get('distortion')
+    if distortion:
+        xy = local[:, :2] / local[:, 2:3]; r2 = (xy ** 2).sum(1, keepdims=True)
+        xy = xy * (1 + distortion[0] * r2 + distortion[1] * r2 ** 2)
+        return xy * K[0, 0] + K[:2, 2], local[:, 2]
     uv = local @ K.T
     return uv[:, :2] / uv[:, 2:3], local[:, 2]
 
@@ -145,10 +157,10 @@ def robot_model(config):
 class RobotSilhouette:
     """Renders the robot's orange printed parts from a candidate top camera."""
 
-    def __init__(self, model, width, height):
+    def __init__(self, model, width, height, camera='top_cam'):
         self.model, self.width, self.height = model, width, height
         self.data = mujoco.MjData(model)
-        self.camera = model.camera('top_cam').id
+        self.camera = model.camera(camera).id
         orange = np.linalg.norm(model.mat_rgba[:, :3] - ORANGE_RGBA, axis=1) < .02
         geom_orange = np.zeros(model.ngeom, bool)
         for g in range(model.ngeom):
@@ -582,6 +594,11 @@ class WristView:
         self.model = robot_model(config); self.data = mujoco.MjData(self.model)
         self.adapter = NativeJointAdapter(**config['adapter']); self.width, self.height = width, height
         self.camera = self.model.camera('wrist_cam').id
+        lens = config['wrist_camera'].get('distortion'); self.fovy = float(config['wrist_camera']['fovy'])
+        self.distortion, self.maps = (list(lens), None) if lens else (None, None)
+        if lens:
+            render_fovy = covering_fovy(self.fovy, *lens, width, height); self.model.cam_fovy[self.camera] = render_fovy
+            self.maps = distortion_maps(self.fovy, *lens, width, height, render_fovy)
         self.delay = (config.get('camera_delay_frames') or {}).get('wrist', 0)
         self.renderer = mujoco.Renderer(self.model, height, width); self.renderer.enable_segmentation_rendering()
         self.option = mujoco.MjvOption(); self.option.geomgroup[3:] = 0; self.option.sitegroup[:] = 0
@@ -594,10 +611,11 @@ class WristView:
         self.data.qpos[:6] = self.adapter.to_model(episode.state_deg[k]); mujoco.mj_forward(self.model, self.data)
         R = self.data.cam_xmat[self.camera].reshape(3, 3)
         camera = {'position': self.data.cam_xpos[self.camera].copy(), 'quaternion': Rotation.from_matrix(R).as_quat()[[3, 0, 1, 2]],
-                  'fovy': float(self.model.cam_fovy[self.camera])}
+                  'fovy': self.fovy, 'distortion': self.distortion}
         self.renderer.update_scene(self.data, camera=self.camera, scene_option=self.option)
         seg = self.renderer.render()
         jaws = (seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(seg[..., 0], self.robot_geoms)
+        if self.maps is not None: jaws = distort_render(jaws.astype(np.uint8), self.maps) > 0
         return camera, jaws
 
     def close(self): self.renderer.close()
@@ -704,4 +722,112 @@ def lifted_config(config, lift):
     """Configuration with the robot raised by ``lift`` metres above the table plane (negative lowers it)."""
     config = copy.deepcopy(config)
     config['base_calibration']['world']['robot_base']['position'][2] += float(lift)
+    return config
+
+
+# ------------------------------------------------------- wrist lens calibration
+def distortion_maps(fovy, k1, k2, width, height, render_fovy):
+    """remap() maps: distorted output pixel -> pixel of a pinhole render with ``render_fovy`` (same centre)."""
+    f = height / 2 / np.tan(np.deg2rad(fovy) / 2); fr = height / 2 / np.tan(np.deg2rad(render_fovy) / 2)
+    K = np.array([[f, 0, width / 2], [0, f, height / 2], [0, 0, 1.]])
+    v, u = np.mgrid[:height, :width].astype(np.float32)
+    points = np.stack([u.ravel() + .5, v.ravel() + .5], -1)[:, None, :].astype(np.float64)
+    normalized = cv2.undistortPoints(points, K, np.array([k1, k2, 0., 0.]), criteria=(cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 20, 1e-6))[:, 0, :]
+    map_x = (normalized[:, 0] * fr + width / 2 - .5).reshape(height, width).astype(np.float32)
+    map_y = (normalized[:, 1] * fr + height / 2 - .5).reshape(height, width).astype(np.float32)
+    return map_x, map_y
+
+
+def covering_fovy(fovy, k1, k2, width, height):
+    """Pinhole field of view that contains every pixel of the distorted image."""
+    f = height / 2 / np.tan(np.deg2rad(fovy) / 2); K = np.array([[f, 0, width / 2], [0, f, height / 2], [0, 0, 1.]])
+    corners = np.array([[[0, 0]], [[width, 0]], [[0, height]], [[width, height]], [[width / 2, 0]], [[0, height / 2]]], np.float64)
+    n = cv2.undistortPoints(corners, K, np.array([k1, k2, 0., 0.]))[:, 0, :]
+    half = max(np.abs(n[:, 1]).max(), np.abs(n[:, 0]).max() * height / width) * 1.05
+    return float(min(150., 2 * np.rad2deg(np.arctan(half))))
+
+
+def distort_render(image, maps):
+    return cv2.remap(image, maps[0], maps[1], cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+
+
+def wrist_calibration_frames(dataset, count=16):
+    """Sharp wrist frames (slow arm) spread over gripper openings, across episodes."""
+    candidates = []
+    for index in range(dataset.episode_count):
+        ep = dataset.episode(index); q = ep.state_deg
+        speed = np.r_[np.inf, np.linalg.norm(np.diff(q[:, :5], axis=0), axis=1)]
+        speed = np.maximum(speed, np.r_[speed[1:], np.inf])
+        for f in np.flatnonzero(speed < .6)[::6]: candidates.append((index, int(f), float(q[f, 5])))
+    if len(candidates) < 4: return []
+    candidates.sort(key=lambda c: c[2])
+    picks = np.linspace(0, len(candidates) - 1, min(count, len(candidates))).astype(int)
+    return [candidates[i] for i in picks]
+
+
+def fit_wrist_camera(dataset, config, log=print):
+    """Wrist camera pose on the gripper, field of view and radial distortion from the jaw silhouettes.
+
+    The fixed jaw is rigid in the wrist image and the moving jaw follows the
+    recorded gripper state, so orange jaw masks across many openings pin down
+    the camera mounting and lens without any object or scene knowledge.
+    """
+    from dataset_to_sim.observations import camera_sample_indices
+    adapter = NativeJointAdapter(**config['adapter']); base = config['wrist_camera']
+    frames = wrist_calibration_frames(dataset)
+    if len(frames) < 4: return None, {'used': False, 'reason': 'too few sharp wrist frames'}
+    delay = (config.get('camera_delay_frames') or {}).get('wrist', 0)
+    images, states = [], []
+    for index, frame, _ in frames:
+        ep = dataset.episode(index); images.append(read_frames(ep, 'wrist', [frame])[0])
+        states.append(adapter.to_model(ep.state_deg[int(camera_sample_indices(ep.frame_count, delay)[frame])]))
+    height, width = images[0].shape[:2]
+    targets = [jaw_mask(im) for im in images]
+    model = robot_model(config); view = RobotSilhouette(model, width, height, camera='wrist_cam')
+    cid = view.camera; R0 = Rotation.from_quat(np.array(base['quaternion'])[[1, 2, 3, 0]])
+    cache = {}
+
+    def apply(x):
+        position = np.array(base['position']) + x[:3]
+        quat = (R0 * Rotation.from_rotvec(x[3:6])).as_quat()[[3, 0, 1, 2]]
+        return position, quat
+
+    def masks(x):
+        fovy, k1, k2 = x[6], x[7], x[8]
+        render_fovy = covering_fovy(fovy, k1, k2, width, height)
+        key = tuple(np.round([fovy, k1, k2, render_fovy], 4))
+        if key not in cache:
+            if len(cache) > 64: cache.clear()
+            cache[key] = distortion_maps(fovy, k1, k2, width, height, render_fovy)
+        position, quat = apply(x)
+        model.cam_pos[cid] = position; model.cam_quat[cid] = quat; model.cam_fovy[cid] = render_fovy
+        return [distort_render(view.render(q).astype(np.uint8), cache[key]) > 0 for q in states]
+
+    def score(x):
+        values = [(m & t).sum() / max(1, (m | t).sum()) for m, t in zip(masks(x), targets)]
+        return float(np.mean(values)), values
+
+    x0 = np.r_[np.zeros(6), base['fovy'], 0., 0.]
+    before, _ = score(x0)
+    lower = np.r_[[-.015] * 3, [-.25] * 3, 35., -.6, -.3]; upper = np.r_[[.015] * 3, [.25] * 3, 100., .3, .3]
+    try:
+        best, value = cma_es(lambda x: 1 - score(x)[0], x0, np.r_[[.003] * 3, [.04] * 3, 4., .08, .04], lower, upper, iterations=90, population=16, seed=5)
+        after, per_frame = score(best)
+    finally:
+        view.close()
+    position, quat = apply(best)
+    camera = {'position': position.tolist(), 'quaternion': quat.tolist(), 'fovy': float(best[6]), 'distortion': [float(best[7]), float(best[8])]}
+    report = {'method': 'orange jaw silhouettes over recorded gripper openings; pose on gripper, fov and radial k1/k2 by CMA-ES',
+              'frames': [[e, f] for e, f, _ in frames], 'jaw_iou_before': before, 'jaw_iou_after': after, 'per_frame_iou': [float(v) for v in per_frame],
+              'used': bool(after > before + .02)}
+    log(f'wrist lens: jaw IoU {before:.3f} -> {after:.3f}, fov {best[6]:.1f} deg, k1 {best[7]:+.3f}, k2 {best[8]:+.3f}')
+    return (camera if report['used'] else None), report
+
+
+def with_wrist_camera(config, camera):
+    """Configuration using a fitted wrist camera (pose on the gripper, fov, lens)."""
+    if not camera: return config
+    config = copy.deepcopy(config)
+    config['wrist_camera'] = dict(config['wrist_camera'], position=camera['position'], quaternion=camera['quaternion'],
+                                  fovy=camera['fovy'], distortion=camera.get('distortion'))
     return config

@@ -288,7 +288,7 @@ def bootstrap():
 def datasets():
     data=bootstrap()
     imported=[{'id':item['id'],'name':item['name'],'episode_count':item['completed'],'successes':item['successes'],'fps':30,'profile':'auto-calibrated import','source':'import'}
-              for item in imports.list() if item['status']=='complete' and item.get('completed')]
+              for item in imports.list(complete_only=True)]
     return {'datasets':[{'id':DATA.name,'name':DATA.name,'episode_count':data['total'],'successes':data['successes'],'fps':30,'profile':data['profile']}]+imported}
 
 def imported_dataset(identifier):

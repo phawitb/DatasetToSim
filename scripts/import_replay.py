@@ -41,13 +41,17 @@ def replay_config(base, calibration):
     specs = calibration['objects']; manipulated = specs[calibration['manipulated']]
     if manipulated['shape'] != 'box':
         raise ValueError('Imported replay currently supports box-shaped manipulated objects (cube, eraser)')
-    size = manipulated['size_m']
-    world['cube'].update(size=float(max(size)), size_xyz=[float(v) for v in size], object=calibration['manipulated'])
+    size = [float(v) for v in manipulated['size_m']]
+    world['cube'].update(size=float(max(size)), size_xyz=list(size), visual_size_xyz=list(size), object=calibration['manipulated'])
+    # Effective grasp width (compliant object squeezed by the jaws), identified from the
+    # recorded gripper hold; visual size stays the measured one.
+    if calibration.get('grasp_width_m'): world['cube']['size_xyz'][1] = float(calibration['grasp_width_m'])
     config['estimates']['cube_mass_kg'] = float(manipulated['mass_kg'])
     container = specs[calibration['container']]
     world['bowl'].update(outer_radius=container['top_radius_m'], height=container['height_m'])
     config['import_calibration'] = {k: calibration[k] for k in ('dataset', 'manipulated', 'container', 'created')}
-    return config
+    # Wrist camera fitted on the jaw silhouettes (pose on the gripper, fov, lens). Last: it copies the config.
+    return ic.with_wrist_camera(config, calibration.get('wrist_camera'))
 
 
 def episode_calibration(config, poses, manipulated, container):
@@ -83,8 +87,14 @@ def scene_model(cal, config, calibration):
     root = ET.fromstring(build_model(cal, config, return_xml=True))
     key = calibration['manipulated']; rgba, sleeve = APPEARANCE.get(key, ('.9 .9 .9 1', None))
     geom = root.find(".//geom[@name='cube_geom']"); geom.set('rgba', rgba); geom.attrib.pop('material', None)
+    visual = cal.world['cube'].get('visual_size_xyz')
+    if visual and visual != cal.world['cube']['size_xyz']:
+        # Collision box uses the effective grasp width; draw the measured object on top.
+        geom.set('group', '3')
+        ET.SubElement(root.find(".//body[@name='cube']"), 'geom', name=key + '_visual' if key == 'eraser' else 'object_visual', type='box', rgba=rgba,
+                      contype='0', conaffinity='0', mass='0', group='2', size=' '.join(str(float(v) / 2) for v in visual))
     if sleeve:
-        size = [float(v) / 2 for v in cal.world['cube']['size_xyz']]
+        size = [float(v) / 2 for v in (visual or cal.world['cube']['size_xyz'])]
         length = json.loads((ROOT / 'assets/models/eraser/eraser.json').read_text())[sleeve[2]]
         ET.SubElement(root.find(".//body[@name='cube']"), 'geom', name=sleeve[0], type='box', rgba=sleeve[1], contype='0', conaffinity='0',
                       mass='0', group='2', size=f'{length / 2} {size[1] + .0001} {size[2] + .0001}')
@@ -132,6 +142,10 @@ def render_comparison(model, cal, config, ep, trace, folder):
     d = mujoco.MjData(model); addr = model.jnt_qposadr[model.joint('cube_free').id]
     option = mujoco.MjvOption(); option.geomgroup[3:] = 0; option.sitegroup[:] = 0
     silhouette = ic.RobotSilhouette(model, width, height)
+    lens = config['wrist_camera'].get('distortion'); wrist_id = model.camera('wrist_cam').id; maps = None
+    if lens:
+        render_fovy = ic.covering_fovy(config['wrist_camera']['fovy'], *lens, 640, 480); model.cam_fovy[wrist_id] = render_fovy
+        maps = ic.distortion_maps(config['wrist_camera']['fovy'], *lens, 640, 480, render_fovy)
     raw = folder / 'comparison-raw.mp4'
     writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'mp4v'), 30, (1280, 1024))
     if not writer.isOpened(): raise RuntimeError('Video encoder unavailable')
@@ -144,6 +158,7 @@ def render_comparison(model, cal, config, ep, trace, folder):
                     k = int(sensors[view][f])
                     d.qpos[:6] = trace['qpos'][k]; d.qpos[addr:addr + 7] = trace['cube_pose'][k]; mujoco.mj_forward(model, d)
                     renderer.update_scene(d, camera=camera, scene_option=option); sim = renderer.render()
+                    if view == 'wrist' and maps is not None: sim = ic.distort_render(sim, maps)
                     canvas = np.zeros((512, 1280, 3), np.uint8)
                     canvas[32:, :640] = cv2.resize(frames[view][f], (640, 480), interpolation=cv2.INTER_CUBIC); canvas[32:, 640:] = sim
                     delay = f' | camera delay {delays.get(view, 0)}f' if delays.get(view, 0) else ''

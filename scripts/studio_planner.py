@@ -57,7 +57,9 @@ def load_scene(folder):
     return capture,config,scene,cal,build_model(cal,config)
 
 
-def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1.,timing_profile=None):
+def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1.,timing_profile=None,hover_extra=0.,grasp_turn=None):
+    """`hover_extra` raises the travel height and `grasp_turn` (0 or 1) closes the jaws
+    across a chosen cube face pair; both only change the route around obstacles."""
     validate_technique(technique)
     speed_scale=validate_speed_scale(speed_scale)
     capture,config,scene,cal,m=load_scene(folder)
@@ -101,7 +103,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         q=np.asarray(item['quaternion'],float);return 2*np.arctan2(q[3],q[0])
     # Generated scenes may rotate cubes freely: close the jaws across a face pair
     # (any multiple of 90 deg). Real New Run scenes keep the original roll rule.
-    align=bool(cal.world.get('align_grasp_yaw',False))
+    align=bool(cal.world.get('align_grasp_yaw',False)) or (grasp_turn is not None and not tape)
     wrap90=lambda a:(a+np.pi/4)%(np.pi/2)-np.pi/4
     start=center(current).copy()
     reference=np.array([0.,-20.,65.,45.,0.,0.])
@@ -116,6 +118,11 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # aperture center and otherwise closes around both stacked cubes.
     grasp_z=max(cube[2]+(.022 if unstacking else .006 if tape else .010), .024)
     hover=max(.12,grasp_z+.09,bowl[2]+cal.world['bowl']['height']+.065)
+    # Travel high enough to carry the object over every obstacle top as well.
+    for item in cal.world.get('obstacles',[]):
+        top=item['position'][2]+(item['height'] if item['kind']=='bowl' else item.get('width',item.get('size',0.))/2)
+        hover=max(hover,top+.065)
+    hover+=hover_extra
     errors=[]; waypoints=[(initial,0)]; names=['Start']; stages=[]
     def waypoint(name,q,seconds):
         waypoints.append((q,seconds));names.append(name)
@@ -156,7 +163,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         start=center(current).copy()
         stages.append({'name':'Unfold from rest','target_m':start.tolist(),'ik_error_mm':0.})
     add('Raise',np.r_[start[:2],max(hover,start[2])],initial[5],seconds=1.5)
-    source_yaw=yaw_of(cal.world['cube'])
+    source_yaw=yaw_of(cal.world['cube'])+(np.pi/2*grasp_turn if grasp_turn and not tape else 0.)
     # Stacking turns the held cube to the lower cube's faces; other placements are free.
     place_yaw=yaw_of(cal.world['target_cube']) if stacking else None
     add('Open above cube',np.r_[cube[:2],hover],open_grip,reference,1.5,yaw=source_yaw)
@@ -229,7 +236,8 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     report={**capture,'scene':scene,'world':cal.world,'stages':stages,'frames':len(actions),'duration':float(timestamps[-1]+1/30),
             'action_hash':array_hash(actions),'timestamp_hash':array_hash(timestamps),'speed_scale':speed_scale,'outcome':'not_simulated','transfer_checks_passed':False,'executed':False,
             'method':'Aperture-aware IK centers the open jaws on descent; smooth closing waypoints; contact-driven MuJoCo validation required',
-            'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist(),'motion_technique':technique,'motion':motion,'timing_profile':timing_profile}
+            'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist(),'motion_technique':technique,'motion':motion,'timing_profile':timing_profile,
+            'route':{'hover_m':float(hover),'hover_extra_m':float(hover_extra),'grasp_turn':grasp_turn}}
     if timing is not None:report['timing_contract_hash']=timing_contract_hash(report)
     if placing:report.update(placement_index=placement_index,placement_offset_m=np.asarray(stack_offset if stack_offset is not None else [0,0,0]).tolist())
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
@@ -246,14 +254,11 @@ def render_preview(model,q,path):
         cv2.imwrite(str(path),cv2.cvtColor(renderer.render(),cv2.COLOR_RGB2BGR))
 
 
-def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_profile=None):
-    """Plan stack placement against the predicted held object, not pad center alone."""
+def _prepare_route(folder,technique,speed_scale,timing_profile,hover_extra=0.,grasp_turn=None):
+    """One route: plan, and for stack/unstack correct the release against the held object."""
     from studio_stack import predicted_held_position
-    options=folder/'planning-options.json'
-    speed_scale=validate_speed_scale(speed_scale if speed_scale is not None else json.loads(options.read_text()).get('speed_scale',1.) if options.exists() else 1.)
-    technique=validate_technique(technique if technique is not None else json.loads(options.read_text()).get('motion_technique','classic') if options.exists() else 'classic')
-    if timing_profile is None and options.exists():timing_profile=json.loads(options.read_text()).get('timing_profile','conservative')
-    report=plan(folder,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile)
+    route=dict(hover_extra=hover_extra,grasp_turn=grasp_turn)
+    report=plan(folder,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile,**route)
     if report.get('task') in {'stack','unstack'}:
         offset=np.zeros(3);iterations=[]
         stacking=report['task']=='stack'
@@ -267,8 +272,50 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
             candidate=offset+error*.85
             if np.any(np.abs(candidate)>.020):raise ValueError('Stack placement correction exceeds 20 mm; reposition the cubes and capture again')
             if attempt==4:raise ValueError('Stack placement did not converge; reposition the cubes and capture again')
-            offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile)
+            offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile,**route)
         report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':.004}
+        (folder/'plan.json').write_text(json.dumps(report,indent=2))
+    return report
+
+
+def planned_obstacle_clearance(folder):
+    """Clearance of the commanded route (object carried rigidly) from every obstacle."""
+    from studio_stack import obstacle_geoms,obstacle_clearance,planned_frames,OBSTACLE_PLAN_MARGIN_M
+    capture,config,scene,cal,model=load_scene(folder);adapter=NativeJointAdapter(**config['adapter'])
+    obstacles=obstacle_geoms(model,cal.world,capture.get('task'))
+    if not obstacles:return None
+    actions=np.load(folder/'plan.npz')['actions']
+    return obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,OBSTACLE_PLAN_MARGIN_M*3)
+
+
+def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_profile=None):
+    """Plan around obstacles: try higher travel and other cube face pairs until the
+    commanded route keeps its margin; stack/unstack placement uses the held object."""
+    from studio_stack import OBSTACLE_PLAN_MARGIN_M
+    options=folder/'planning-options.json'
+    speed_scale=validate_speed_scale(speed_scale if speed_scale is not None else json.loads(options.read_text()).get('speed_scale',1.) if options.exists() else 1.)
+    technique=validate_technique(technique if technique is not None else json.loads(options.read_text()).get('motion_technique','classic') if options.exists() else 'classic')
+    if timing_profile is None and options.exists():timing_profile=json.loads(options.read_text()).get('timing_profile','conservative')
+    capture=json.loads((folder/'capture.json').read_text())
+    report=_prepare_route(folder,technique,speed_scale,timing_profile)
+    clearance=planned_obstacle_clearance(folder) if capture.get('source')=='live' else None
+    if clearance is not None:
+        tape=report['world']['cube'].get('object')=='tape'
+        routes=[(0.,None),(.04,None)]+([] if tape else [(0.,0),(0.,1),(.04,0),(.04,1)])
+        attempts=[{'hover_extra_m':0.,'grasp_turn':None,**clearance}];chosen=0
+        def clear(c):return c['minimum_m'] is None or c['minimum_m']>=OBSTACLE_PLAN_MARGIN_M
+        for index,(extra,turn) in enumerate(routes[1:],1):
+            if clear(attempts[chosen]):break
+            try:
+                _prepare_route(folder,technique,speed_scale,timing_profile,extra,turn);c=planned_obstacle_clearance(folder)
+            except ValueError as exc:c={'minimum_m':-1.,'closest':None,'frame':None,'error':str(exc)}
+            attempts.append({'hover_extra_m':extra,'grasp_turn':turn,**c})
+            if (c['minimum_m'] if c['minimum_m'] is not None else np.inf)>(attempts[chosen]['minimum_m'] if attempts[chosen]['minimum_m'] is not None else np.inf):chosen=len(attempts)-1
+        best=attempts[chosen]
+        if chosen!=len(attempts)-1:report=_prepare_route(folder,technique,speed_scale,timing_profile,best['hover_extra_m'],best['grasp_turn'])
+        else:report=json.loads((folder/'plan.json').read_text())
+        report['obstacle_planning']={'method':'Commanded joints with the object carried rigidly; static obstacle collision geometry; contact physics still decides',
+                                     'margin_m':OBSTACLE_PLAN_MARGIN_M,'chosen':chosen,'cleared':clear(best),'attempts':attempts}
         (folder/'plan.json').write_text(json.dumps(report,indent=2))
     capture,config,scene,cal,model=load_scene(folder)
     if preview:render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
@@ -287,6 +334,11 @@ def simulate(folder):
     trace=integrate_actions(m,ep,adapter)
     if report.get('task')=='stack':
         inside=None;stack=stack_verdict(trace,cal.world['cube']['size']);outcome=stack['outcome'];report['stack_assessment']=stack
+    elif report.get('task')=='unstack':
+        from studio_generation_scene import unstack_verdict,_table_support
+        mat=cal.world['mat'];inside=None
+        assessment=unstack_verdict(trace,cal.world['cube']['size'],cal.world['placement']['position'],mat['position'][2]+mat['size'][2]/2,_table_support(m,trace))
+        outcome=assessment['outcome'];report['unstack_assessment']=assessment
     else:
         inside=containment(m,trace['qpos'][-1],trace['cube_pose'][-1],cal,config);outcome=score(trace,inside)
     collision={k:v for k,v in trace['audit']['contact_audit'].items() if k!='cube'}
@@ -301,6 +353,14 @@ def simulate(folder):
     limits=np.array([10.,HARDWARE_SHOULDER_LIFT_MARGIN_DEG,10.,10.,10.,25.])
     for joint,(value,limit) in enumerate(zip(peak,limits)):
         if value>limit:failures.append(f"{JOINT_LABELS[joint]} trails its command by {value:.1f}° (limit {limit:.0f}°): lower Travel speed")
+    from studio_stack import obstacle_geoms,obstacle_clearance,trace_frames,OBSTACLE_SIM_MARGIN_M
+    blocked=obstacle_geoms(m,cal.world,report.get('task'))
+    if blocked:
+        # Arm and carried object must stay clear of every obstacle in the contact trace.
+        clearance=obstacle_clearance(m,trace_frames(m,trace),blocked,OBSTACLE_SIM_MARGIN_M*3)
+        report['obstacle_clearance']=clearance|{'required_m':OBSTACLE_SIM_MARGIN_M}
+        if clearance['minimum_m'] is not None and clearance['minimum_m']<OBSTACLE_SIM_MARGIN_M:
+            failures.append(f"Obstacle clearance {clearance['minimum_m']*1000:.1f} mm ({clearance['closest'].replace('_',' ')}; need {OBSTACLE_SIM_MARGIN_M*1000:.0f} mm): move the obstacle or the object")
     checks=not failures
     report.update(outcome=outcome,transfer_checks_passed=checks,transfer_check_failures=failures,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),

@@ -105,12 +105,22 @@ class ImportManager:
         return item | {'log': progress.get('log', [])[-40:], 'camera_fit_image': media('camera-fit.jpg'),
                        'calibration': summary, 'episodes': episodes, 'counts': results and results.get('counts')}
 
-    def list(self):
+    def list(self, latest_only=True, complete_only=False):
+        """Imports, newest first. Re-imports of the same dataset folder collapse to the newest one
+        (older runs stay on disk but are hidden)."""
         items = []
-        for folder in sorted(self.root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        for folder in self.root.iterdir():
             if (folder / 'request.json').is_file():
                 try: items.append(self.get(folder.name, detail=False))
                 except ValueError: pass
+        if complete_only: items = [item for item in items if item['status'] == 'complete' and item.get('completed')]
+        items.sort(key=lambda item: item.get('created') or '', reverse=True)
+        if latest_only:
+            seen = set(); unique = []
+            for item in items:
+                if item['dataset_path'] in seen: continue
+                seen.add(item['dataset_path']); unique.append(item)
+            items = unique
         return items
 
     def close(self):

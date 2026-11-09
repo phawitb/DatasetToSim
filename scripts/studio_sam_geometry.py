@@ -63,36 +63,151 @@ def fit_mask_pose(mask,camera,initial,edge,support):
     return best.x,{'method':'measured cube fit to SAM mask only','boundary_rmse_px':error,'observed_hull':observed.tolist(),'projected_hull':project_cube(camera,best.x,edge,support).tolist()}
 
 
-def scene_from_masks(config,source,target,obstacle=None,*,task='bowl',bowl_present=True):
+OBJECT_KINDS=('cube','tape','bowl')
+# Clearance of an empty-mat unstack release from every other object center (m).
+PLACE_CLEARANCE_M={'cube':.06,'tape':.075,'bowl':.11,'from':.07}
+
+
+def _contour(mask):
+    contours,_=cv2.findContours(np.asarray(mask,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:raise ValueError('SAM mask is empty')
+    return max(contours,key=cv2.contourArea)
+
+
+def _yaw_quaternion(yaw):return [float(np.cos(yaw/2)),0.,0.,float(np.sin(yaw/2))]
+
+
+def mat_top(config):
+    mat=config['base_calibration']['world']['mat'];return mat['position'][2]+mat['size'][2]/2
+
+
+def _top_camera(config):
+    from scipy.spatial.transform import Rotation
+    camera=config['base_calibration']['cameras']['top'];position=np.array(camera['position'])
+    R=np.diag([1,-1,-1])@Rotation.from_quat(np.array(camera['quaternion'])[[1,2,3,0]]).as_matrix().T
+    focal=240/np.tan(np.deg2rad(camera['fovy']/2));K=np.array([[focal,0,320],[0,focal,240],[0,0,1.]])
+    return K,R,position
+
+
+def pixel_to_mat(config,pixel,height=0.):
+    """Metric XY of an image pixel on a horizontal plane `height` above the mat top."""
+    from strict_action_scene import ground_point
+    K,R,position=_top_camera(config)
+    return np.asarray(ground_point(pixel,K,R,position,mat_top(config)+height),float)[:2]
+
+
+def mat_to_pixel(config,xy,height=0.):
+    K,R,position=_top_camera(config)
+    camera=R@(np.r_[np.asarray(xy,float)[:2],mat_top(config)+height]-position);uv=K@camera
+    return (uv[:2]/uv[2]).tolist()
+
+
+def cube_pose_from_mask(config,mask,*,elevated=False,label='From'):
+    """Measured 19.5 mm cube fit to one SAM mask; `elevated` cubes rest on another cube."""
     from strict_action_scene import episode_scene
-    if task not in ['bowl','stack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube or Place tape in bowl')
-    validate_pair(source,target)
-    if task=='tape':return tape_scene_from_masks(config,source,target)
-    if task=='stack' and bowl_present and obstacle is None:raise ValueError('Select the bowl obstacle, or mark that no bowl is present before Capture')
-    contours,_=cv2.findContours(np.asarray(source,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-    contour=max(contours,key=cv2.contourArea);x,y,w,h=cv2.boundingRect(contour)
-    if not (8<=w<=65 and 8<=h<=65):raise ValueError('From must match the calibrated 19.5 mm cube profile')
+    contour=_contour(mask);x,y,w,h=cv2.boundingRect(contour)
+    if not (8<=w<=65 and 8<=h<=65):raise ValueError(f'{label} must match the calibrated 19.5 mm cube profile')
     corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
-    bowl=bowl_from_mask(target) if task=='bowl' else bowl_from_mask(obstacle) if bowl_present else [320.,240.]
-    scene={'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(source))],'bowl_pixel':list(bowl),'method':'SAM 2.1 user-selected From/To masks; calibrated metric projection'}
-    cal=episode_scene(config,scene);c=cal.world['cube'];q=c['quaternion'];support=cal.data['scene_estimation']['cube_support_z_m']
-    pose,fit=fit_mask_pose(source,cal.camera('top'),[*c['position'][:2],2*np.arctan2(q[3],q[0])],c['size'],support)
-    scene['cube_pose_from_initial_rgb']={'position':[float(pose[0]),float(pose[1]),support+c['size']/2+.0002],'quaternion':[float(np.cos(pose[2]/2)),0.,0.,float(np.sin(pose[2]/2))]}
-    scene['cube_pose_fit']=fit
+    cal=episode_scene(config,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'bowl_pixel':[320.,240.]})
+    c=cal.world['cube'];q=c['quaternion'];support=cal.data['scene_estimation']['cube_support_z_m']
+    if elevated:support+=c['size']+.0002
+    pose,fit=fit_mask_pose(mask,cal.camera('top'),[*c['position'][:2],2*np.arctan2(q[3],q[0])],c['size'],support)
+    world={'position':[float(pose[0]),float(pose[1]),support+c['size']/2+.0002],'quaternion':_yaw_quaternion(pose[2]),'size':c['size']}
+    return world,fit,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(mask))]}
+
+
+def tape_pose_from_mask(config,mask,*,label='From'):
+    from strict_action_scene import episode_scene
+    from tape_object import fit_tape_mask,dimensions
+    contour=_contour(mask);x,y,w,h=cv2.boundingRect(contour)
+    if not (20<=w<=170 and 20<=h<=170):raise ValueError(f'{label} must match the 53 mm tape roll profile')
+    corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
+    cal=episode_scene(config,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'bowl_pixel':[320.,240.]})
+    support=cal.data['scene_estimation']['cube_support_z_m']
+    xy,fit=fit_tape_mask(mask,cal.camera('top'),cal.world['cube']['position'][:2],support)
+    size=dimensions()
+    world={'position':[float(xy[0]),float(xy[1]),support+size['width_m']/2+.0002],'quaternion':[1.,0.,0.,0.],
+           'width':size['width_m'],'outer_diameter':size['outer_diameter_m']}
+    return world,fit,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(mask))]}
+
+
+def bowl_pose_from_mask(config,mask):
+    bowl=config['base_calibration']['world']['bowl']
+    xy=pixel_to_mat(config,bowl_from_mask(mask),bowl['height']*config.get('bowl_projection_height_fraction',.5))
+    return {'position':[float(xy[0]),float(xy[1]),mat_top(config)],'outer_radius':bowl['outer_radius'],'height':bowl['height']}
+
+
+def obstacle_world(config,kind,mask):
+    """World pose of a modelled workspace object that the arm must avoid."""
+    if kind=='cube':world,fit,_=cube_pose_from_mask(config,mask,label='Obstacle cube')
+    elif kind=='tape':world,fit,_=tape_pose_from_mask(config,mask,label='Obstacle tape roll')
+    elif kind=='bowl':world,fit=bowl_pose_from_mask(config,mask),None
+    else:raise ValueError('Obstacles must be a cube, tape roll or bowl')
+    return {'kind':kind,**world}|({'fit_rmse_px':fit['boundary_rmse_px']} if fit else {})
+
+
+def _obstacle_list(obstacles):
+    if obstacles is None:return []
+    if isinstance(obstacles,np.ndarray):return [('bowl',obstacles)]  # legacy single bowl obstacle
+    return [(item['kind'],item['mask']) if isinstance(item,dict) else tuple(item) for item in obstacles]
+
+
+def is_place_point(target):
+    return target is not None and not isinstance(target,np.ndarray) and np.asarray(target).shape==(2,)
+
+
+def validate_placement(config,placement,source_xy,obstacles):
+    """An unstack release spot must be on the mat and clear of every object."""
+    mat=config['base_calibration']['world']['mat'];xy=np.asarray(placement,float)
+    if np.any(np.abs(xy-mat['position'][:2])>np.asarray(mat['size'][:2])/2-.03):raise ValueError('To must be an empty spot on the mat, away from its edge')
+    if np.linalg.norm(xy-np.asarray(source_xy[:2]))<PLACE_CLEARANCE_M['from']:raise ValueError('To must be at least 70 mm from the stack')
+    for item in obstacles:
+        if np.linalg.norm(xy-np.asarray(item['position'][:2]))<PLACE_CLEARANCE_M[item['kind']]:raise ValueError(f'To is too close to a {item["kind"]}; choose an empty spot')
+
+
+def scene_from_masks(config,source,target,obstacles=None,*,task='bowl',bowl_present=None):
+    """Metric scene from SAM masks.
+
+    `obstacles` lists every other modelled object as (kind, mask). For stack and
+    unstack the first bowl becomes the calibrated bowl body; all other objects
+    become static collision obstacles. For unstack, `target` is the clicked
+    empty-mat pixel where the top cube is released.
+    """
+    if task not in ['bowl','stack','tape','unstack']:raise ValueError('Choose Place cube in bowl, Stack on cube, Unstack cube or Place tape in bowl')
+    obstacles=_obstacle_list(obstacles)
+    for _,mask in obstacles:validate_pair(source,mask)
+    if task=='unstack':
+        if not is_place_point(target):raise ValueError('Select To: an empty spot on the mat for the top cube')
+    else:
+        validate_pair(source,target)
+        for _,mask in obstacles:validate_pair(target,mask)
+    bowls=[mask for kind,mask in obstacles if kind=='bowl']
+    if task in ['stack','unstack']:
+        if bowl_present is None:bowl_present=bool(bowls)
+        if bowl_present and not bowls:raise ValueError('Select the bowl obstacle, or mark that no bowl is present before Capture')
+        model_bowl=bowls[0] if bowl_present else None
+    else:model_bowl=target
+    extra=[(kind,mask) for kind,mask in obstacles if not (model_bowl is not None and mask is model_bowl)]
+    if task=='tape':scene=tape_scene_from_masks(config,source,target)
+    else:
+        world,fit,pixels=cube_pose_from_mask(config,source,elevated=task=='unstack')
+        bowl=bowl_from_mask(model_bowl) if model_bowl is not None else [320.,240.]
+        scene={**pixels,'bowl_pixel':list(bowl),'method':'SAM 2.1 From/To masks; calibrated metric projection',
+               'cube_pose_from_initial_rgb':{'position':world['position'],'quaternion':world['quaternion']},'cube_pose_fit':fit}
     if task=='stack':
         # Fit To with exactly the same measured cube geometry as From.
-        contours,_=cv2.findContours(np.asarray(target,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-        contour=max(contours,key=cv2.contourArea);tx,ty,tw,th=cv2.boundingRect(contour)
-        if not (8<=tw<=65 and 8<=th<=65):raise ValueError('To must match the calibrated 19.5 mm cube profile')
-        tc=cv2.boxPoints(cv2.minAreaRect(contour))
-        ts={'cube_pixel':tc.mean(axis=0).tolist(),'cube_pixel_corners':tc.tolist(),'bowl_pixel':bowl}
-        target_cal=episode_scene(config,ts);obj=target_cal.world['cube'];tq=obj['quaternion'];support=target_cal.data['scene_estimation']['cube_support_z_m']
-        pose,fit=fit_mask_pose(target,target_cal.camera('top'),[*obj['position'][:2],2*np.arctan2(tq[3],tq[0])],obj['size'],support)
-        scene.update(task='stack',bowl_present=bowl_present,target_cube={'position':[float(pose[0]),float(pose[1]),support+obj['size']/2+.0002],
-                     'quaternion':[float(np.cos(pose[2]/2)),0.,0.,float(np.sin(pose[2]/2))],'size':obj['size']},target_cube_fit=fit)
-        if np.linalg.norm(np.array(scene['target_cube']['position'][:2])-scene['cube_pose_from_initial_rgb']['position'][:2])<.045:raise ValueError('Separate the two cubes by at least 45 mm for a clear grasp')
-        if obstacle is not None:
-            validate_pair(source,obstacle);validate_pair(target,obstacle)
+        target_world,fit,_=cube_pose_from_mask(config,target,label='To')
+        scene.update(task='stack',bowl_present=bool(bowl_present),target_cube=target_world,target_cube_fit=fit)
+        if np.linalg.norm(np.array(target_world['position'][:2])-scene['cube_pose_from_initial_rgb']['position'][:2])<.045:raise ValueError('Separate the two cubes by at least 45 mm for a clear grasp')
+    scene['obstacles']=[obstacle_world(config,kind,mask) for kind,mask in extra]
+    if task=='unstack':
+        # The lower cube is hidden under the top one: same XY and yaw, on the mat.
+        top=scene['cube_pose_from_initial_rgb'];edge=config['base_calibration']['world']['cube']['size']
+        bottom={'position':[*top['position'][:2],top['position'][2]-edge-.0002],'quaternion':list(top['quaternion']),'size':edge}
+        xy=pixel_to_mat(config,target,edge/2)
+        validate_placement(config,xy,top['position'],scene['obstacles'])
+        scene.update(task='unstack',bowl_present=bool(bowl_present),target_cube=bottom,place_pixel=[float(v) for v in target],
+                     placement={'position':[float(xy[0]),float(xy[1]),mat_top(config)+edge/2+.0002],'quaternion':[1.,0.,0.,0.],'size':edge})
     return scene
 
 
@@ -114,24 +229,37 @@ def tape_scene_from_masks(config,source,target):
     return scene
 
 
+def _saved_mask(folder,record):
+    path=(folder/record['mask_file']).resolve()
+    if path.parent!=folder.resolve():raise ValueError('Invalid mask path')
+    m=cv2.imread(str(path),cv2.IMREAD_GRAYSCALE)
+    if m is None:raise ValueError('Saved SAM mask is missing')
+    m=m>0
+    if hashlib.sha256(m.astype(np.uint8).tobytes()).hexdigest()!=record['mask_sha256']:raise ValueError('Saved SAM mask changed; select again')
+    return m
+
+
+def selection_obstacles(selection,capture=None):
+    """Obstacle records; older stack selections stored one bowl under 'obstacle'."""
+    if 'obstacles' in selection:return list(selection['obstacles'])
+    if 'obstacle' in selection and (capture is None or (capture.get('task')=='stack' and capture.get('bowl_present',True))):return [{**selection['obstacle'],'kind':'bowl'}]
+    return []
+
+
 def load_selection(folder):
+    """Selection and [From mask, To mask (or unstack place pixel), [(kind, mask) obstacles]]."""
     folder=Path(folder);path=folder/'selection.json'
     if not path.exists():raise ValueError('Select From and To with SAM before generating a plan')
     selection=json.loads(path.read_text())
     if selection.get('image_sha256')!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed; select From and To again')
     if not all(role in selection for role in ['from','to']):raise ValueError('Select both From and To with SAM')
-    masks=[]
     capture=json.loads((folder/'capture.json').read_text()) if (folder/'capture.json').exists() else {}
-    roles=['from','to']+(['obstacle'] if capture.get('task')=='stack' and capture.get('bowl_present',True) else [])
-    for role in roles:
-        if role not in selection:raise ValueError('Select the bowl obstacle before generating a stack plan')
-        path=(folder/selection[role]['mask_file']).resolve()
-        if path.parent!=folder.resolve():raise ValueError('Invalid mask path')
-        m=cv2.imread(str(path),cv2.IMREAD_GRAYSCALE)
-        if m is None:raise ValueError('Saved SAM mask is missing')
-        m=m>0
-        if hashlib.sha256(m.astype(np.uint8).tobytes()).hexdigest()!=selection[role]['mask_sha256']:raise ValueError('Saved SAM mask changed; select again')
-        masks.append(m)
+    if capture.get('task')=='stack' and capture.get('bowl_present',True) and 'obstacles' not in selection and 'obstacle' not in selection:
+        raise ValueError('Select the bowl obstacle before generating a stack plan')
+    source=_saved_mask(folder,selection['from'])
+    target=list(selection['to']['point']) if selection['to'].get('kind')=='place' else _saved_mask(folder,selection['to'])
+    obstacles=[(item['kind'],_saved_mask(folder,item)) for item in selection_obstacles(selection,capture)]
+    masks=[source]+([] if is_place_point(target) else [target])+[m for _,m in obstacles]
     for i,a in enumerate(masks):
         for b in masks[i+1:]:validate_pair(a,b)
-    return selection,masks
+    return selection,[source,target,obstacles]

@@ -20,8 +20,9 @@ def main():
             request=json.loads(line);path=Path(request['image']).resolve();point=validate_point(request['point'])
             if not path.is_relative_to(ROOT/'output/studio') or path.suffix.lower() not in ['.jpg','.png']:raise ValueError('Invalid captured image')
             digest=hashlib.sha256(path.read_bytes()).hexdigest();start=time.monotonic()
-            if digest!=cached:
-                predictor.reset_image();predictor.set_image(str(path));cached=digest
+            # Key on the path too: the predictor keeps the source path, which may be deleted.
+            if (digest,str(path))!=cached:
+                predictor.reset_image();predictor.set_image(str(path));cached=(digest,str(path))
             result=predictor(points=[point],labels=[1])[0]
             if result.masks is None or not len(result.masks.data):raise ValueError('SAM returned no object')
             mask=prompted_component(result.masks.data[0].cpu().numpy()>0,point);score=float(result.boxes.conf[0])

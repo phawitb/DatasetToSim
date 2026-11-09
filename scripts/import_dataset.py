@@ -156,6 +156,11 @@ def calibrate(dataset, selected, folder, log, camera=None):
 
     mat, mat_report, poses, object_reports, exclusions, chosen = scene_fit(config, camera, True)
 
+    # Wrist camera mounting, field of view and lens from the jaw silhouettes.
+    log('Calibrating the wrist camera from the jaw silhouettes…', stage='wrist')
+    wrist_camera, wrist_camera_report = ic.fit_wrist_camera(dataset, config, log=log)
+    wrist_config = ic.with_wrist_camera(config, wrist_camera)
+
     # Support-surface height relative to the robot, from the wrist camera: the picked
     # object's apparent size along the approach fixes the gripper-to-surface distance.
     # One value for the whole dataset (median over episodes) keeps it robust.
@@ -167,7 +172,7 @@ def calibrate(dataset, selected, folder, log, camera=None):
             item = poses[index][manipulated[0]]; bowl = poses[index][container[0]]
             if (index, manipulated[0]) not in chosen: continue
             blob, valid = chosen[(index, manipulated[0])]
-            _, report = ic.refine_pose_with_wrist(dataset.episode(index), specs[manipulated[0]], np.array(item['pose_xy_yaw']), item['support_z_m'], config, mat,
+            _, report = ic.refine_pose_with_wrist(dataset.episode(index), specs[manipulated[0]], np.array(item['pose_xy_yaw']), item['support_z_m'], wrist_config, mat,
                                                   camera, blob, valid, avoid_world=(specs[container[0]], bowl['pose_xy_yaw'], bowl['support_z_m']), fit_height=True)
             if report.get('used') and report.get('surface_offset_m') is not None:
                 offsets.append(report['surface_offset_m']); log(f'Episode {index}: surface offset {report["surface_offset_m"] * 1000:+.1f} mm (wrist IoU {report["wrist_iou_after"]:.2f})')
@@ -191,7 +196,7 @@ def calibrate(dataset, selected, folder, log, camera=None):
         item = fitted[manipulated[0]]; bowl = fitted[container[0]]
         if specs[manipulated[0]]['shape'] != 'box' or (index, manipulated[0]) not in chosen: continue
         blob, valid = chosen[(index, manipulated[0])]
-        refined, report = ic.refine_pose_with_wrist(dataset.episode(index), specs[manipulated[0]], np.array(item['pose_xy_yaw']), item['support_z_m'], config, mat,
+        refined, report = ic.refine_pose_with_wrist(dataset.episode(index), specs[manipulated[0]], np.array(item['pose_xy_yaw']), item['support_z_m'], wrist_config, mat,
                                                     camera, blob, valid, avoid_world=(specs[container[0]], bowl['pose_xy_yaw'], bowl['support_z_m']))
         item['top_pose_xy_yaw'] = list(item['pose_xy_yaw']); item['wrist_refinement'] = report
         if report.get('used'): item['pose_xy_yaw'] = [float(v) for v in refined]
@@ -213,7 +218,7 @@ def calibrate(dataset, selected, folder, log, camera=None):
                    'selected_models': selected, 'manipulated': manipulated[0], 'container': container[0],
                    'objects': {k: specs[k] for k in selected}, 'top_camera': camera, 'top_camera_report': camera_report,
                    'mat': mat, 'mat_report': mat_report, 'episode_poses': {str(k): v for k, v in poses.items()},
-                   'object_reports': object_reports, 'robot_lift_m': lift, 'surface_height_report': lift_report, 'wrist_refinement': wrist_reports,
+                   'object_reports': object_reports, 'wrist_camera': wrist_camera, 'wrist_camera_report': wrist_camera_report, 'robot_lift_m': lift, 'surface_height_report': lift_report, 'wrist_refinement': wrist_reports,
                    'shared_profile': 'shared-calibration-v10 (calibration/native-action-current.json)',
                    'automatic': True, 'manual_inputs': ['library model selection only']}
     write(folder / 'calibration.json', calibration)
@@ -223,6 +228,11 @@ def calibrate(dataset, selected, folder, log, camera=None):
     dynamics, motor_report = import_dynamics.identify(calibration, folder, log=log)
     calibration['motor_identification'] = motor_report
     if dynamics: calibration['identified_dynamics'] = dynamics
+    # Effective grasp width so the simulated held gripper matches the recorded plateau.
+    log('Matching the held gripper opening…', stage='motors')
+    width, grasp_report = import_dynamics.fit_grasp_width(calibration, log=log)
+    calibration['grasp_report'] = grasp_report
+    if width: calibration['grasp_width_m'] = width
     write(folder / 'calibration.json', calibration)
     return calibration
 
