@@ -159,7 +159,8 @@ async function runAll(){
     if(next>index+1)variants.splice(index+1,next-index-1);}
   }
   if(!result)throw new Error('No plan could be simulated; the robot was not moved. Last error: '+lastError);
-  if(result.outcome!=='success'||!result.transfer_checks_passed)throw new Error('Simulation did not pass; the robot was not moved. '+(result.transfer_check_failures?.join('; ')||'Outcome: '+result.outcome));
+  if(result.outcome!=='success'||!result.transfer_checks_passed){const failures=result.transfer_check_failures||[];const reach=failures.length&&failures.every(f=>f.includes('trails its command'));
+   throw new Error('Simulation did not pass; the robot was not moved. '+(reach?'Every speed and motion technique left a joint trailing its command, so slowing down does not help: the object or its destination is probably too far from the robot (beyond about 30 cm). Move it closer and try again. ':'')+(failures.join('; ')||'Outcome: '+result.outcome));}
   if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
   step('5/5 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');
   step('Running on the robot · same actions and timing as the simulation');

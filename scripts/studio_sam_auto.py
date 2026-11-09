@@ -46,7 +46,12 @@ def candidate_points(rgb):
             yy,xx=np.nonzero((distance>4)&((np.indices(distance.shape)[0]%24==0)&(np.indices(distance.shape)[1]%24==0)))
             extra=[[int(a),int(b)] for a,b in zip(xx,yy) if np.hypot(a-x,b-y)>15]
             points.extend(extra[::max(1,len(extra)//6)][:6])
-    return points[:MAX_CANDIDATES]
+    # Painted cubes touching another object join its blob: prompt every vivid
+    # red or green patch as well, before the blob grid points.
+    vivid=((s>110)&(v>70)&(((h<8)|(h>165))|((h>=25)&(h<=95)))).astype(np.uint8)&region&(1-robot)
+    n,labels,stats,centres=cv2.connectedComponentsWithStats(cv2.morphologyEx(vivid,cv2.MORPH_OPEN,np.ones((3,3),np.uint8)))
+    colour=[[int(x),int(y)] for i,(x,y) in enumerate(centres) if i and 60<=stats[i,4]<=2500]
+    return (colour+[p for p in points if all(np.hypot(p[0]-c[0],p[1]-c[1])>10 for c in colour)])[:MAX_CANDIDATES]
 
 
 def cube_color(rgb,mask):
