@@ -135,4 +135,4 @@ def test_new_run_page_defaults_to_full_speed_and_offers_run_all_and_pick_place()
     run_all=js[js.index('async function runAll('):js.index("$('#run-all').onclick")]
     assert run_all.index('returnHome(')<run_all.index('doCapture()')  # Home before every new capture
     assert "/refine" in body  # the Wrist check runs between the Look stop and the grasp
-    assert "operation('execute')" in body and "result.transfer_checks_passed" in body and '/api/plans' not in body
+    assert "operation('execute')" in body and "result.transfer_checks_passed" in body and '/execute`' not in body and '/plan`' not in body
