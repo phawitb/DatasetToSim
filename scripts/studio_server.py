@@ -698,7 +698,8 @@ def verify_selected_scene(folder,report,fresh):
     if checked['model']!=selection['model']:raise ValueError('SAM model changed; capture and select again')
     cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
     # Every obstacle is segmented again too: none may have moved since simulation.
-    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present')))
+    rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
+    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present'),rgb=rgb))
     validate_scene_match(report['world'],observed.world)
 
 

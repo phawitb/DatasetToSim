@@ -51,7 +51,7 @@ def load_scene(folder):
         from studio_sam_geometry import load_selection,scene_from_masks
         selection,masks=load_selection(folder)
         capture.update(selection_revision=selection['revision'],selection=selection)
-        scene=scene_from_masks(config,*masks,task=capture.get('task','bowl'),bowl_present=capture.get('bowl_present'))
+        scene=scene_from_masks(config,*masks,task=capture.get('task','bowl'),bowl_present=capture.get('bowl_present'),rgb=rgb)
     else:scene=estimate_scene(config,rgb)
     cal=episode_scene(config,scene)
     return capture,config,scene,cal,build_model(cal,config)
@@ -103,7 +103,8 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         q=np.asarray(item['quaternion'],float);return 2*np.arctan2(q[3],q[0])
     # Generated scenes may rotate cubes freely: close the jaws across a face pair
     # (any multiple of 90 deg). Real New Run scenes keep the original roll rule.
-    align=bool(cal.world.get('align_grasp_yaw',False)) or (grasp_turn is not None and not tape)
+    # A hand-stacked top cube is often turned: close the jaws across its own faces.
+    align=bool(cal.world.get('align_grasp_yaw',False)) or (grasp_turn is not None and not tape) or (unstacking and capture.get('source')=='live')
     wrap90=lambda a:(a+np.pi/4)%(np.pi/2)-np.pi/4
     start=center(current).copy()
     reference=np.array([0.,-20.,65.,45.,0.,0.])
