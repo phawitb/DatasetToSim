@@ -28,7 +28,8 @@ def candidate_points(rgb):
     dark=cv2.morphologyEx(((v<130)&(s<70)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
     n,labels,stats,_=cv2.connectedComponentsWithStats(dark)
     if n<2:return []
-    mat=(labels==1+int(np.argmax(stats[1:,4]))).astype(np.uint8)
+    # The arm and its cables can cut the mat into pieces: keep every large dark piece.
+    largest=int(stats[1:,4].max());mat=np.isin(labels,[i for i in range(1,n) if stats[i,4]>=max(5000,.15*largest)]).astype(np.uint8)
     region=np.zeros_like(mat);cv2.fillConvexPoly(region,cv2.convexHull(cv2.findNonZero(mat)),1)
     region=cv2.erode(region,np.ones((11,11),np.uint8))
     background=cv2.medianBlur(np.where(mat>0,hsv[:,:,2],0).astype(np.uint8),31).astype(np.int16)
@@ -47,19 +48,25 @@ def candidate_points(rgb):
             extra=[[int(a),int(b)] for a,b in zip(xx,yy) if np.hypot(a-x,b-y)>15]
             points.extend(extra[::max(1,len(extra)//6)][:6])
     # Painted cubes touching another object join its blob: prompt every vivid
-    # red or green patch as well, before the blob grid points.
-    vivid=((s>110)&(v>70)&(((h<8)|(h>165))|((h>=25)&(h<=95)))).astype(np.uint8)&region&(1-robot)
+    # coloured patch as well, before the blob grid points.
+    vivid=((s>65)&(v>70)&(((h<8)|(h>165))|((h>=14)&(h<=135)))).astype(np.uint8)&region&(1-robot)
     n,labels,stats,centres=cv2.connectedComponentsWithStats(cv2.morphologyEx(vivid,cv2.MORPH_OPEN,np.ones((3,3),np.uint8)))
     colour=[[int(x),int(y)] for i,(x,y) in enumerate(centres) if i and 60<=stats[i,4]<=2500]
     return (colour+[p for p in points if all(np.hypot(p[0]-c[0],p[1]-c[1])>10 for c in colour)])[:MAX_CANDIDATES]
+
+
+def CUBE_HUES(hue):
+    """Painted cube colours by OpenCV hue (0-179)."""
+    return {'red':((hue<10)|(hue>165)),'yellow':((hue>=14)&(hue<=27)),'green':((hue>=28)&(hue<=95)),'blue':((hue>=96)&(hue<=135))}
 
 
 def cube_color(rgb,mask):
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)[np.asarray(mask,bool)]
     vivid=hsv[hsv[:,1]>45]
     if len(vivid)<max(10,.15*len(hsv)):return None
-    hue=vivid[:,0];red=np.count_nonzero((hue<10)|(hue>165));green=np.count_nonzero((hue>=20)&(hue<=95))
-    return 'red' if red>.5*len(vivid) else 'green' if green>.5*len(vivid) else None
+    hue=vivid[:,0];counts={name:np.count_nonzero(m) for name,m in CUBE_HUES(hue).items()}
+    best=max(counts,key=counts.get)
+    return best if counts[best]>.5*len(vivid) else None
 
 
 def classify(config,rgb,mask):

@@ -153,6 +153,6 @@ def measure(client, image, config, registry, picked, q_native, decode, colour_pi
 def colour_filter(rgb, colour):
     """Pixels of one painted cube colour, for separating a top cube from the one below."""
     from studio_sam_geometry import _color_pixels
-    if colour not in ('red', 'green'):
+    if colour not in ('red', 'green', 'blue', 'yellow'):
         return None
     return lambda mask: _color_pixels(rgb, mask)[colour]

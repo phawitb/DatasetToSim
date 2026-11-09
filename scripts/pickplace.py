@@ -27,7 +27,7 @@ SUPPORT_CLEARANCE_M = .0325
 PLACE_CLEARANCE_M = .005
 CARRY_CLEARANCE_M = .025
 MOVED_LIMIT_M = .004
-COLORS = {'red': '.85 .045 .035 1', 'green': '.045 .65 .09 1', None: '.65 .48 .27 1'}
+COLORS = {'red': '.85 .045 .035 1', 'green': '.045 .65 .09 1', 'blue': '.1 .3 .85 1', 'yellow': '.9 .8 .1 1', None: '.65 .48 .27 1'}
 
 
 # ---------------------------------------------------------------- registry
@@ -86,6 +86,51 @@ def save_registry(data, path=REGISTRY):
     validate_registry(data)
     Path(path).write_text(json.dumps(data, indent=2))
     return data
+
+
+# ---------------------------------------------------------------- workspace calibration
+CORRECTION = ROOT / 'calibration/workspace-correction.json'
+MAX_CORRECTION_M = .02
+
+
+def load_correction(path=CORRECTION):
+    path = Path(path)
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def correction_at(correction, xy):
+    """Arm placement error expected at `xy` (where the jaws land minus where they were
+    sent), interpolated from measured samples by inverse-distance weighting."""
+    if not correction or not correction.get('samples'):
+        return np.zeros(2)
+    points = np.array([s['xy'] for s in correction['samples']]); errors = np.array([s['error'] for s in correction['samples']])
+    d2 = np.sum((points - np.asarray(xy)[:2]) ** 2, axis=1)
+    w = 1 / (d2 + correction.get('smoothing_m', .03) ** 2)
+    e = (w[:, None] * errors).sum(0) / w.sum()
+    n = np.linalg.norm(e)
+    return e * (MAX_CORRECTION_M / n) if n > MAX_CORRECTION_M else e
+
+
+def apply_correction(scene, correction, keep=()):
+    """Shift the scene into the arm's own frame: an object seen at P is planned at
+    P - e(P), so the real arm, which lands e(P) off, reaches P. Simulation stays
+    consistent because everything (objects and empty spots) shifts together."""
+    if not correction:
+        return scene
+    applied = {}
+    for o in scene['objects']:
+        if o['id'] in keep:
+            continue
+        e = correction_at(correction, o['position'])
+        o['position'] = [o['position'][0] - e[0], o['position'][1] - e[1], *o['position'][2:]]
+        applied[o['id']] = e.tolist()
+    place = scene.get('place') or {}
+    if place.get('area') is not None:
+        e = correction_at(correction, place['area'])
+        place['area'] = [place['area'][0] - e[0], place['area'][1] - e[1]]
+        applied['area'] = e.tolist()
+    scene['workspace_correction'] = applied
+    return scene
 
 
 # ---------------------------------------------------------------- geometry

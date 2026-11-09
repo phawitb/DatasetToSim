@@ -145,7 +145,8 @@ def cube_pose_from_mask(config,mask,*,elevated=False,label='From'):
 def _color_pixels(rgb,mask):
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);m=np.asarray(mask,bool);vivid=m&(hsv[:,:,1]>45)
     hue=hsv[:,:,0]
-    return {'red':vivid&((hue<10)|(hue>165)),'green':vivid&(hue>=20)&(hue<=95)}
+    from studio_sam_auto import CUBE_HUES
+    return {name:vivid&m for name,m in CUBE_HUES(hue).items()}
 
 
 def stack_poses_from_mask(config,mask,rgb,*,label='From'):

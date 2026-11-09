@@ -47,6 +47,10 @@ def load_pickplace_scene(folder,capture,config,candidate=None):
     registry=load_registry();scene=json.loads((folder/'pickplace-scene.json').read_text())
     capture.update(selection_revision=scene.get('selection_revision'))
     settle(scene,registry,config)
+    # Measured arm placement error over the mat (workspace calibration). A Wrist-checked
+    # object was measured in the arm's own frame already, so it is not shifted again.
+    from pickplace import load_correction,apply_correction
+    apply_correction(scene,load_correction(),keep={scene['pick']} if capture.get('purpose')=='refine' else ())
     if candidate is None:candidate=int(scene.get('grasp_candidate',0))
     cal=Calibration(ROOT/'calibration/native-action-current.json',copy.deepcopy(config['base_calibration']))
     bowl=next((o for o in scene['objects'] if o['kind']=='bowl'),None)

@@ -138,8 +138,10 @@ def detect(client, folder, config, decode, registry=None):
         if kind == 'stack':
             from studio_sam_geometry import stack_poses_from_mask
             top, bottom, fit, _ = stack_poses_from_mask(config, f['mask'], rgb)
-            colours = {'red', 'green'}; top_colour = fit.get('top_color')
-            bottom_colour = (colours - {top_colour}).pop() if top_colour in colours else None
+            from studio_sam_geometry import _color_pixels
+            top_colour = fit.get('top_color')
+            counts = {k: int(v.sum()) for k, v in _color_pixels(rgb, f['mask']).items() if k != top_colour}
+            bottom_colour = max(counts, key=counts.get) if counts and max(counts.values()) > 20 else None
             record = save_role(folder, f'object-{len(objects)}', f['result'], revision)
             record['stack'] = True
             lower = {'id': f'o{len(objects) + 1}', 'kind': 'cube', 'color': bottom_colour, **record,

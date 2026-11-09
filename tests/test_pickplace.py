@@ -110,3 +110,16 @@ def test_pick_and_place_succeeds_in_contact_physics(name, tmp_path):
     assert report['outcome'] == 'success', report.get('pickplace_assessment')
     assert report['transfer_checks_passed'], report['transfer_check_failures']
     assert not report['pickplace_assessment']['moved_objects_m']
+
+
+def test_workspace_correction_shifts_scene_into_the_arm_frame():
+    from pickplace import correction_at, apply_correction
+    correction = {'samples': [{'xy': [.1, .1], 'error': [.004, 0.]}, {'xy': [.3, -.1], 'error': [0., -.006]}]}
+    np.testing.assert_allclose(correction_at(correction, [.1, .1]), [.004, 0.], atol=6e-4)
+    np.testing.assert_allclose(correction_at(correction, [.3, -.1]), [0., -.006], atol=6e-4)
+    assert np.linalg.norm(correction_at({'samples': [{'xy': [0, 0], 'error': [.1, 0]}]}, [0, 0])) == pytest.approx(.02)
+    scene = {'objects': [obj('c', 'cube', .1, .1), obj('k', 'cube', .3, -.1)], 'pick': 'c', 'place': {'area': [.3, -.1]}}
+    apply_correction(scene, correction, keep={'k'})
+    assert scene['objects'][0]['position'][0] == pytest.approx(.1 - correction_at(correction, [.1, .1])[0])
+    assert scene['objects'][1]['position'][:2] == [.3, -.1]
+    assert scene['place']['area'][1] == pytest.approx(-.1 - correction_at(correction, [.3, -.1])[1])
