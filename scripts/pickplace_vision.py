@@ -229,6 +229,26 @@ def describe(o):
     return ((o.get('color') + ' ') if o.get('color') else '') + o['kind']
 
 
+def _predict_inside(client, image, point, mask):
+    """SAM at the original click, else at the deepest interior points of the earlier mask."""
+    points = [list(point)]
+    distance = cv2.distanceTransform(np.asarray(mask, np.uint8), cv2.DIST_L2, 3)
+    order = np.argsort(distance.ravel())[::-1][:400:80]
+    points += [[float(i % 640), float(i // 640)] for i in order]
+    from studio_sam_client import decode_mask
+    error = 'no matching mask'; old = np.asarray(mask, bool)
+    for candidate in points:
+        try:
+            result = client.predict(image, candidate)
+        except ValueError as exc:
+            error = exc; continue
+        new = decode_mask(result)
+        # Same object only: the fresh mask must cover most of the earlier one.
+        if np.count_nonzero(new & old) / max(1, np.count_nonzero(new | old)) >= .6:
+            return result
+    raise ValueError(f'Could not segment an object again ({error}); capture again')
+
+
 def refresh(client, folder, selection, image, config, decode, tag, registry=None):
     """Segment every selected object again on a fresh image and fit the same poses.
 
@@ -241,7 +261,7 @@ def refresh(client, folder, selection, image, config, decode, tag, registry=None
     revision = uuid.uuid4().hex; masks = {}; fresh = []
     for o in selection['objects']:
         if o['mask_file'] not in masks:
-            result = client.predict(image, o['point'])
+            result = _predict_inside(client, image, o['point'], _mask(folder, o))
             masks[o['mask_file']] = save_role(folder, f'{tag}-{len(masks)}', result, revision)
         fresh.append({**{k: o[k] for k in ('id', 'kind', 'color', 'support', 'point', 'stack') if k in o}, **masks[o['mask_file']]})
     done = set()
