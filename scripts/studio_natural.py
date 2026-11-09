@@ -56,7 +56,8 @@ def interpolate_natural(waypoints,names,speed_scale=1.,derivative_limits=None):
     travel={'Unfold from rest','Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded','Home'}
     floors=np.array([s*.55/speed_scale if name in travel else s for s,name in zip(seconds,names)])
     lower=next((name for name in ['Lower onto cube','Lower onto table'] if name in names),'Transfer')
-    spans={0:names.index('Pregrasp') if 'Pregrasp' in names else names.index('Approach'),names.index('Grasp'):names.index(lower)}
+    # A Look hold above the cube ends the first coordinated path and is held still.
+    spans={0:names.index('Open above cube') if 'Look' in names else names.index('Pregrasp') if 'Pregrasp' in names else names.index('Approach'),names.index('Grasp'):names.index(lower)}
     if 'Home' in names:
         # From the release (or the jaw retreat out of a tape roll) to Home is one coordinated path.
         release=next(name for name in ['Release on cube','Release on table','Lift out of roll','Release'] if name in names)

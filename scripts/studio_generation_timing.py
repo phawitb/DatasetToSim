@@ -35,7 +35,7 @@ def recorded_timing(speed_scale):
 
 def generation_durations(waypoints, names):
     """Shorter task holds; derivative limits determine actual travel duration."""
-    holds = {'Grasp settle': .15, 'Grasp': .45, 'Placement settle': .3,
+    holds = {'Grasp settle': .15, 'Grasp': .45, 'Placement settle': .3, 'Look': .8,
              'Release': .45, 'Release on cube': .45, 'Release on table': .45, 'Release in bowl': .45, 'Lift out of roll': 1.5,
              'Final settle': 1.0}
     return [(q, holds.get(name, seconds * .20)) for (q, seconds), name in zip(waypoints, names)]

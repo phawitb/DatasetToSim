@@ -168,6 +168,11 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # Stacking turns the held cube to the lower cube's faces; other placements are free.
     place_yaw=yaw_of(cal.world['target_cube']) if stacking else None
     add('Open above cube',np.r_[cube[:2],hover],open_grip,reference,1.5,yaw=source_yaw)
+    # Live cube grasps stop above the cube so the Wrist camera can measure it closely
+    # (position and turn); the rest of the grasp is then planned and simulated again.
+    look=(technique=='natural' and capture.get('source')=='live' and capture.get('purpose')!='refine' and not tape
+          and capture.get('task') in ('bowl','stack','unstack'))
+    if look:waypoint('Look',waypoints[-1][0].copy(),.8)
     if technique=='natural':
         # End the coordinated travel above contact height. The short final
         # descent keeps the yaw aligned before the jaws surround the object.
@@ -218,6 +223,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         actions,timestamps,detail=interpolate_natural(waypoints,names,speed_scale=speed_scale,derivative_limits=derivative_limits)
         motion.update(detail);names=detail['waypoints']
         if placing:placement_index=detail['task_knot_indices']['Placement settle']
+        look_index=detail['task_knot_indices']['Look'] if look else None
     elif technique!='classic':
         flowing=[(q,seconds*.55 if name in travel else seconds) for (q,seconds),name in zip(scaled,names)]
         blend={i for i,name in enumerate(names) if name in {'Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded'}}
@@ -240,6 +246,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
             'max_ik_error_mm':max(errors)*1000,'limits':limits.tolist(),'motion_technique':technique,'motion':motion,'timing_profile':timing_profile,
             'route':{'hover_m':float(hover),'hover_extra_m':float(hover_extra),'grasp_turn':grasp_turn}}
     if timing is not None:report['timing_contract_hash']=timing_contract_hash(report)
+    if technique=='natural' and look:report.update(look_index=int(look_index),look_target_m=np.r_[cube[:2],hover].tolist())
     if placing:report.update(placement_index=placement_index,placement_offset_m=np.asarray(stack_offset if stack_offset is not None else [0,0,0]).tolist())
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
     (folder/'scene.json').write_text(json.dumps(cal.data,indent=2))
