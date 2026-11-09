@@ -722,7 +722,21 @@ def select_object(identifier:str,body:dict):
         return selection
 
 
+def wrist_recheck(folder,report,fresh):
+    """After the Wrist check: the object must still be where the Wrist camera saw it."""
+    from pickplace import load_registry,settle
+    from pickplace_wrist import measure,colour_filter,RECHECK_SHIFT_M,RECHECK_TURN_RAD
+    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text());registry=load_registry()
+    scene=settle(json.loads((folder/'pickplace-scene.json').read_text()),registry,cfg)
+    picked=next(o for o in scene['objects'] if o['id']==scene['pick'])
+    image=folder/f'wrist-recheck-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['wrist']))
+    rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
+    seen=measure(sam,image,cfg,registry,picked,fresh['initial_native'],decode_mask,colour_filter(rgb,picked.get('color')) if picked.get('support','mat')!='mat' else None)
+    if seen['shift_m']>RECHECK_SHIFT_M or abs(seen['turn_rad'])>RECHECK_TURN_RAD:raise ValueError(f"The {picked['kind']} moved {seen['shift_m']*1000:.0f} mm since the Wrist check; capture again")
+
+
 def verify_selected_scene(folder,report,fresh):
+    if report.get('purpose')=='refine':return wrist_recheck(folder,report,fresh)
     if report.get('task')=='pickplace':
         # Every object is segmented again on a fresh image: none may have moved.
         from pickplace_vision import refresh,compare
@@ -746,6 +760,48 @@ def verify_selected_scene(folder,report,fresh):
     rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
     observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present'),rgb=rgb))
     validate_scene_match(report['world'],observed.world)
+
+
+@app.post('/api/plans/{identifier}/refine')
+def refine_after_look(identifier:str):
+    """At the Look pose: measure the picked object with the Wrist camera and start a
+    new capture from this pose with the measured object, to plan and simulate again."""
+    global current
+    from pickplace import load_registry,settle
+    from pickplace_wrist import measure,colour_filter
+    folder=folder_for(identifier)
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if current!=identifier:raise ValueError('This capture was replaced')
+        report=json.loads((folder/'plan.json').read_text())
+        if not (report.get('look_pending') and report.get('executed')):raise ValueError('No Wrist check is pending for this run')
+        if hardware.call('status').get('running'):raise ValueError('Wait for the arm to stop at the Look pose')
+        trace=json.loads((folder/'hardware-trace.json').read_text()) if (folder/'hardware-trace.json').exists() else {}
+        if not trace.get('completed') or trace.get('error'):raise ValueError('The arm did not reach the Look pose: '+str(trace.get('error') or 'motion incomplete'))
+        look=np.load(folder/'plan.npz')['actions'][report['look_index']]
+        fresh=hardware.call('snapshot');q=np.asarray(fresh['initial_native'],float)
+        if np.any(np.abs(q[:5]-look[:5])>4):raise ValueError('The arm is not at the Look pose; return Home and capture again')
+        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text());registry=load_registry()
+        child_id=uuid.uuid4().hex;child=WORK/child_id;child.mkdir()
+        for view,image in fresh['images'].items():(child/f'{view}.jpg').write_bytes(base64.b64decode(image))
+        scene=json.loads((folder/'pickplace-scene.json').read_text());settled=settle(json.loads(json.dumps(scene)),registry,cfg)
+        picked=next(o for o in settled['objects'] if o['id']==settled['pick'])
+        rgb=cv2.cvtColor(cv2.imread(str(child/'wrist.jpg')),cv2.COLOR_BGR2RGB)
+        seen=measure(sam,child/'wrist.jpg',cfg,registry,picked,q,decode_mask,colour_filter(rgb,picked.get('color')) if picked.get('support','mat')!='mat' else None)
+        save_role(child,'wrist-object',seen['result'],child_id)
+        for o in scene['objects']:
+            if o['id']==scene['pick']:o['position']=[seen['position'][0],seen['position'][1],0.];o['yaw']=seen['yaw']
+        refinement={k:v for k,v in seen.items() if k not in ('mask','result')}|{'parent':identifier}
+        scene['wrist_refinement']=refinement
+        (child/'pickplace-scene.json').write_text(json.dumps(scene,indent=2))
+        for name in ['selection.json','planning-options.json']:
+            if (folder/name).exists():(child/name).write_bytes((folder/name).read_bytes())
+        snapshot={k:v for k,v in fresh.items() if k!='images'}
+        snapshot.update(id=child_id,task='pickplace',purpose='refine',parent=identifier,source='live',bowl_present=None)
+        (child/'capture.json').write_text(json.dumps(snapshot,indent=2))
+        report['look_pending']=False;report['wrist_refinement']=refinement;report['refined_capture']=child_id;(folder/'plan.json').write_text(json.dumps(report,indent=2))
+        current=child_id;jobs[child_id]={'id':child_id,'status':'captured','stage':'capture','capture':snapshot}
+        return {'capture':snapshot,'refinement':refinement}
 
 
 def verify_home_scene(folder,reference,report,fresh,cfg):
@@ -805,6 +861,9 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
             validate_vision_age(fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),time.time())
             if latest['stop_generation']!=fresh['stop_generation']:raise ValueError('Stop requested during segmentation')
             saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
+            if report.get('task')=='pickplace' and report.get('look_index') is not None:
+                # Stop still above the object; the Wrist check then re-plans the grasp.
+                payload['stop_index']=int(report['look_index']);report['look_pending']=True
             with stop_lock:
                 if restarting:raise ValueError('Server restarting; execution cancelled')
                 if requested_generation!=stop_generation:raise ValueError('Stop requested during preflight; execution cancelled')

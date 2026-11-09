@@ -203,6 +203,12 @@ class Hardware:
             if actual_hash!=plan['action_hash'] or actual_hash!=plan.get('simulated_action_hash'):
                 raise ValueError('Commands do not match the simulated trajectory')
             if np.max(np.abs(actions[0]-plan['initial_native']))>1e-6:raise ValueError('First command must equal captured pose')
+            stop=plan.get('stop_index')
+            if stop is not None:
+                # Look-then-grasp: run only the verified prefix up to the still Look hold.
+                stop=int(stop)
+                if not 0<stop<len(actions)-1 or np.any(np.abs(actions[stop]-actions[stop-1])>1e-6):raise ValueError('Look stop must be inside a still hold')
+                actions=actions[:stop+1];ts=ts[:stop+1]
             from studio_sam_geometry import validate_vision_age
             validate_vision_age(plan.get('verified_image_captured_at',0),time.time())
             recorder=Recording(ROOT/'output/studio'/plan['id'],self.frames,self.stopped)

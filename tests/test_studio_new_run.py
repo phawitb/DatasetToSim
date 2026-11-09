@@ -131,6 +131,6 @@ def test_new_run_page_defaults_to_full_speed_and_offers_run_all_and_pick_place()
     assert 'id="run-all"' in html and '<option value="pickplace" selected>Pick &amp; place</option>' in html
     js=(ROOT/'web/app.js').read_text()
     # Run all goes through the same endpoints, so every server check still applies.
-    body=js[js.index('async function runAll('):js.index("$('#run-all').onclick")]
+    body=js[js.index('async function planUntilPass('):js.index("$('#run-all').onclick")]
     assert body.index('returnHome(')<body.index('doCapture()')  # Home before every new capture
     assert "operation('execute')" in body and "result.transfer_checks_passed" in body and '/api/plans' not in body

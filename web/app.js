@@ -123,6 +123,57 @@ async function returnHome(check){
    if(Date.now()-started>60000)throw new Error('Home took too long');}
  }
  throw new Error('The arm did not reach Home; capture was not taken.');}
+async function planUntilPass(step,check,recapture){
+ // Plan and simulate repeatedly with other speeds and motion techniques until one passes
+ // every check. Each try is a full plan + contact simulation; nothing is relaxed.
+ const firstTechnique=$('#motion-technique').value,firstSpeed=Number($('#motion-speed').value);
+ const variants=[];
+ for(const technique of [firstTechnique,...['natural','flow','gentle','classic'].filter(t=>t!==firstTechnique)])
+  for(let speed=firstSpeed;speed>=100;speed-=25)variants.push({technique,speed});
+ if(!variants.some(v=>v.speed===100&&v.technique==='classic'))variants.push({technique:'classic',speed:100});
+ let result=null,lastError='';
+ for(const [index,variant] of variants.entries()){
+  check();
+  // Execution needs a capture under 180 s old.
+  if(Date.now()/1000-state.capture.captured_at>130){
+   if(!recapture)throw new Error('The Wrist check is too old to execute; return Home and run again.');
+   step('Capture is getting old · capturing the scene again');if(!await doCapture())throw new Error('Capture failed');if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('SAM could not select From and To on the new capture.');}
+  $('#motion-technique').value=variant.technique;$('#motion-speed').value=String(variant.speed);updateControls();
+  const label=`try ${index+1}/${variants.length} · ${motionLabels[variant.technique]} · ${variant.speed}%`;
+  try{
+   step(`Planning a route around every obstacle · ${label}`);if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
+   step(`Testing the plan in contact physics · ${label}`);if(!await operation('simulate'))throw new Error('Simulation did not start');result=await waitJob('simulate');await showPlan(result);check();
+  }catch(e){if(!state.runAll)throw e;lastError=e.message;result=null;event(`Run all · ${label} failed: ${e.message}`);continue;}
+  if(result.outcome==='success'&&result.transfer_checks_passed)break;
+  lastError=result.outcome!=='success'?'Outcome: '+result.outcome:(result.transfer_check_failures||[]).join('; ');
+  event(`Run all · ${label} did not pass: ${lastError} · trying another plan`);
+  // Going slower only helps a joint that trails its command; otherwise change technique.
+  const failures=result.transfer_check_failures||[];
+  if(!(result.outcome==='success'&&failures.length&&failures.every(f=>f.includes('lower Travel speed')))){
+   const next=variants.findIndex((v,k)=>k>index&&v.technique!==variant.technique);
+   if(next>index+1)variants.splice(index+1,next-index-1);}
+ }
+ if(!result)throw new Error('No plan could be simulated; the robot was not moved. Last error: '+lastError);
+ if(result.outcome!=='success'||!result.transfer_checks_passed){const failures=result.transfer_check_failures||[];const reach=failures.length&&failures.every(f=>f.includes('trails its command'));
+  throw new Error('Simulation did not pass; the robot was not moved. '+(reach?'Every speed and motion technique left a joint trailing its command, so slowing down does not help: the object or its destination is probably too far from the robot (beyond about 30 cm). Move it closer and try again. ':'')+(failures.join('; ')||'Outcome: '+result.outcome));}
+ if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
+ return result;}
+async function waitExecution(check){
+ // Until the hardware run of the current capture has finished and been recorded.
+ const id=state.capture?.id;
+ for(let tries=0;tries<400;tries++){await new Promise(r=>setTimeout(r,500));check();const status=await api('/api/status');const job=status.job;
+  if(!status.robot.running&&job?.id===id&&job.stage==='execute'&&['complete','error'].includes(job.status)){if(job.status==='error')throw new Error(job.error);return job.plan;}}
+ throw new Error('The arm did not finish in time');}
+async function lookAndGrasp(step,check){
+ // The arm is still above the object: measure it with the Wrist camera, then plan,
+ // simulate and execute the rest from the measured pose.
+ const parent=state.capture.id;await waitExecution(check);check();
+ step('Wrist camera check · segmenting the object right above it');
+ const result=await api(`/api/plans/${parent}/refine`,{});const r=result.refinement;
+ event(`Wrist check · object ${(r.shift_m*1000).toFixed(1)} mm${r.turn_rad?` and ${(Math.abs(r.turn_rad)*180/Math.PI).toFixed(1)}° turn`:''} from the top-camera estimate · fit ${r.rmse_px.toFixed(1)} px`);
+ state.request++;state.capture=result.capture;state.activeCapture=result.capture.id;state.plan=null;history.replaceState(null,'','?run='+result.capture.id);await capturedImage().catch(()=>{});updateControls();
+ await planUntilPass(t=>step('Wrist-checked grasp · '+t),check,false);
+ step('Executing the Wrist-checked grasp and place · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');}
 async function runAll(){
  if(state.runAll||state.busy||state.selecting||state.robot.running)return;state.runAll=true;updateControls();
  const step=text=>{$('#run-all-status').textContent=text;event('Run all · '+text);},check=()=>{if(!state.runAll)throw new Error('Run all stopped');};
@@ -131,38 +182,10 @@ async function runAll(){
   const reuse=state.page==='new'&&state.capture?.source==='live'&&state.capture.id===state.activeCapture&&!state.plan?.executed&&Date.now()/1000-state.capture.captured_at<90&&selectionRoles().every(r=>state.selection?.[r]);
   if(!reuse){step('1/5 Returning Home so the camera sees the whole mat');await returnHome(check);check();step('2/5 Capturing scene and selecting objects with SAM');if(!await doCapture())throw new Error('Capture failed');}
   check();if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('Choose From and To in the camera image, then press Run all again. Run all keeps your choice on later captures.');
-  // Plan and simulate repeatedly with other speeds and motion techniques until one passes
-  // every check. Each try is a full plan + contact simulation; nothing is relaxed.
-  const firstTechnique=$('#motion-technique').value,firstSpeed=Number($('#motion-speed').value);
-  const variants=[];
-  for(const technique of [firstTechnique,...['natural','flow','gentle','classic'].filter(t=>t!==firstTechnique)])
-   for(let speed=firstSpeed;speed>=100;speed-=25)variants.push({technique,speed});
-  if(!variants.some(v=>v.speed===100&&v.technique==='classic'))variants.push({technique:'classic',speed:100});
-  let result=null,lastError='';
-  for(const [index,variant] of variants.entries()){
-   check();
-   // Execution needs a capture under 180 s old: take a fresh one (arm is still at Home) before it expires.
-   if(Date.now()/1000-state.capture.captured_at>130){step('Capture is getting old · capturing the scene again');if(!await doCapture())throw new Error('Capture failed');if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('SAM could not select From and To on the new capture.');}
-   $('#motion-technique').value=variant.technique;$('#motion-speed').value=String(variant.speed);updateControls();
-   const label=`try ${index+1}/${variants.length} · ${motionLabels[variant.technique]} · ${variant.speed}%`;
-   try{
-    step(`3/5 Planning a route around every obstacle · ${label}`);if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
-    step(`4/5 Testing the plan in contact physics · ${label}`);if(!await operation('simulate'))throw new Error('Simulation did not start');result=await waitJob('simulate');await showPlan(result);check();
-   }catch(e){if(!state.runAll)throw e;lastError=e.message;result=null;event(`Run all · ${label} failed: ${e.message}`);continue;}
-   if(result.outcome==='success'&&result.transfer_checks_passed)break;
-   lastError=result.outcome!=='success'?'Outcome: '+result.outcome:(result.transfer_check_failures||[]).join('; ');
-   event(`Run all · ${label} did not pass: ${lastError} · trying another plan`);
-   // Going slower only helps a joint that trails its command; otherwise change technique.
-   const failures=result.transfer_check_failures||[];
-   if(!(result.outcome==='success'&&failures.length&&failures.every(f=>f.includes('lower Travel speed')))){
-    const next=variants.findIndex((v,k)=>k>index&&v.technique!==variant.technique);
-    if(next>index+1)variants.splice(index+1,next-index-1);}
-  }
-  if(!result)throw new Error('No plan could be simulated; the robot was not moved. Last error: '+lastError);
-  if(result.outcome!=='success'||!result.transfer_checks_passed){const failures=result.transfer_check_failures||[];const reach=failures.length&&failures.every(f=>f.includes('trails its command'));
-   throw new Error('Simulation did not pass; the robot was not moved. '+(reach?'Every speed and motion technique left a joint trailing its command, so slowing down does not help: the object or its destination is probably too far from the robot (beyond about 30 cm). Move it closer and try again. ':'')+(failures.join('; ')||'Outcome: '+result.outcome));}
-  if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
-  step('5/5 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');
+  const result=await planUntilPass(t=>step('3–4/5 '+t),check,true);
+  const look=result.look_index!==undefined&&result.look_index!==null;
+  step(look?'5/5 Moving above the object for the Wrist camera check · Esc or Stop motion halts it':'5/5 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');
+  if(look)await lookAndGrasp(step,check);
   step('Running on the robot · same actions and timing as the simulation');
  }catch(e){if(state.runAll||e.message!=='Run all stopped')toast(e.message,true);$('#run-all-status').textContent='Run all stopped: '+e.message;}
  finally{state.runAll=false;updateControls();}}
@@ -227,7 +250,10 @@ $('#timeline').oninput=()=>{const f=Number($('#timeline').value);if(video.getAtt
 async function prepareArm(command){try{state.busy=true;updateControls();const result=await api('/api/robot/'+command,{});state.capture=null;$('#run-summary').classList.add('hidden');history.replaceState(null,'','/?page=new');state.selection=null;masks={};state.plan=null;realImage=null;simImage=null;state.lastJob='';$('#plan-result').classList.add('hidden');$('#source').value='live';setMode('live');sourceChanged();if(result.already_home){state.busy=false;event('Already Home · capture a new scene');}else if(command==='home'){state.busy=false;event(result.homing?`Returning Home directly · ${Math.round(result.duration_s)} s · no camera or collision checks`:'Returning Home…');}else{state.robot=result;state.busy=false;event(command==='torque_off'?'Torque off · support and position the arm by hand':'Torque on · holding current pose · capture a new scene');}}catch(e){state.busy=false;toast(e.message,true);}updateControls();}
 $('#home').onclick=()=>prepareArm('home');$('#torque-off').onclick=()=>prepareArm('torque_off');$('#torque-on').onclick=()=>prepareArm('torque_on');
 $('#motion-speed').oninput=$('#motion-technique').onchange=$('#motion-timing').onchange=()=>{updateControls();if(motionMismatch()){setVideo(null);blank('sim','Motion settings changed · generate a new plan');setOutcome('plan needs update');}};
-$('#capture').onclick=doCapture;$('#plan').onclick=()=>operation('plan');$('#simulate').onclick=()=>operation('simulate');$('#execute').onclick=()=>operation('execute');$('#connect').onclick=async()=>{try{$('#connect').disabled=true;const command=state.robot.connected?'disconnect':'connect';event(command==='connect'?'Connecting SO-101 and camera streams…':'Releasing hardware connection with torque retained…');state.robot=await api('/api/robot/'+command,{});toast(command==='connect'?'SO-101 connected. Ready to capture.':'Robot disconnected; servo torque retained.');}catch(e){toast(e.message,true);}finally{updateControls();}};
+$('#capture').onclick=doCapture;$('#plan').onclick=()=>operation('plan');$('#simulate').onclick=()=>operation('simulate');$('#execute').onclick=async()=>{const look=state.plan?.look_index!==undefined&&state.plan?.look_index!==null;if(!await operation('execute')||!look)return;
+ // Execute also finishes a Wrist-checked grasp: stop above the object, measure, re-plan, simulate, run.
+ state.runAll=true;updateControls();const step=text=>{$('#run-all-status').textContent=text;event(text);},check=()=>{if(!state.runAll)throw new Error('Stopped');};
+ try{await lookAndGrasp(step,check);step('Running on the robot · same actions and timing as the simulation');}catch(e){if(e.message!=='Stopped')toast(e.message,true);$('#run-all-status').textContent='Stopped: '+e.message;}finally{state.runAll=false;updateControls();}};$('#connect').onclick=async()=>{try{$('#connect').disabled=true;const command=state.robot.connected?'disconnect':'connect';event(command==='connect'?'Connecting SO-101 and camera streams…':'Releasing hardware connection with torque retained…');state.robot=await api('/api/robot/'+command,{});toast(command==='connect'?'SO-101 connected. Ready to capture.':'Robot disconnected; servo torque retained.');}catch(e){toast(e.message,true);}finally{updateControls();}};
 async function stop(){if(state.runAll){state.runAll=false;$('#run-all-status').textContent='Run all stopped.';}try{await api('/api/robot/stop',{});toast('Motion stopped. Holding measured pose.');event('Software stop requested · future commands cancelled.');}catch(e){toast(e.message,true);}}$('#stop').onclick=stop;document.addEventListener('keydown',e=>{if(e.key==='Escape')stop();});
 
 function applyLayout(){

@@ -210,7 +210,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # Live cube grasps stop above the cube so the Wrist camera can measure it closely
     # (position and turn); the rest of the grasp is then planned and simulated again.
     look=(technique=='natural' and capture.get('source')=='live' and capture.get('purpose')!='refine' and not tape
-          and capture.get('task') in ('bowl','stack','unstack','pickplace'))
+          and capture.get('task') in ('bowl','stack','unstack','pickplace') and not (pp and pp['kind']=='bowl'))
     if look:waypoint('Look',waypoints[-1][0].copy(),.8)
     if technique=='natural':
         # End the coordinated travel above contact height. The short final
