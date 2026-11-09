@@ -39,8 +39,33 @@ def interpolate_native(waypoints,speed_scale=1.,derivative_limits=None):
     return np.array(result),np.arange(len(result))/30
 
 
-def load_scene(folder):
+def load_pickplace_scene(folder,capture,config,candidate=None):
+    """Pick-and-place: every object is a free body; the spec comes from the contact registry."""
+    import copy
+    from episode0 import Calibration
+    from pickplace import load_registry,settle,build_model as pickplace_model,plan_spec
+    registry=load_registry();scene=json.loads((folder/'pickplace-scene.json').read_text())
+    capture.update(selection_revision=scene.get('selection_revision'))
+    settle(scene,registry,config)
+    if candidate is None:candidate=int(scene.get('grasp_candidate',0))
+    cal=Calibration(ROOT/'calibration/native-action-current.json',copy.deepcopy(config['base_calibration']))
+    bowl=next((o for o in scene['objects'] if o['kind']=='bowl'),None)
+    if bowl:cal.world['bowl']['position']=list(bowl['position']);cal.world['bowl']['quaternion']=[float(np.cos(bowl.get('yaw',0)/2)),0.,0.,float(np.sin(bowl.get('yaw',0)/2))]
+    picked=next(o for o in scene['objects'] if o['id']==scene.get('pick'))
+    shape=registry['objects'][picked['kind']]['shape']
+    cal.world['cube']=dict(position=list(picked['position']),quaternion=[float(np.cos(picked.get('yaw',0)/2)),0.,0.,float(np.sin(picked.get('yaw',0)/2))],
+                           size=float(shape['size_m'][2] if shape['type']=='box' else shape['height_m']),kind=picked['kind'])
+    spec=plan_spec(scene,registry,config,candidate)
+    model=pickplace_model(cal,config,scene,registry)
+    cal.world['pickplace']=spec;cal.world['objects']=scene['objects']
+    return capture,config,scene,cal,model
+
+
+def load_scene(folder,candidate=None):
     capture=json.loads((folder/'capture.json').read_text())
+    if capture.get('task')=='pickplace':
+        config=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        return load_pickplace_scene(folder,capture,config,candidate)
     if capture.get('source')=='synthetic':
         from studio_generation_scene import load_generation_scene
         return load_generation_scene(folder)
@@ -57,12 +82,12 @@ def load_scene(folder):
     return capture,config,scene,cal,build_model(cal,config)
 
 
-def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1.,timing_profile=None,hover_extra=0.,grasp_turn=None):
+def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1.,timing_profile=None,hover_extra=0.,grasp_turn=None,grasp_candidate=None):
     """`hover_extra` raises the travel height and `grasp_turn` (0 or 1) closes the jaws
     across a chosen cube face pair; both only change the route around obstacles."""
     validate_technique(technique)
     speed_scale=validate_speed_scale(speed_scale)
-    capture,config,scene,cal,m=load_scene(folder)
+    capture,config,scene,cal,m=load_scene(folder) if grasp_candidate is None else load_scene(folder,grasp_candidate)
     adapter=NativeJointAdapter(**config['adapter']); limits=native_limits(config)
     initial=np.array(capture['initial_native'],float); current=adapter.to_model(initial)
     d=mujoco.MjData(m)
@@ -84,9 +109,20 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     open_grip,release_grip,close_grip=35.,40.,0.
     from tape_object import is_tape,grasp_width,jaw_openings,FIXED_PAD_RADIUS_M
     tape=is_tape(cal.world)
+    pp=cal.world.get('pickplace')
+    if pp:
+        # One algorithm for every object: grasp, carry and place from the contact registry.
+        g=pp['grasp'];tape=g['pads']=='fixed_in_hole'
+        cube=np.array(g['xyz'],float)
+        placing=pp['place']['release']=='lower' and not tape
+        placement=np.r_[pp['place']['pad_xy'],0.]
+        if stack_offset is not None:placement+=np.asarray(stack_offset,float)
+        if not tape and g['native']!='from_width':open_grip,close_grip,release_grip=float(g['native']['open']),float(g['native']['close']),float(g['native']['release'])
     if tape:
         # The roll is grasped through its hole: the jaws pinch its 13.5 mm wall.
         aperture,open_grip,close_grip,release_grip=jaw_openings(m,d,adapter,current,grasp_width())
+    elif pp and pp['grasp']['native']=='from_width':
+        aperture,open_grip,close_grip,release_grip=jaw_openings(m,d,adapter,current,pp['grasp']['width_m'])
     def center(q):
         if tape:
             # Fixed jaw in the core hole, moving jaw outside: the reference point is the
@@ -104,8 +140,9 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # Generated scenes may rotate cubes freely: close the jaws across a face pair
     # (any multiple of 90 deg). Real New Run scenes keep the original roll rule.
     # A hand-stacked top cube is often turned: close the jaws across its own faces.
-    align=bool(cal.world.get('align_grasp_yaw',False)) or (grasp_turn is not None and not tape) or (unstacking and capture.get('source')=='live')
+    align=bool(cal.world.get('align_grasp_yaw',False)) or (grasp_turn is not None and not tape) or (unstacking and capture.get('source')=='live') or bool(pp)
     wrap90=lambda a:(a+np.pi/4)%(np.pi/2)-np.pi/4
+    if pp:wrap90=lambda a:(a+np.pi/2)%np.pi-np.pi/2  # registry jaw axes are exact (period 180°: two symmetric pads)
     start=center(current).copy()
     reference=np.array([0.,-20.,65.,45.,0.,0.])
     # Use a recorded successful grasp posture only as the IK branch seed.
@@ -119,6 +156,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # aperture center and otherwise closes around both stacked cubes.
     grasp_z=max(cube[2]+(.022 if unstacking else .006 if tape else .010), .024)
     hover=max(.12,grasp_z+.09,bowl[2]+cal.world['bowl']['height']+.065)
+    if pp:grasp_z=max(pp['grasp']['z_cmd'],.024);hover=pp['hover_m']
     # Travel high enough to carry the object over every obstacle top as well.
     for item in cal.world.get('obstacles',[]):
         top=item['position'][2]+(item['height'] if item['kind']=='bowl' else item.get('height',item.get('width',item.get('size',0.)))/2)
@@ -167,11 +205,12 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     source_yaw=yaw_of(cal.world['cube'])+(np.pi/2*grasp_turn if grasp_turn and not tape else 0.)
     # Stacking turns the held cube to the lower cube's faces; other placements are free.
     place_yaw=yaw_of(cal.world['target_cube']) if stacking else None
+    if pp:source_yaw=pp['grasp']['jaw_yaw'];place_yaw=pp['place']['yaw']
     add('Open above cube',np.r_[cube[:2],hover],open_grip,reference,1.5,yaw=source_yaw)
     # Live cube grasps stop above the cube so the Wrist camera can measure it closely
     # (position and turn); the rest of the grasp is then planned and simulated again.
     look=(technique=='natural' and capture.get('source')=='live' and capture.get('purpose')!='refine' and not tape
-          and capture.get('task') in ('bowl','stack','unstack'))
+          and capture.get('task') in ('bowl','stack','unstack','pickplace'))
     if look:waypoint('Look',waypoints[-1][0].copy(),.8)
     if technique=='natural':
         # End the coordinated travel above contact height. The short final
@@ -183,25 +222,27 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     add('Lift',np.r_[cube[:2],hover],close_grip,seconds=1.5,yaw=source_yaw)
     add('Transfer',np.r_[placement[:2],hover],close_grip,seconds=2.,yaw=place_yaw)
     if placing:
-        place_z=grasp_z+(placement[2]-cube[2])+(cal.world['target_cube']['size'] if stacking else 0)+.005
-        add('Lower onto cube' if stacking else 'Lower onto table',np.r_[placement[:2],place_z],0.,seconds=2.,yaw=place_yaw)
+        place_z=pp['place']['pad_z']+(stack_offset[2] if stack_offset is not None else 0.) if pp else grasp_z+(placement[2]-cube[2])+(cal.world['target_cube']['size'] if stacking else 0)+.005
+        add('Lower onto cube' if stacking else 'Lower onto table',np.r_[placement[:2],place_z],close_grip,seconds=2.,yaw=place_yaw)
         waypoint('Placement settle',waypoints[-1][0].copy(),.7)
         placement_knot=len(waypoints)-1
-        add('Release on cube' if stacking else 'Release on table',np.r_[placement[:2],place_z],40.,seconds=1.5,yaw=place_yaw)
+        add('Release on cube' if stacking else 'Release on table',np.r_[placement[:2],place_z],release_grip if pp else 40.,seconds=1.5,yaw=place_yaw)
         add('Retreat',np.r_[placement[:2],hover],40.,seconds=2.)
         return_home()
     elif tape:
         # The roll hangs on the fixed jaw through its hole, so it cannot be dropped:
         # lower it onto the bowl floor, open a little, then lift the jaw out.
         place_z=grasp_z+config['estimates']['bowl_floor_thickness_m']+.006
-        add('Lower into bowl',np.r_[bowl[:2],place_z],close_grip,seconds=2.)
+        target=bowl[:2]
+        if pp:place_z=pp['place']['pad_z']+.001;target=placement[:2]
+        add('Lower into bowl',np.r_[target,place_z],close_grip,seconds=2.)
         waypoint('Placement settle',waypoints[-1][0].copy(),.5)
-        add('Release in bowl',np.r_[bowl[:2],place_z],release_grip,seconds=1.)
+        add('Release in bowl',np.r_[target,place_z],release_grip,seconds=1.)
         # Not a travel stage: speed scaling never hurries the jaw out of the core.
-        add('Lift out of roll',np.r_[bowl[:2],hover],release_grip,seconds=2.)
+        add('Lift out of roll',np.r_[target,hover],release_grip,seconds=2.)
         return_home()
     else:
-        add('Release',np.r_[bowl[:2],hover],release_grip,seconds=1.)
+        add('Release',np.r_[(placement if pp else bowl)[:2],hover],release_grip,seconds=1.)
         return_home()
     # Compare against the original Classic route, not Natural's added grasp guards.
     classic_actions,classic_times=interpolate_native([w for w,name in zip(waypoints,names) if name not in {'Pregrasp','Grasp settle'}])
@@ -265,15 +306,22 @@ def render_preview(model,q,path):
 def _prepare_route(folder,technique,speed_scale,timing_profile,hover_extra=0.,grasp_turn=None):
     """One route: plan, and for stack/unstack correct the release against the held object."""
     from studio_stack import predicted_held_position
-    route=dict(hover_extra=hover_extra,grasp_turn=grasp_turn)
+    pickplace=json.loads((folder/'capture.json').read_text()).get('task')=='pickplace'
+    # Pick-and-place routes choose a registry grasp candidate instead of a cube face turn.
+    route=dict(hover_extra=hover_extra,grasp_candidate=grasp_turn or 0) if pickplace else dict(hover_extra=hover_extra,grasp_turn=grasp_turn)
+    grasp_index=route.get('grasp_candidate')
     report=plan(folder,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile,**route)
-    if report.get('task') in {'stack','unstack'}:
+    if report.get('task') in {'stack','unstack'} or (pickplace and 'placement_index' in report):
         offset=np.zeros(3);iterations=[]
         stacking=report['task']=='stack'
-        goal=np.asarray(report['world']['target_cube' if stacking else 'placement']['position'],float).copy()
-        goal[2]+=(report['world']['target_cube']['size'] if stacking else 0)+.004
+        if pickplace:
+            spec=report['world']['pickplace']
+            goal=np.r_[spec['place']['xy'],spec['place']['bottom_z']+spec['picked_bottom_offset_m']+.004]
+        else:
+            goal=np.asarray(report['world']['target_cube' if stacking else 'placement']['position'],float).copy()
+            goal[2]+=(report['world']['target_cube']['size'] if stacking else 0)+.004
         for attempt in range(5):
-            capture,config,scene,cal,model=load_scene(folder);adapter=NativeJointAdapter(**config['adapter']);saved=np.load(folder/'plan.npz')
+            capture,config,scene,cal,model=load_scene(folder,grasp_index);adapter=NativeJointAdapter(**config['adapter']);saved=np.load(folder/'plan.npz')
             held=predicted_held_position(model,adapter,capture['initial_native'],saved['actions'],saved['timestamps'],report['placement_index'])
             error=goal-held;iterations.append({'offset_m':offset.tolist(),'held_center_m':held.tolist(),'goal_m':goal.tolist(),'error_m':error.tolist()})
             if np.linalg.norm(error[:2])<.0015 and abs(error[2])<.002:break
@@ -283,14 +331,26 @@ def _prepare_route(folder,technique,speed_scale,timing_profile,hover_extra=0.,gr
             offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile,**route)
         report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':.004}
         (folder/'plan.json').write_text(json.dumps(report,indent=2))
+    if pickplace:
+        report['grasp_candidate']=grasp_index;(folder/'plan.json').write_text(json.dumps(report,indent=2))
     return report
 
 
-def planned_obstacle_clearance(folder):
+def pickplace_obstacles(model,world):
+    """Geoms the arm and the carried object must clear: every object that stays put,
+    except the destination and the support the picked object starts on."""
+    spec=world['pickplace'];objects={o['id']:o for o in world['objects']}
+    picked=objects[spec['pick']];skip={spec['place'].get('object'),picked.get('support'),*spec['carried']}
+    bodies={o['body'] for o in world['objects'] if o['id']!=spec['pick'] and o['id'] not in skip and o.get('body')}
+    ids=[mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,b) for b in bodies]
+    return [g for g in range(model.ngeom) if model.geom_bodyid[g] in ids and (model.geom_contype[g] or model.geom_conaffinity[g])]
+
+
+def planned_obstacle_clearance(folder,candidate=None):
     """Clearance of the commanded route (object carried rigidly) from every obstacle."""
     from studio_stack import obstacle_geoms,obstacle_clearance,planned_frames,OBSTACLE_PLAN_MARGIN_M
-    capture,config,scene,cal,model=load_scene(folder);adapter=NativeJointAdapter(**config['adapter'])
-    obstacles=obstacle_geoms(model,cal.world,capture.get('task'))
+    capture,config,scene,cal,model=load_scene(folder,candidate);adapter=NativeJointAdapter(**config['adapter'])
+    obstacles=pickplace_obstacles(model,cal.world) if 'pickplace' in cal.world else obstacle_geoms(model,cal.world,capture.get('task'))
     if not obstacles:return None
     actions=np.load(folder/'plan.npz')['actions']
     return obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,OBSTACLE_PLAN_MARGIN_M)
@@ -311,10 +371,13 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
         def clear(c):return c['cleared']
         def distance(c):return c['slack_m']
         attempts=[];chosen=None;routes=[(0.,None),(.04,None),(0.,0),(0.,1),(.04,0),(.04,1)]
+        if capture.get('task')=='pickplace':
+            count=load_scene(folder)[3].world['pickplace']['candidate_count']
+            routes=[(extra,c) for c in range(min(count,7)) for extra in (0.,.04)]
         for extra,turn in routes:
             try:
                 report=_prepare_route(folder,technique,speed_scale,timing_profile,extra,turn)
-                c=planned_obstacle_clearance(folder)
+                c=planned_obstacle_clearance(folder,turn if capture.get('task')=='pickplace' else None)
             except ValueError as exc:
                 # Another route may avoid what blocked this one (e.g. a jaw on an obstacle).
                 attempts.append({'hover_extra_m':extra,'grasp_turn':turn,'error':str(exc)});continue
@@ -331,13 +394,13 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
             report['obstacle_planning']={'method':'Commanded joints with the object carried rigidly; static obstacle collision geometry; contact physics still decides',
                                          'margin_m':OBSTACLE_PLAN_MARGIN_M,'chosen':chosen,'cleared':clear(best),'attempts':attempts}
             (folder/'plan.json').write_text(json.dumps(report,indent=2))
-    capture,config,scene,cal,model=load_scene(folder)
+    capture,config,scene,cal,model=load_scene(folder,report.get('grasp_candidate'))
     if preview:render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
     return report
 
 
 def simulate(folder):
-    report=json.loads((folder/'plan.json').read_text()); capture,config,scene,cal,m=load_scene(folder)
+    report=json.loads((folder/'plan.json').read_text()); capture,config,scene,cal,m=load_scene(folder,report.get('grasp_candidate'))
     adapter=NativeJointAdapter(**config['adapter']); saved=np.load(folder/'plan.npz');actions=saved['actions'];ts=saved['timestamps']
     if array_hash(actions)!=report['action_hash']: raise ValueError('Plan changed since generation')
     if 'timestamp_hash' in report and array_hash(ts)!=report['timestamp_hash']:raise ValueError('Plan timing changed since generation')
@@ -346,7 +409,10 @@ def simulate(folder):
     states=np.tile(report['initial_native'],(len(actions),1))
     ep=Episode(-1,np.arange(len(actions)),np.arange(len(actions)),ts,states,actions,{})
     trace=integrate_actions(m,ep,adapter)
-    if report.get('task')=='stack':
+    if report.get('task')=='pickplace':
+        from pickplace import verdict,load_registry
+        inside=None;outcome,assessment=verdict(m,trace,scene,cal.world['pickplace'],load_registry(),config);report['pickplace_assessment']=assessment
+    elif report.get('task')=='stack':
         inside=None;stack=stack_verdict(trace,cal.world['cube']['size']);outcome=stack['outcome'];report['stack_assessment']=stack
     elif report.get('task')=='unstack':
         from studio_generation_scene import unstack_verdict,_table_support
@@ -355,7 +421,8 @@ def simulate(folder):
         outcome=assessment['outcome'];report['unstack_assessment']=assessment
     else:
         inside=containment(m,trace['qpos'][-1],trace['cube_pose'][-1],cal,config);outcome=score(trace,inside)
-    collision={k:v for k,v in trace['audit']['contact_audit'].items() if k!='cube'}
+    # Objects touching objects (resting, stacking) are judged by the verdict, not as collisions.
+    collision={k:v for k,v in trace['audit']['contact_audit'].items() if k not in ('cube','objects')}
     tracking=np.abs(adapter.to_native(trace['qpos'][1:])-actions);peak=np.max(tracking,axis=0)
     failures=[]
     if trace['audit']['initial_max_penetration_m']>.001:failures.append(f"Arm touches the table at the start ({trace['audit']['initial_max_penetration_m']*1000:.1f} mm): return Home and capture again")
@@ -368,7 +435,7 @@ def simulate(folder):
     for joint,(value,limit) in enumerate(zip(peak,limits)):
         if value>limit:failures.append(f"{JOINT_LABELS[joint]} trails its command by {value:.1f}° (limit {limit:.0f}°): lower Travel speed")
     from studio_stack import obstacle_geoms,obstacle_clearance,trace_frames,OBSTACLE_SIM_MARGIN_M
-    blocked=obstacle_geoms(m,cal.world,report.get('task'))
+    blocked=[] if report.get('task')=='pickplace' else obstacle_geoms(m,cal.world,report.get('task'))
     if blocked:
         # Arm and carried object must stay clear of every obstacle in the contact trace.
         clearance=obstacle_clearance(m,trace_frames(m,trace),blocked,OBSTACLE_SIM_MARGIN_M)
@@ -382,6 +449,7 @@ def simulate(folder):
                   simulated_action_hash=array_hash(trace['native_action_applied']),simulated_timestamp_hash=array_hash(ts),simulated_speed_scale=report.get('speed_scale',1.),
                   simulated_timing_profile=report.get('timing_profile','conservative'),simulated_timing_contract_hash=report.get('timing_contract_hash'))
     extra={k:trace[k] for k in ['target_pose','target_velocity'] if k in trace}
+    for joint,values in trace.get('object_poses',{}).items():extra['object_'+joint]=values
     np.savez_compressed(folder/'trace.npz',qpos=trace['qpos'],cube_pose=trace['cube_pose'],native=adapter.to_native(trace['qpos']),timestamps=trace['sample_times'],**extra)
     # Save the physical verdict even if the graphics environment fails.
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
@@ -406,6 +474,8 @@ def render_trace(m,trace,folder):
                 d.qpos[:6]=q;d.qpos[cube_addr:cube_addr+7]=cube;mujoco.mj_forward(m,d)
                 if 'target_pose' in trace:
                     address=m.joint('target_cube_free').qposadr[0];d.qpos[address:address+7]=trace['target_pose'][index];mujoco.mj_forward(m,d)
+                for joint,values in trace.get('object_poses',{}).items():
+                    address=m.joint(joint).qposadr[0];d.qpos[address:address+7]=values[index];mujoco.mj_forward(m,d)
                 frames=[]
                 for view in ['top_cam','wrist_cam']:
                     renderer.update_scene(d,camera=view,scene_option=option);frames.append(renderer.render().copy())

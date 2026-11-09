@@ -48,12 +48,13 @@ def validate_pair(a,b):
     if np.count_nonzero(a&b)/min(a.sum(),b.sum())>.1:raise ValueError('Choose different objects for From and To')
 
 
-def project_box(camera,xy_yaw,edge,support,height):
-    """Image hull of an edge × edge × height box (two stacked cubes) on `support`."""
+def project_box(camera,xy_yaw,edge,support,height,width=None):
+    """Image hull of an edge × (width or edge) × height box on `support`."""
     import itertools
     from scipy.spatial import ConvexHull
     from scipy.spatial.transform import Rotation
-    corners=np.array(list(itertools.product([-edge/2,edge/2],[-edge/2,edge/2],[0,height])))
+    width=edge if width is None else width
+    corners=np.array(list(itertools.product([-edge/2,edge/2],[-width/2,width/2],[0,height])))
     world=corners@Rotation.from_euler('z',xy_yaw[2]).as_matrix().T+[xy_yaw[0],xy_yaw[1],support]
     rotation=Rotation.from_quat(np.array(camera['quaternion'])[[1,2,3,0]]).as_matrix()
     points=(world-np.array(camera['position']))@rotation@np.diag([1,-1,-1])
@@ -61,11 +62,11 @@ def project_box(camera,xy_yaw,edge,support,height):
     return pixels[ConvexHull(pixels).vertices]
 
 
-def fit_mask_pose(mask,camera,initial,edge,support,height=None):
-    """Cube (or, with `height`, a stacked box) pose fit to the SAM silhouette."""
+def fit_mask_pose(mask,camera,initial,edge,support,height=None,width=None):
+    """Cube (or, with `height`/`width`, any upright box) pose fit to the SAM silhouette."""
     from scipy.optimize import least_squares
     from dataset_to_sim.scene_estimation import project_cube as _cube,_sample,_distance
-    project_cube=(lambda camera,pose,edge,support:project_box(camera,pose,edge,support,height)) if height else _cube
+    project_cube=(lambda camera,pose,edge,support:project_box(camera,pose,edge,support,height or edge,width)) if (height or width) else _cube
     contours,_=cv2.findContours(np.asarray(mask,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     observed=cv2.convexHull(max(contours,key=cv2.contourArea))[:,0,:].astype(float);points=_sample(observed)
     def residual(pose):

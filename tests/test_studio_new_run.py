@@ -125,10 +125,10 @@ def test_capture_accepts_unstack_and_leaves_bowl_to_the_selection(tmp_path,monke
     assert client.post('/api/capture',json={'task':'unstack','source':'dataset'},headers=headers).status_code==409
 
 
-def test_new_run_page_defaults_to_full_speed_and_offers_run_all_and_unstack():
+def test_new_run_page_defaults_to_full_speed_and_offers_run_all_and_pick_place():
     html=(ROOT/'web/index.html').read_text()
     assert 'id="motion-speed" type="range" min="50" max="150" step="5" value="150"' in html
-    assert 'id="run-all"' in html and '<option value="unstack">Unstack cube</option>' in html
+    assert 'id="run-all"' in html and '<option value="pickplace" selected>Pick &amp; place</option>' in html
     js=(ROOT/'web/app.js').read_text()
     # Run all goes through the same endpoints, so every server check still applies.
     body=js[js.index('async function runAll('):js.index("$('#run-all').onclick")]

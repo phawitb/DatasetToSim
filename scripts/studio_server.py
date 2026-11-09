@@ -101,6 +101,19 @@ def generation_spatial_coverage(identifier:str):
 @app.get('/api/objects')
 def objects_catalog():return object_catalog()
 
+@app.get('/api/affordances')
+def affordances():
+    from pickplace import load_registry
+    return load_registry()
+
+@app.post('/api/affordances')
+def save_affordances(body:dict):
+    """Contact areas edited on the 3D-Objects page; validated before New Run uses them."""
+    from pickplace import save_registry
+    with operation_lock:
+        if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current plan or simulation to finish')
+        return save_registry(body)
+
 @app.get('/api/objects/{identifier}/thumbnail')
 def objects_thumbnail(identifier:str):return Response(object_thumbnail(identifier),media_type='image/png')
 
@@ -574,8 +587,9 @@ def folder_for(identifier):
 def capture(body:dict):
     global current
     with operation_lock:
-        task=body.get('task','bowl')
-        if task not in ['bowl','stack','unstack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube, Unstack cube or Place tape in bowl')
+        task=body.get('task','pickplace' if body.get('source','live')=='live' else 'bowl')
+        if task not in ['pickplace','bowl','stack','unstack','tape']:raise ValueError('Choose Pick & place')
+        if task=='pickplace' and body.get('source','live')!='live':raise ValueError('Pick & place requires a live capture')
         if 'bowl_present' in body and not isinstance(body['bowl_present'],bool):raise ValueError('Bowl presence must be true or false')
         if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
@@ -632,12 +646,22 @@ def invalidate_plan(folder,identifier,capture):
 
 
 @app.post('/api/captures/{identifier}/auto_select')
-def auto_select_objects(identifier:str):
+def auto_select_objects(identifier:str,body:dict|None=None):
     """SAM every modelled object after Capture: From, To and all obstacles."""
     folder=folder_for(identifier)
     with operation_lock:
         capture=selection_guard(folder,identifier)
         cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        if capture.get('task')=='pickplace':
+            from pickplace_vision import detect,remap,scene_file
+            selection=detect(sam,folder,cfg,decode_mask)
+            # Run all re-captures: keep the user's From/To on the same objects.
+            remap(selection,(body or {}).get('previous'),cfg)
+            (folder/'selection.json').write_text(json.dumps(selection,indent=2))
+            if selection.get('from') and selection.get('to'):scene_file(folder,selection,cfg)
+            else:(folder/'pickplace-scene.json').unlink(missing_ok=True)
+            invalidate_plan(folder,identifier,capture)
+            return selection
         selection=auto_selection(sam,folder,capture.get('task','bowl'),cfg)
         invalidate_plan(folder,identifier,capture)
         return selection
@@ -653,6 +677,16 @@ def select_object(identifier:str,body:dict):
         capture=selection_guard(folder,identifier)
         cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
         path=folder/'selection.json';selection=json.loads(path.read_text()) if path.exists() else {}
+        if capture.get('task')=='pickplace':
+            from pickplace_vision import choose,scene_file
+            if role not in ['from','to']:raise ValueError('Choose From or To')
+            choose(selection,folder,role,body.get('point'),cfg)
+            selection['revision']=uuid.uuid4().hex
+            path.write_text(json.dumps(selection,indent=2))
+            if selection.get('from') and selection.get('to'):scene_file(folder,selection,cfg)
+            else:(folder/'pickplace-scene.json').unlink(missing_ok=True)
+            invalidate_plan(folder,identifier,capture)
+            return selection
         if 'obstacle' in selection and 'objects' not in selection:selection['objects']=[{**selection.pop('obstacle'),'kind':'bowl'}]
         revision=uuid.uuid4().hex
         if role=='to' and capture.get('task')=='unstack':
@@ -689,6 +723,17 @@ def select_object(identifier:str,body:dict):
 
 
 def verify_selected_scene(folder,report,fresh):
+    if report.get('task')=='pickplace':
+        # Every object is segmented again on a fresh image: none may have moved.
+        from pickplace_vision import refresh,compare
+        selection=json.loads((folder/'selection.json').read_text())
+        if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
+        image=folder/f'preflight-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['top']))
+        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        observed=refresh(sam,folder,selection,image,cfg,decode_mask,image.stem)
+        planned=json.loads((folder/'pickplace-scene.json').read_text())
+        compare(planned['objects'],observed,planned['pick'])
+        return
     from studio_stack import scene_calibration
     selection,_=load_selection(folder)
     if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
@@ -735,7 +780,12 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
         if dataset_build_busy():raise ValueError('Finish or cancel data generation before planning or running the robot')
         if jobs.get(identifier,{}).get('status')=='running':raise ValueError('Operation already running')
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
-        if json.loads((folder/'capture.json').read_text()).get('source')=='live':
+        if json.loads((folder/'capture.json').read_text()).get('task')=='pickplace':
+            if not (folder/'pickplace-scene.json').exists():raise ValueError('Choose From and To first')
+            selection=json.loads((folder/'selection.json').read_text())
+            if json.loads((folder/'pickplace-scene.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
+            if operation!='plan' and (folder/'plan.json').exists() and json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
+        elif json.loads((folder/'capture.json').read_text()).get('source')=='live':
             selection,_=load_selection(folder)
             if operation!='plan' and (folder/'plan.json').exists():
                 if json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')

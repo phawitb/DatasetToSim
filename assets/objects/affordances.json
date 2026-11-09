@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "note": "Contact areas for every New Run object, in each object's own frame (metres; z up). Grasps: where the two jaw pads close and across which axis. Place surfaces: where another object can be set down. Edited from the 3D-Objects page; New Run planning reads this file directly.",
+  "objects": {
+    "cube": {
+      "label": "19.5 mm cube",
+      "library_ids": [
+        "red-cube",
+        "green-cube",
+        "real-red-cube",
+        "tan-cube"
+      ],
+      "shape": {
+        "type": "box",
+        "size_m": [
+          0.0195,
+          0.0195,
+          0.0195
+        ],
+        "origin": "centre",
+        "mass_kg": 0.004448925
+      },
+      "grasps": [
+        {
+          "name": "Opposite side faces",
+          "centre_m": [
+            0,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            0,
+            90
+          ],
+          "width_m": 0.0195,
+          "pad_height_m": 0.01,
+          "pads": "between",
+          "gripper_native": {
+            "open": 35,
+            "close": 0,
+            "release": 40
+          },
+          "note": "Jaws close across two opposite side faces, a little above the cube centre (commanded height; the arm sags about 15 mm in contact)."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Top face",
+          "type": "top",
+          "centre_m": [
+            0,
+            0,
+            0.00975
+          ],
+          "half_extents_m": [
+            0.00975,
+            0.00975
+          ],
+          "release": "lower"
+        }
+      ]
+    },
+    "tape": {
+      "label": "Tape roll (53 mm)",
+      "library_ids": [
+        "tape"
+      ],
+      "shape": {
+        "type": "ring",
+        "outer_diameter_m": 0.053,
+        "inner_diameter_m": 0.026,
+        "height_m": 0.024,
+        "origin": "centre",
+        "mass_kg": 0.06
+      },
+      "grasps": [
+        {
+          "name": "Wall through the hole",
+          "centre_m": [
+            0.01975,
+            0,
+            0
+          ],
+          "jaw_axis_deg": "radial",
+          "width_m": 0.0135,
+          "pad_height_m": 0.006,
+          "pads": "fixed_in_hole",
+          "gripper_native": "from_width",
+          "note": "Fixed jaw inside the core, moving jaw outside; pinches the wall. Any point around the ring."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Top of roll",
+          "type": "top",
+          "centre_m": [
+            0,
+            0,
+            0.012
+          ],
+          "radius_m": 0.0265,
+          "inner_radius_m": 0.013,
+          "release": "lower"
+        }
+      ]
+    },
+    "bowl": {
+      "label": "Green bowl (118 mm)",
+      "library_ids": [
+        "green-bowl"
+      ],
+      "shape": {
+        "type": "bowl",
+        "outer_radius_m": 0.059,
+        "bottom_outer_radius_m": 0.049,
+        "height_m": 0.046175,
+        "wall_m": 0.002,
+        "floor_m": 0.004,
+        "origin": "bottom centre",
+        "mass_kg": 0.12
+      },
+      "grasps": [
+        {
+          "name": "Rim",
+          "centre_m": [
+            0.057999999999999996,
+            0,
+            0.038175
+          ],
+          "jaw_axis_deg": "radial",
+          "width_m": 0.002,
+          "pad_height_m": 0.016,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Pinch the wall just below the rim, jaws across the wall. Any point around the rim; the one nearest the robot is tried first."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Inside",
+          "type": "inside",
+          "centre_m": [
+            0,
+            0,
+            0.004
+          ],
+          "radius_m": 0.028999999999999998,
+          "release": "above_rim"
+        }
+      ]
+    },
+    "eraser": {
+      "label": "Eraser (35 \u00d7 18 \u00d7 11 mm)",
+      "library_ids": [
+        "eraser"
+      ],
+      "shape": {
+        "type": "box",
+        "size_m": [
+          0.035,
+          0.018,
+          0.011
+        ],
+        "origin": "centre",
+        "mass_kg": 0.009
+      },
+      "grasps": [
+        {
+          "name": "Long sides",
+          "centre_m": [
+            0,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            90
+          ],
+          "width_m": 0.018,
+          "pad_height_m": 0.009,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Jaws close across the 18 mm width, at the middle of the long sides."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Top face",
+          "type": "top",
+          "centre_m": [
+            0,
+            0,
+            0.0055
+          ],
+          "half_extents_m": [
+            0.0175,
+            0.009
+          ],
+          "release": "lower"
+        }
+      ]
+    }
+  }
+}
