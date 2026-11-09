@@ -878,7 +878,7 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
             if invalid.get('executed'):raise ValueError('Capture a new scene after an execution')
             invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None,simulated_timestamp_hash=None,simulated_speed_scale=None,simulated_timing_profile=None,simulated_timing_contract_hash=None)
             invalid.pop('video',None);old.write_text(json.dumps(invalid,indent=2))
-        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale,'timing_profile':timing_profile}))
+        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale,'timing_profile':timing_profile,'wrist_check':bool(body.get('wrist_check',False))}))
         (folder/'job.json').unlink(missing_ok=True)
         jobs[identifier]={'id':identifier,'status':'running','stage':operation}
         def run():

@@ -218,7 +218,9 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     # Live grasps hold still at the pre-grasp, 45 mm above the grasp with the grasp's
     # wrist turn, so the Wrist camera measures the object right before the short
     # final descent; the rest is then planned and simulated again from that measure.
-    look=(technique=='natural' and capture.get('source')=='live' and not refining and not tape
+    options=json.loads((folder/'planning-options.json').read_text()) if (folder/'planning-options.json').exists() else {}
+    # Experimental: at present the Wrist fit relies on the arm model's absolute camera pose.
+    look=(options.get('wrist_check',False) and technique=='natural' and capture.get('source')=='live' and not refining and not tape
           and capture.get('task') in ('bowl','stack','unstack','pickplace') and not (pp and pp['kind']=='bowl'))
     if technique=='natural' or refining:
         # End the coordinated travel above contact height. The short final
