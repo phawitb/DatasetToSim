@@ -1,0 +1,16 @@
+<!-- Plastic eraser, 35 x 18 x 11 mm, lying flat. The paper sleeve is a visual
+     band only; collision is the eraser box. Mass is an estimate. -->
+<mujoco model="eraser">
+  <compiler angle="radian"/>
+  <asset>
+    <material name="eraser_rubber" rgba="0.95 0.95 0.93 1"/>
+    <material name="eraser_sleeve" rgba="0.78 0.80 0.84 1"/>
+  </asset>
+  <worldbody>
+    <body name="eraser" pos="0 0 0.0055">
+      <inertial pos="0 0 0" mass="0.009" diaginertia="3.3e-7 1.0e-6 1.2e-6"/>
+      <geom name="eraser_body" type="box" size="0.0175 0.009 0.0055" material="eraser_rubber" group="2" mass="0" friction="1.4 0.01 0.001"/>
+      <geom name="eraser_sleeve" type="box" size="0.0105 0.0091 0.0056" material="eraser_sleeve" group="2" contype="0" conaffinity="0" mass="0"/>
+    </body>
+  </worldbody>
+</mujoco>

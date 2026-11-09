@@ -30,6 +30,7 @@ from studio_generation_coverage import generation_coverage
 from studio_objects import catalog as object_catalog, object_mesh, object_thumbnail
 from studio_generation_preview import PreviewManager
 from studio_replay_dataset import ReplayDatasetManager
+from studio_imports import ImportManager
 from studio_generation_assets import list_backgrounds, resolve_background, upload_background, public_background, MAX_UPLOAD_BYTES
 from studio_runtime import request_restart,supervise
 from studio_episode_appearance import APPEARANCE_VERSION,video_name as appearance_video_name
@@ -50,6 +51,7 @@ generation_trash=GenerationTrash(ROOT/'output/generated')
 generation_viewer=GenerationViewer();atexit.register(generation_viewer.close)
 generation_preview=PreviewManager(ROOT/'output/generation-previews');atexit.register(generation_preview.close)
 replay_datasets=ReplayDatasetManager(ROOT/'output/generated');atexit.register(replay_datasets.close)
+imports=ImportManager();atexit.register(imports.close)
 replay_previews=ReplayDatasetManager(ROOT/'output/replay-previews',media_prefix='/media/replay-previews');atexit.register(replay_previews.close)
 
 def dataset_build_busy():return generation.busy() or replay_datasets.busy() or replay_previews.busy()
@@ -287,6 +289,21 @@ def datasets():
     data=bootstrap()
     return {'datasets':[{'id':DATA.name,'name':DATA.name,'episode_count':data['total'],'successes':data['successes'],'fps':30,'profile':data['profile']}]}
 
+@app.get('/api/imports')
+def import_index():return {'imports':imports.list(),'busy':imports.busy()}
+
+@app.get('/api/imports/library')
+def import_library():return {'objects':imports.library()}
+
+@app.post('/api/imports')
+def import_start(body:dict):return imports.start(body)
+
+@app.get('/api/imports/{identifier}')
+def import_status(identifier:str):return imports.get(identifier)
+
+@app.post('/api/imports/{identifier}/cancel')
+def import_cancel(identifier:str):return imports.cancel(identifier)
+
 @app.get('/api/datasets/{identifier}')
 def selected_dataset(identifier:str):
     if identifier!=DATA.name:raise ValueError('Dataset not found')
@@ -431,7 +448,7 @@ def frame(index:int,frame:int,appearance:str='raw'):
 
 @app.get('/media/{area}/{path:path}')
 def media(area:str,path:str):
-    root={'benchmark':RUN,'studio':WORK}.get(area)
+    root={'benchmark':RUN,'studio':WORK,'imports':imports.root}.get(area)
     if root is None or Path(path).suffix not in ['.jpg','.png','.mp4','.json','.npz']:raise ValueError('Media unavailable')
     return FileResponse(safe_file(root,path))
 

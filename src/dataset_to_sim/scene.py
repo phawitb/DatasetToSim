@@ -77,11 +77,13 @@ def build_scene_xml(calibration: Calibration, robot_xml: str | Path) -> str:
     ET.SubElement(world, "geom", name="floor", type="plane", size="3 3 .01", rgba=".87 .87 .87 1")
     ET.SubElement(world, "geom", name="table", type="box", pos=_numbers([0, 0, height - 0.018]), size=_numbers([width / 2, depth / 2, 0.018]), rgba=".94 .94 .94 1", friction=".8 .005 .0001")
     mat = calibration.world["mat"]
-    ET.SubElement(world, "geom", name="work_mat", type="box", pos=_numbers(mat["position"]), size=_numbers([mat["size"][0] / 2, mat["size"][1] / 2, mat["size"][2] / 2]), rgba=".05 .05 .06 1", friction=".95 .005 .0001")
+    mat_geom = ET.SubElement(world, "geom", name="work_mat", type="box", pos=_numbers(mat["position"]), size=_numbers([mat["size"][0] / 2, mat["size"][1] / 2, mat["size"][2] / 2]), rgba=".05 .05 .06 1", friction=".95 .005 .0001")
+    if "quaternion" in mat:
+        mat_geom.set("quat", _numbers(mat["quaternion"]))
     cube = calibration.world["cube"]
     cube_body = ET.SubElement(world, "body", name="cube", pos=_numbers(cube["position"]))
     ET.SubElement(cube_body, "freejoint", name="cube_free")
-    ET.SubElement(cube_body, "geom", name="cube_geom", type="box", size=_numbers([cube["size"] / 2] * 3), mass=".04", rgba=".82 .07 .07 1", friction=".9 .005 .0001")
+    ET.SubElement(cube_body, "geom", name="cube_geom", type="box", size=_numbers([value / 2 for value in cube.get("size_xyz", [cube["size"]] * 3)]), mass=".04", rgba=".82 .07 .07 1", friction=".9 .005 .0001")
     bowl = calibration.world["bowl"]
     bowl_body = ET.SubElement(world, "body", name="bowl", pos=_numbers(bowl["position"]))
     ET.SubElement(bowl_body, "geom", name="bowl_base", type="cylinder", pos=_numbers([0, 0, 0.003]), size=_numbers([bowl["outer_radius"], 0.003]), rgba=".50 .70 .65 1", friction=".8 .005 .0001")

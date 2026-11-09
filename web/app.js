@@ -2,6 +2,7 @@ import {Playback} from './playback.mjs';
 import {GenerationVisualizer} from './generation-view.mjs';
 import {GenerationCoverage,generationTaskCounts,generationTaskLabel} from './generation-coverage.mjs';
 import {ObjectsView} from './objects-view.mjs';
+import {ImportView} from './import-view.mjs';
 import {ReplayDatasetBuilder} from './replay-builder.mjs';
 import {ObjectZonePicker,ZONE_OBJECTS,LEGACY_EXTRA_OBJECTS,activeZoneObjects,zoneSummary} from './generation-zones.mjs';
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
@@ -155,6 +156,8 @@ function applyLayout(){
  if(!objects)objectsView.suspend();
  if(!generate)generationViewer.suspend();
  $('#dataset-browser').classList.toggle('hidden',!dataset||selected);
+ $('#import-page').classList.toggle('hidden',!dataset||selected);
+ if(!dataset||selected)importView.suspend();
  $('.dataset-block').classList.toggle('hidden',!selected);
  $('.episode-heading').classList.toggle('hidden',!selected&&!historyPage);
  $('.search').classList.toggle('hidden',!selected&&!historyPage);
@@ -177,7 +180,7 @@ function applyLayout(){
  if(!historyPage)$('#run-summary').classList.add('hidden');
 }
 function resetViewer(){generationViewer.suspend();state.request++;video.pause();setVideo(null);state.episode=null;state.capture=null;state.plan=null;state.selection=null;state.selectionRole='from';state.frame=0;state.view='top';video.playbackRate=1;$('#speed').value='1';combined=null;realImage=null;simImage=null;masks={};$('#plan-result').classList.add('hidden');$$('[data-view]').forEach(b=>b.classList.toggle('selected',b.dataset.view==='top'));$$('.view-name').forEach(e=>e.textContent='TOP');real.getContext('2d').clearRect(0,0,640,480);sim.getContext('2d').clearRect(0,0,640,480);$('#search').value='';}
-function showDatasets(){if(state.busy||state.selecting||state.robot.running)return;resetViewer();state.page='datasets';state.selectedDataset=null;state.mode='dataset';history.replaceState(null,'','/');renderDatasets();applyLayout();updateControls();}
+function showDatasets(){if(state.busy||state.selecting||state.robot.running)return;resetViewer();state.page='datasets';state.selectedDataset=null;state.mode='dataset';history.replaceState(null,'','/');renderDatasets();applyLayout();updateControls();importView.show();}
 function renderDatasets(){const cards=$('#dataset-cards');cards.replaceChildren();for(const dataset of state.datasets){const button=document.createElement('button');button.className='dataset-card';const icon=document.createElement('span');icon.className='dataset-icon';icon.textContent='▥';const title=document.createElement('strong');title.textContent=dataset.name;const detail=document.createElement('span');detail.textContent=`${dataset.episode_count} episodes · ${dataset.fps} Hz`;const open=document.createElement('b');open.textContent='Explore episodes →';button.append(icon,title,detail,open);button.onclick=()=>chooseDataset(dataset.id);cards.append(button);}}
 async function chooseDataset(id){try{state.busy=true;updateControls();const request=++state.request;const data=await api('/api/datasets/'+encodeURIComponent(id));if(request!==state.request)return;state.page='datasets';state.selectedDataset=id;state.episodes=data.episodes;$('#selected-dataset-name').textContent=id;$('#dataset-meta').textContent=`${data.total} episodes · 30 Hz`;$('#success-rate').innerHTML=`${(data.successes/data.total*100).toFixed(1)}<em>%</em>`;$('#success-total').textContent=`${data.successes} / ${data.total} episodes · task criteria`;$('#episode-select').replaceChildren();for(const e of data.episodes)$('#episode-select').append(new Option(`Episode ${String(e.episode).padStart(2,'0')} · ${e.outcome==='success'?'success':'unresolved'}`,e.episode));await loadEpisode(data.episodes[0].episode);}catch(e){toast(e.message,true);}finally{state.busy=false;applyLayout();updateControls();}}
 async function newRun(){if(state.busy||state.selecting||state.robot.running)return;try{state.busy=true;updateControls();await api('/api/session/new',{});resetViewer();state.activeCapture=null;state.lastJob='';state.lastRobotError=null;state.page='new';state.historyMode=false;$('#events').replaceChildren();$('#source').value='live';history.replaceState(null,'','/?page=new');setMode('live');sourceChanged();event('New session ready · connect the robot, then capture the current scene.');}catch(e){toast(e.message,true);}finally{state.busy=false;updateControls();}}
@@ -186,6 +189,7 @@ async function restartServer(){if(state.restarting)return;try{await api('/api/se
 $('#restart-server').onclick=restartServer;
 
 const objectsView=new ObjectsView($('#objects-page'),api);
+const importView=new ImportView($('#import-page'),api,toast);
 const replayBuilder=new ReplayDatasetBuilder($('#replay-builder'),api,{onBuilt:job=>showGeneration(job.id,'visualize'),onClose:()=>replayBuilder.suspend()});
 async function showObjects(){if(state.busy||state.selecting||state.robot.running)return;resetViewer();state.page='objects';window.scrollTo(0,0);history.replaceState(null,'','/?page=objects');applyLayout();updateControls();await objectsView.load();}
 $('#nav-objects').onclick=()=>showObjects().catch(error=>toast(error.message,true));

@@ -11,7 +11,7 @@ import studio_objects as objects
 def test_catalog_reports_current_geometry_and_task_roles():
     catalog = objects.catalog()
     entries = {item['id']: item for item in catalog['objects']}
-    assert set(entries) == {'cube', 'green-bowl', 'tape', 'so101', 'work-mat', 'table', 'floor'}
+    assert set(entries) == {'cube', 'green-bowl', 'tape', 'eraser', 'so101', 'work-mat', 'table', 'floor'}
     config = json.loads((objects.ROOT / 'calibration/native-action-current.json').read_text())
     edge = config['base_calibration']['world']['cube']['size']
     assert entries['cube']['dimensions_m'] == pytest.approx([edge]*3)

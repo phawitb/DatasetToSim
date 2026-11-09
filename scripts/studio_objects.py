@@ -23,7 +23,8 @@ _LOCK = threading.RLock()
 REPLAY_SCENE = ROOT / 'output/shared-calibration-v10/episode-00/scene.xml'
 # Standalone library models that no workflow places in a scene yet.
 TAPE_MODEL = ROOT / 'assets/models/tape/tape.xml'
-_LIBRARY_BODIES = ('tape',)
+ERASER_MODEL = ROOT / 'assets/models/eraser/eraser.xml'
+_LIBRARY_BODIES = ('tape', 'eraser')
 _DESCRIPTORS = {
     'red-cube': ('Red cube', 'Task object', 'Calibrated cube primitive, red generation material.'),
     'green-cube': ('Green cube', 'Task object', 'Calibrated cube primitive, green generation material.'),
@@ -31,6 +32,8 @@ _DESCRIPTORS = {
     'tape': ('Tape roll', 'Library object', 'Clear 1-inch packing-tape roll modelled in Blender from measurements: '
              '53 mm outer diameter, 24 mm wide, 26 mm core hole, 30 mm cardboard core. '
              'Grasped through its hole (fixed jaw inside the core) in Put the tape in the green bowl.'),
+    'eraser': ('Eraser', 'Library object', 'Plastic eraser measured by the user: 35 × 18 × 11 mm, with a paper sleeve band. '
+               'Mass (9 g) and friction are estimates. Located automatically when a dataset is imported.'),
     'so101': ('SO-101 robot', 'Robot', 'Current robot visual meshes, camera mount, and wrist camera in the saved Home pose.'),
     'work-mat': ('Work mat', 'Environment', 'Calibrated work surface used by every generated task.'),
     'table': ('Table', 'Environment', 'The actual tabletop box used by the simulation.'),
@@ -44,7 +47,7 @@ def _signature():
              ROOT / 'scripts/episode0.py', ROOT / 'scripts/episode0_physics.py',
              ROOT / 'src/dataset_to_sim/scene.py', ROOT / 'scripts/studio_stack.py',
              ROOT / 'scripts/studio_objects.py', REPLAY_SCENE, ROBOT]
-    files += sorted(TAPE_MODEL.parent.glob('*'))
+    files += sorted(TAPE_MODEL.parent.glob('*')) + sorted(ERASER_MODEL.parent.glob('*'))
     files += sorted((ROBOT.parent / 'assets').glob('*'))
     files += sorted((REPLAY_SCENE.parent.parent / 'assets').glob('*'))
     fingerprint = [(str(path), path.stat().st_size, path.stat().st_mtime_ns) for path in files if path.is_file()]
@@ -141,6 +144,8 @@ def _model_parts(model, home):
 def _source_tasks(identifier, source_id):
     if source_id == 'generation':
         return _tasks(identifier)
+    if source_id == 'library' and identifier == 'eraser':
+        return [{'id': 'imported-eraser', 'instruction': 'Imported dataset · Put the eraser in the bowl', 'role': 'Manipulated object'}]
     if source_id == 'library':
         # The roll replaces the manipulated cube in its tasks.
         return [{'id': task_id, 'instruction': instruction, 'role': 'Manipulated object'}
@@ -178,12 +183,14 @@ def _snapshot(signature):
         ('new-run', 'New Run', 'scripts/studio_stack.py', new_run),
         ('library', 'Model library', 'assets/models/tape/tape.xml',
          mujoco.MjModel.from_xml_path(str(TAPE_MODEL))),
+        ('library', 'Model library', 'assets/models/eraser/eraser.xml',
+         mujoco.MjModel.from_xml_path(str(ERASER_MODEL))),
     ]
-    grouped = {key: [] for key in ('cube', 'green-bowl', 'tape', 'so101', 'work-mat', 'table', 'floor')}
+    grouped = {key: [] for key in ('cube', 'green-bowl', 'tape', 'eraser', 'so101', 'work-mat', 'table', 'floor')}
     parts_by_id = {}
     labels = {'red-cube': 'Red · Generate Data', 'green-cube': 'Green · Generate Data',
               'real-red-cube': 'Red · Real dataset / New Run', 'tan-cube': 'Tan · New Run',
-              'green-bowl': 'Sage green', 'tape': 'Clear', 'so101': 'Original materials', 'work-mat': 'Charcoal',
+              'green-bowl': 'Sage green', 'tape': 'Clear', 'eraser': 'White', 'so101': 'Original materials', 'work-mat': 'Charcoal',
               'table': 'Off-white', 'floor': 'Light gray'}
     for source_id, source_label, source_path, model in sources:
         source = {'id': source_id, 'label': source_label, 'path': source_path}

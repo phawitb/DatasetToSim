@@ -1,0 +1,35 @@
+.import-page{margin-top:22px;margin-bottom:28px;display:grid;gap:16px}
+.import-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.import-head h2{margin:4px 0 6px;font-size:18px}
+.import-help{color:var(--muted);margin:0;line-height:1.5}
+.import-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.import-card{display:grid;gap:6px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--ink)}
+.import-card:hover{border-color:#9eb393}
+.import-card span{color:var(--muted);font-size:12px}
+.import-status{font-weight:600}.import-status.complete{color:var(--accent)!important}.import-status.error,.import-status.interrupted,.import-status.cancelled{color:#b04a3a!important}
+.import-form{display:grid;gap:16px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;max-width:880px}
+.import-form input:not([type]){width:100%;padding:9px 10px;border:1px solid #cfd9cb;border-radius:7px;margin-top:6px}
+.import-objects{border:1px solid var(--line);border-radius:10px;padding:14px;margin:0}
+.import-objects legend{font-weight:600;padding:0 6px}
+.import-object-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:10px}
+.import-object{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:9px;padding:8px;cursor:pointer}
+.import-object:has(input:checked){border-color:#54996f;background:#f2f8ee}
+.import-object img{width:52px;height:52px;object-fit:contain}
+.import-object span{display:grid;gap:3px}.import-object small{color:var(--muted)}
+.import-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.import-stats>div{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:4px}
+.import-stats span{font-size:10px;letter-spacing:1.2px;color:var(--muted)}.import-stats strong{font-size:20px}.import-stats small{color:var(--muted)}
+.import-figure{margin:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.import-figure img{width:100%;border-radius:6px;display:block}.import-figure figcaption{color:var(--muted);margin-top:8px}
+.import-episodes{display:grid;grid-template-columns:200px 1fr;gap:14px;align-items:start}
+.import-episode-list{list-style:none;margin:0;padding:6px;background:#fff;border:1px solid var(--line);border-radius:12px;max-height:640px;overflow:auto}
+.import-episode-list button{width:100%;display:flex;justify-content:space-between;gap:8px;border:0;background:none;padding:8px;border-radius:7px;color:var(--ink)}
+.import-episode-list li.selected button{background:var(--mint)}
+.outcome{font-style:normal;font-size:11px}.outcome.ok{color:var(--accent)}.outcome.bad{color:#b04a3a}
+.import-viewer{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:8px}
+.import-viewer video{width:100%;border-radius:6px;background:#111}
+.import-scene{width:100%;max-width:480px;border-radius:6px;image-rendering:pixelated}
+.import-log pre{white-space:pre-wrap;font-size:11px;max-height:240px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px}
+@media (max-width:760px){.import-episodes{grid-template-columns:1fr}.import-head{flex-direction:column}}
+body[data-page=datasets] .dataset-browser{min-height:0}
+.import-page>.text-button{justify-self:start}
