@@ -129,8 +129,8 @@ async function planUntilPass(step,check,recapture){
  const firstTechnique=$('#motion-technique').value,firstSpeed=Number($('#motion-speed').value);
  const variants=[];
  for(const technique of [firstTechnique,...['natural','flow','gentle','classic'].filter(t=>t!==firstTechnique)])
-  for(let speed=firstSpeed;speed>=100;speed-=25)variants.push({technique,speed});
- if(!variants.some(v=>v.speed===100&&v.technique==='classic'))variants.push({technique:'classic',speed:100});
+  for(let speed=firstSpeed;speed>=50;speed-=25)variants.push({technique,speed});
+ if(!variants.some(v=>v.speed===50&&v.technique==='classic'))variants.push({technique:'classic',speed:50});
  let result=null,lastError='';
  for(const [index,variant] of variants.entries()){
   check();
@@ -155,7 +155,7 @@ async function planUntilPass(step,check,recapture){
  }
  if(!result)throw new Error('No plan could be simulated; the robot was not moved. Last error: '+lastError);
  if(result.outcome!=='success'||!result.transfer_checks_passed){const failures=result.transfer_check_failures||[];const reach=failures.length&&failures.every(f=>f.includes('trails its command'));
-  throw new Error('Simulation did not pass; the robot was not moved. '+(reach?'Every speed and motion technique left a joint trailing its command, so slowing down does not help: the object or its destination is probably too far from the robot (beyond about 30 cm). Move it closer and try again. ':'')+(failures.join('; ')||'Outcome: '+result.outcome));}
+  throw new Error('Simulation did not pass; the robot was not moved. '+(reach?'Even at 50% travel speed a joint trailed its command: the object or its destination is probably too far from the robot. Move it closer and try again. ':'')+(failures.join('; ')||'Outcome: '+result.outcome));}
  if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
  return result;}
 async function waitExecution(check){
