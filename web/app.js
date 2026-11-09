@@ -108,19 +108,33 @@ async function doCapture(){let ok=false;try{state.request++;state.busy=true;upda
 async function autoSelect(){const id=state.capture?.id;if(!id)return false;try{state.selecting=true;updateControls();event('SAM is finding every object on the mat…');const selection=await api(`/api/captures/${id}/auto_select`,{});if(state.capture?.id!==id)return false;state.selection=selection;state.plan=null;await loadMasks();state.selectionRole=selectionRoles().find(r=>!selection[r])||'from';const name=item=>!item?'—':item.kind==='place'?'empty spot':item.kind==='cube'&&item.color?item.color+' cube':item.kind;event(`SAM auto-selected · From ${name(selection.from)} · To ${name(selection.to)} · ${selection.obstacles.length} obstacle${selection.obstacles.length===1?'':'s'}`+(selection.auto?.notes?.length?' · '+selection.auto.notes.join(' '):''));return selectionRoles().every(r=>selection[r]);}catch(e){toast(e.message,true);return false;}finally{state.selecting=false;updateControls();}}
 async function operation(name){if(name!=='plan'&&motionMismatch()){toast('Motion settings changed. Generate a new plan and run simulation.',true);return false;}try{state.busy=true;updateControls();if(name==='simulate'&&state.plan){state.plan.outcome='not_simulated';state.plan.transfer_checks_passed=false;delete state.plan.video;setVideo(null);blank('sim','Running contact physics…');}if(name==='plan'){state.plan=null;simImage=null;$('#plan-result').classList.add('hidden');setVideo(null);blank('sim','Computing bounded IK…');}const result=await api(`/api/plans/${state.capture.id}/${name}`,{motion_technique:$('#motion-technique').value,timing_profile:$('#motion-timing').value,speed_scale:Number($('#motion-speed').value)/100});event({plan:'Solving bounded IK for approach, grasp, lift and release…',simulate:'Running contact-driven MuJoCo simulation and rendering…',execute:'Sending the simulated actions to SO-101.'}[name]);if(name==='execute'){state.plan.executed=true;state.robot.running=true;state.busy=false;}else{$('#step-'+name).classList.add('busy');state.lastJob='';}updateControls();return true;}catch(e){state.busy=false;toast(e.message,true);}updateControls();return false;}
 function waitJob(stage){const id=state.capture?.id;return new Promise((resolve,reject)=>{const tick=async()=>{if(!state.runAll)return reject(new Error('Run all stopped'));try{const job=(await api('/api/status')).job;if(job&&job.id===id&&job.stage===stage&&['complete','error'].includes(job.status))return job.status==='error'?reject(new Error(job.error)):resolve(job.plan);}catch{}setTimeout(tick,600);};setTimeout(tick,600);});}
+async function returnHome(check){
+ // Same Home command as the Return Home button; wait until the arm has stopped at Home.
+ const before=state.robot.error;
+ for(let attempt=0;attempt<3;attempt++){
+  const result=await api('/api/robot/home',{});
+  if(result.already_home){event(attempt?'Home reached · capturing the scene':'Already Home · capturing the scene');return;}
+  event(result.homing?`Returning Home directly · ${Math.round(result.duration_s)} s`:'Returning Home…');
+  const started=Date.now();
+  while(true){await new Promise(r=>setTimeout(r,500));check();const robot=(await api('/api/status')).robot;state.robot=robot;updateControls();
+   if(robot.error&&robot.error!==before&&!robot.running)throw new Error('Home stopped: '+robot.error);
+   if(!robot.running&&Date.now()-started>800)break;
+   if(Date.now()-started>60000)throw new Error('Home took too long');}
+ }
+ throw new Error('The arm did not reach Home; capture was not taken.');}
 async function runAll(){
  if(state.runAll||state.busy||state.selecting||state.robot.running)return;state.runAll=true;updateControls();
  const step=text=>{$('#run-all-status').textContent=text;event('Run all · '+text);},check=()=>{if(!state.runAll)throw new Error('Run all stopped');};
  try{
   // Reuse a fresh, unexecuted capture whose selection the user may have corrected; otherwise capture now.
   const reuse=state.page==='new'&&state.capture?.source==='live'&&state.capture.id===state.activeCapture&&!state.plan?.executed&&Date.now()/1000-state.capture.captured_at<90&&selectionRoles().every(r=>state.selection?.[r]);
-  if(!reuse){step('1/4 Capturing scene and selecting objects with SAM');if(!await doCapture())throw new Error('Capture failed');}
+  if(!reuse){step('1/5 Returning Home so the camera sees the whole mat');await returnHome(check);check();step('2/5 Capturing scene and selecting objects with SAM');if(!await doCapture())throw new Error('Capture failed');}
   check();if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('SAM could not select From and To. Click them in the camera image, then press Run all again.');
-  step('2/4 Planning a route around every obstacle');if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
-  step('3/4 Testing the plan in contact physics');if(!await operation('simulate'))throw new Error('Simulation did not start');const result=await waitJob('simulate');await showPlan(result);check();
+  step('3/5 Planning a route around every obstacle');if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
+  step('4/5 Testing the plan in contact physics');if(!await operation('simulate'))throw new Error('Simulation did not start');const result=await waitJob('simulate');await showPlan(result);check();
   if(result.outcome!=='success'||!result.transfer_checks_passed)throw new Error('Simulation did not pass; the robot was not moved. '+(result.transfer_check_failures?.join('; ')||'Outcome: '+result.outcome));
   if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
-  step('4/4 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');
+  step('5/5 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');
   step('Running on the robot · same actions and timing as the simulation');
  }catch(e){if(state.runAll||e.message!=='Run all stopped')toast(e.message,true);$('#run-all-status').textContent='Run all stopped: '+e.message;}
  finally{state.runAll=false;updateControls();}}
