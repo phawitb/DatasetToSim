@@ -130,8 +130,14 @@ async function runAll(){
   const reuse=state.page==='new'&&state.capture?.source==='live'&&state.capture.id===state.activeCapture&&!state.plan?.executed&&Date.now()/1000-state.capture.captured_at<90&&selectionRoles().every(r=>state.selection?.[r]);
   if(!reuse){step('1/5 Returning Home so the camera sees the whole mat');await returnHome(check);check();step('2/5 Capturing scene and selecting objects with SAM');if(!await doCapture())throw new Error('Capture failed');}
   check();if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('SAM could not select From and To. Click them in the camera image, then press Run all again.');
-  step('3/5 Planning a route around every obstacle');if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
-  step('4/5 Testing the plan in contact physics');if(!await operation('simulate'))throw new Error('Simulation did not start');const result=await waitJob('simulate');await showPlan(result);check();
+  let result;
+  while(true){
+   step(`3/5 Planning a route around every obstacle · ${$('#motion-speed').value}% travel`);if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
+   step('4/5 Testing the plan in contact physics');if(!await operation('simulate'))throw new Error('Simulation did not start');result=await waitJob('simulate');await showPlan(result);check();
+   // Only a joint lagging its command is fixed by going slower: retry 25% slower, never below 100%.
+   const speed=Number($('#motion-speed').value),failures=result.transfer_check_failures||[];
+   if(result.outcome==='success'&&!result.transfer_checks_passed&&failures.length&&failures.every(f=>f.includes('lower Travel speed'))&&speed>100){$('#motion-speed').value=String(Math.max(100,speed-25));updateControls();event(`Run all · ${failures.join('; ')} · retrying at ${$('#motion-speed').value}% travel`);continue;}
+   break;}
   if(result.outcome!=='success'||!result.transfer_checks_passed)throw new Error('Simulation did not pass; the robot was not moved. '+(result.transfer_check_failures?.join('; ')||'Outcome: '+result.outcome));
   if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
   step('5/5 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');

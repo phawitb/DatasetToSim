@@ -32,10 +32,11 @@ def add_obstacles(root,world):
         name=f'obstacle_{index}';kind=item['kind']
         body=ET.SubElement(body_root,'body',name=name,pos=' '.join(map(str,item['position'])),quat=' '.join(map(str,item.get('quaternion',[1,0,0,0]))))
         if kind=='cube':shape=dict(type='box',size=' '.join([str(item['size']/2)]*3))
+        elif kind=='stack':shape=dict(type='box',size=f"{item['size']/2} {item['size']/2} {item['height']/2}")
         elif kind=='tape':shape=dict(type='cylinder',size=f"{item['outer_diameter']/2} {item['width']/2}")
         elif kind=='bowl':shape=dict(type='cylinder',size=f"{item['outer_radius']} {item['height']/2}",pos=f"0 0 {item['height']/2}")
         else:raise ValueError('Unknown obstacle')
-        rgba={'cube':'.45 .45 .5 1','tape':'.8 .78 .7 .7','bowl':'.5 .65 .6 .6'}[kind]
+        rgba={'cube':'.45 .45 .5 1','stack':'.45 .45 .5 1','tape':'.8 .78 .7 .7','bowl':'.5 .65 .6 .6'}[kind]
         ET.SubElement(body,'geom',name=name+'_geom',**shape,**COLLISION)
         ET.SubElement(body,'geom',name=name+'_visual',**shape,rgba=rgba,contype='0',conaffinity='0',group='1',mass='0')
         names.append(name)

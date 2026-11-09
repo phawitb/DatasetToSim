@@ -68,6 +68,12 @@ def classify(config,rgb,mask):
             world,fit,_=cube_pose_from_mask(config,m,label='Object')
             return {'kind':'cube','color':cube_color(rgb,m),'position':world['position'],'fit_rmse_px':fit['boundary_rmse_px']}
         except ValueError:pass
+    if max(w,h)<=75 and fill>.55:
+        try:
+            # Two stacked cubes: SAM often returns the top face and the lower cube's sides together.
+            world,fit,_=cube_pose_from_mask(config,m,elevated=True,label='Object')
+            if fit.get('silhouette')=='stack':return {'kind':'stack','color':cube_color(rgb,m),'position':world['position'],'fit_rmse_px':fit['boundary_rmse_px']}
+        except ValueError:pass
     if max(w,h)>=90:
         try:
             brightness=float(cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)[m][:,2].mean())
@@ -166,7 +172,9 @@ def assign_roles(task,objects,rgb=None):
         ordered=by_color(cubes,'red');source=ordered[0] if ordered else None
         rest=by_color([i for i in cubes if i!=source],'green');target=rest[0] if rest else None
     elif task=='unstack':
-        if cubes:source=max(cubes,key=lambda i:(_stacked_score(rgb,objects[i]) if rgb is not None else 0,objects[i]['result']['score']))
+        stacks=[i for i,o in enumerate(objects) if o['info']['kind']=='stack']
+        if stacks:source=max(stacks,key=lambda i:objects[i]['result']['score'])
+        elif cubes:source=max(cubes,key=lambda i:(_stacked_score(rgb,objects[i]) if rgb is not None else 0,objects[i]['result']['score']))
     names={'bowl':('cube','bowl'),'tape':('tape roll','bowl'),'stack':('cube to pick','cube to stack on'),'unstack':('top cube of the stack',None)}[task]
     if source is None:notes.append(f'No {names[0]} found; click it as From')
     if names[1] and target is None:notes.append(f'No {names[1]} found; click it as To')

@@ -120,7 +120,7 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     hover=max(.12,grasp_z+.09,bowl[2]+cal.world['bowl']['height']+.065)
     # Travel high enough to carry the object over every obstacle top as well.
     for item in cal.world.get('obstacles',[]):
-        top=item['position'][2]+(item['height'] if item['kind']=='bowl' else item.get('width',item.get('size',0.))/2)
+        top=item['position'][2]+(item['height'] if item['kind']=='bowl' else item.get('height',item.get('width',item.get('size',0.)))/2)
         hover=max(hover,top+.065)
     hover+=hover_extra
     errors=[]; waypoints=[(initial,0)]; names=['Start']; stages=[]
@@ -299,6 +299,7 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
     capture=json.loads((folder/'capture.json').read_text())
     if capture.get('source')!='live':report=_prepare_route(folder,technique,speed_scale,timing_profile)
     else:
+        load_scene(folder)  # selection/scene errors are reported as they are, not as routing failures
         def clear(c):return c['cleared']
         def distance(c):return c['slack_m']
         attempts=[];chosen=None;routes=[(0.,None),(.04,None),(0.,0),(0.,1),(.04,0),(.04,1)]

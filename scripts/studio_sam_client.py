@@ -97,6 +97,21 @@ def place_record(config,folder,point,selection):
     return {'kind':'place','point':point,'position':[float(xy[0]),float(xy[1])],'score':1.}
 
 
+def auto_place_record(config,folder,selection):
+    """Unstack To chosen automatically: a clear, reachable empty mat spot near the stack."""
+    from studio_sam_auto import auto_place,free_mat
+    from studio_sam_geometry import cube_pose_from_mask,obstacle_world,mat_to_pixel
+    folder=Path(folder);load=lambda record:cv2.imread(str(folder/record['mask_file']),cv2.IMREAD_GRAYSCALE)>0
+    source=load(selection['from']);top,_,_=cube_pose_from_mask(config,source,elevated=True)
+    objects=[(item,load(item)) for item in selection.get('objects',[])]
+    others=[obstacle_world(config,item['kind'],m) for item,m in objects if _overlap(m,source)<=.1]
+    rgb=cv2.cvtColor(cv2.imread(str(folder/'top.jpg')),cv2.COLOR_BGR2RGB)
+    xy=auto_place(config,top['position'],others,free_mat(rgb,[source]+[m for _,m in objects]))
+    if xy is None:return None
+    edge=config['base_calibration']['world']['cube']['size']
+    return place_record(config,folder,mat_to_pixel(config,xy,edge/2),selection)|{'auto':True}
+
+
 def auto_selection(client,folder,task,config):
     """SAM every candidate object after Capture and assign From, To and obstacles."""
     from studio_sam_auto import detect_objects,assign_roles,auto_place
@@ -115,14 +130,9 @@ def auto_selection(client,folder,task,config):
     if target is not None:selection['to']=save_role(folder,'to',found[target]['result'],revision)|{'kind':found[target]['info']['kind'],'color':found[target]['info'].get('color'),'auto':True}
     if task=='unstack' and source is not None:
         try:
-            top,_,_=cube_pose_from_mask(config,found[source]['mask'],elevated=True)
-            others=[obstacle_world(config,item['info']['kind'],item['mask']) for i,item in enumerate(found) if i!=source]
-            from studio_sam_auto import free_mat
-            xy=auto_place(config,top['position'],others,free_mat(rgb,[item['mask'] for item in found]))
-            if xy is None:notes.append('No clear empty spot found; click an empty spot on the mat as To')
-            else:
-                edge=config['base_calibration']['world']['cube']['size']
-                selection['to']=place_record(config,folder,mat_to_pixel(config,xy,edge/2),selection)|{'auto':True}
+            place=auto_place_record(config,folder,selection)
+            if place is None:notes.append('No clear empty spot found; click an empty spot on the mat as To')
+            else:selection['to']=place
         except ValueError as exc:notes.append(f'{exc}; click the top cube as From')
     selection['auto']={'objects':[{'kind':item['info']['kind'],'color':item['info'].get('color'),'point':item['point'],'score':item['result']['score']} for item in found],'notes':notes}
     return finalize_selection(folder,selection)

@@ -48,9 +48,24 @@ def validate_pair(a,b):
     if np.count_nonzero(a&b)/min(a.sum(),b.sum())>.1:raise ValueError('Choose different objects for From and To')
 
 
-def fit_mask_pose(mask,camera,initial,edge,support):
+def project_box(camera,xy_yaw,edge,support,height):
+    """Image hull of an edge × edge × height box (two stacked cubes) on `support`."""
+    import itertools
+    from scipy.spatial import ConvexHull
+    from scipy.spatial.transform import Rotation
+    corners=np.array(list(itertools.product([-edge/2,edge/2],[-edge/2,edge/2],[0,height])))
+    world=corners@Rotation.from_euler('z',xy_yaw[2]).as_matrix().T+[xy_yaw[0],xy_yaw[1],support]
+    rotation=Rotation.from_quat(np.array(camera['quaternion'])[[1,2,3,0]]).as_matrix()
+    points=(world-np.array(camera['position']))@rotation@np.diag([1,-1,-1])
+    focal=240/np.tan(np.deg2rad(camera['fovy']/2));pixels=points[:,:2]/points[:,2:]*focal+[320,240]
+    return pixels[ConvexHull(pixels).vertices]
+
+
+def fit_mask_pose(mask,camera,initial,edge,support,height=None):
+    """Cube (or, with `height`, a stacked box) pose fit to the SAM silhouette."""
     from scipy.optimize import least_squares
-    from dataset_to_sim.scene_estimation import project_cube,_sample,_distance
+    from dataset_to_sim.scene_estimation import project_cube as _cube,_sample,_distance
+    project_cube=(lambda camera,pose,edge,support:project_box(camera,pose,edge,support,height)) if height else _cube
     contours,_=cv2.findContours(np.asarray(mask,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     observed=cv2.convexHull(max(contours,key=cv2.contourArea))[:,0,:].astype(float);points=_sample(observed)
     def residual(pose):
@@ -63,9 +78,9 @@ def fit_mask_pose(mask,camera,initial,edge,support):
     return best.x,{'method':'measured cube fit to SAM mask only','boundary_rmse_px':error,'observed_hull':observed.tolist(),'projected_hull':project_cube(camera,best.x,edge,support).tolist()}
 
 
-OBJECT_KINDS=('cube','tape','bowl')
+OBJECT_KINDS=('cube','stack','tape','bowl')
 # Clearance of an empty-mat unstack release from every other object center (m).
-PLACE_CLEARANCE_M={'cube':.06,'tape':.075,'bowl':.11,'from':.07}
+PLACE_CLEARANCE_M={'cube':.06,'stack':.06,'tape':.075,'bowl':.11,'from':.07}
 
 
 def _contour(mask):
@@ -110,8 +125,18 @@ def cube_pose_from_mask(config,mask,*,elevated=False,label='From'):
     corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
     cal=episode_scene(config,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'bowl_pixel':[320.,240.]})
     c=cal.world['cube'];q=c['quaternion'];support=cal.data['scene_estimation']['cube_support_z_m']
-    if elevated:support+=c['size']+.0002
-    pose,fit=fit_mask_pose(mask,cal.camera('top'),[*c['position'][:2],2*np.arctan2(q[3],q[0])],c['size'],support)
+    initial=[*c['position'][:2],2*np.arctan2(q[3],q[0])]
+    if elevated:
+        # SAM may return the top cube alone or the whole stack (top face plus the
+        # lower cube's sides): fit both measured shapes and keep the better one.
+        fits=[]
+        for height,base in [(None,support+c['size']+.0002),(2*c['size']+.0002,support)]:
+            try:fits.append((fit_mask_pose(mask,cal.camera('top'),initial,c['size'],base,height),height))
+            except ValueError:pass
+        if not fits:raise ValueError(f'{label} must match the calibrated 19.5 mm cube on top of another cube')
+        (pose,fit),height=min(fits,key=lambda f:f[0][1]['boundary_rmse_px']);fit['silhouette']='stack' if height else 'top cube'
+        support+=c['size']+.0002
+    else:pose,fit=fit_mask_pose(mask,cal.camera('top'),initial,c['size'],support)
     world={'position':[float(pose[0]),float(pose[1]),support+c['size']/2+.0002],'quaternion':_yaw_quaternion(pose[2]),'size':c['size']}
     return world,fit,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(mask))]}
 
@@ -140,6 +165,10 @@ def bowl_pose_from_mask(config,mask):
 def obstacle_world(config,kind,mask):
     """World pose of a modelled workspace object that the arm must avoid."""
     if kind=='cube':world,fit,_=cube_pose_from_mask(config,mask,label='Obstacle cube')
+    elif kind=='stack':
+        # Two stacked cubes: one static box, centred half way up.
+        world,fit,_=cube_pose_from_mask(config,mask,elevated=True,label='Obstacle stack')
+        edge=world['size'];world['position'][2]-=edge/2+.0001;world['height']=2*edge+.0002
     elif kind=='tape':world,fit,_=tape_pose_from_mask(config,mask,label='Obstacle tape roll')
     elif kind=='bowl':world,fit=bowl_pose_from_mask(config,mask),None
     else:raise ValueError('Obstacles must be a cube, tape roll or bowl')

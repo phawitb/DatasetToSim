@@ -36,7 +36,7 @@ from studio_runtime import request_restart,supervise
 from studio_episode_appearance import APPEARANCE_VERSION,video_name as appearance_video_name
 from studio_sam_home import home_scene
 from studio_home_wrist import released_reference,wrist_home_scene
-from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair,auto_selection,finalize_selection,object_record,place_record
+from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair,auto_selection,auto_place_record,finalize_selection,object_record,place_record
 from studio_sam_geometry import load_selection,validate_pair,scene_from_masks,validate_vision_age
 from dataset_to_sim.dataset import DatasetIndex
 from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,JOINTS
@@ -675,7 +675,13 @@ def select_object(identifier:str,body:dict):
                 for other in [r for r in ['from','to'] if r!=role and r in selection and 'mask_file' in selection[r]]:
                     validate_pair(mask,cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)>0)
                 selection[role]=selected
-                if role=='from' and capture.get('task')=='unstack':selection.pop('to',None)  # the empty spot was checked against the old stack
+                if role=='from' and capture.get('task')=='unstack':
+                    # The empty spot was checked against the old stack: choose a new one.
+                    selection.pop('to',None)
+                    try:
+                        place=auto_place_record(cfg,folder,selection)
+                        if place:selection['to']=place
+                    except ValueError:pass
             selection.update({'revision':revision,'image_sha256':result['image_sha256'],'model':result['model']})
         selection=finalize_selection(folder,selection)
         invalidate_plan(folder,identifier,capture)
