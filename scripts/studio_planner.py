@@ -194,28 +194,33 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         for name,q,seconds in [('Close after retreat',closed,1.5),('Return raised',home['raised'],3.),('Return unfolded',home['unfolded'],6.),('Home',home['home'],2.5)]:waypoint(name,q,seconds)
         stages.append({'name':'Return Home','target_m':None,'ik_error_mm':0.})
         waypoint('Final settle',waypoints[-1][0].copy(),2.)
-    # Unfold the distal joint before a vertical lift from the compact rest pose.
-    # Otherwise an IK solution can drive the jaws through the shoulder housing.
-    if start[2] < .08 and start[0] < cube[0]:
-        unfolded=initial.copy();unfolded[3]=max(limits[3,0],initial[3]-45.)
-        waypoint('Unfold from rest',unfolded,2.5);current=adapter.to_model(unfolded)
-        start=center(current).copy()
-        stages.append({'name':'Unfold from rest','target_m':start.tolist(),'ik_error_mm':0.})
-    add('Raise',np.r_[start[:2],max(hover,start[2])],initial[5],seconds=1.5)
+    # After a Wrist check the arm already holds still just above the object: only a
+    # short correction to the measured pre-grasp remains, so no raise or travel.
+    refining=capture.get('purpose')=='refine'
     source_yaw=yaw_of(cal.world['cube'])+(np.pi/2*grasp_turn if grasp_turn and not tape else 0.)
     # Stacking turns the held cube to the lower cube's faces; other placements are free.
     place_yaw=yaw_of(cal.world['target_cube']) if stacking else None
     if pp:source_yaw=pp['grasp']['jaw_yaw'];place_yaw=pp['place']['yaw']
-    add('Open above cube',np.r_[cube[:2],hover],open_grip,reference,1.5,yaw=source_yaw)
-    # Live cube grasps stop above the cube so the Wrist camera can measure it closely
-    # (position and turn); the rest of the grasp is then planned and simulated again.
-    look=(technique=='natural' and capture.get('source')=='live' and capture.get('purpose')!='refine' and not tape
+    if not refining:
+        # Unfold the distal joint before a vertical lift from the compact rest pose.
+        # Otherwise an IK solution can drive the jaws through the shoulder housing.
+        if start[2] < .08 and start[0] < cube[0]:
+            unfolded=initial.copy();unfolded[3]=max(limits[3,0],initial[3]-45.)
+            waypoint('Unfold from rest',unfolded,2.5);current=adapter.to_model(unfolded)
+            start=center(current).copy()
+            stages.append({'name':'Unfold from rest','target_m':start.tolist(),'ik_error_mm':0.})
+        add('Raise',np.r_[start[:2],max(hover,start[2])],initial[5],seconds=1.5)
+        add('Open above cube',np.r_[cube[:2],hover],open_grip,reference,1.5,yaw=source_yaw)
+    # Live grasps hold still at the pre-grasp, 45 mm above the grasp with the grasp's
+    # wrist turn, so the Wrist camera measures the object right before the short
+    # final descent; the rest is then planned and simulated again from that measure.
+    look=(technique=='natural' and capture.get('source')=='live' and not refining and not tape
           and capture.get('task') in ('bowl','stack','unstack','pickplace') and not (pp and pp['kind']=='bowl'))
-    if look:waypoint('Look',waypoints[-1][0].copy(),.8)
-    if technique=='natural':
+    if technique=='natural' or refining:
         # End the coordinated travel above contact height. The short final
         # descent keeps the yaw aligned before the jaws surround the object.
-        add('Pregrasp',np.r_[cube[:2],grasp_z+.045],open_grip,seconds=.6,yaw=source_yaw)
+        add('Pregrasp',np.r_[cube[:2],grasp_z+.045],open_grip,seconds=1. if refining else .6,yaw=source_yaw)
+    if look:waypoint('Look',waypoints[-1][0].copy(),.8)
     add('Approach',np.r_[cube[:2],grasp_z],open_grip,seconds=1.5,yaw=source_yaw)
     if technique=='natural':waypoint('Grasp settle',waypoints[-1][0].copy(),.4)
     add('Grasp',np.r_[cube[:2],grasp_z],close_grip,seconds=1.,yaw=source_yaw)

@@ -731,7 +731,7 @@ def wrist_recheck(folder,report,fresh):
     picked=next(o for o in scene['objects'] if o['id']==scene['pick'])
     image=folder/f'wrist-recheck-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['wrist']))
     rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
-    seen=measure(sam,image,cfg,registry,picked,fresh['initial_native'],decode_mask,colour_filter(rgb,picked.get('color')) if picked.get('support','mat')!='mat' else None)
+    seen=measure(sam,image,cfg,registry,picked,fresh['initial_native'],decode_mask,colour_filter(rgb,picked.get('color')))
     if seen['shift_m']>RECHECK_SHIFT_M or abs(seen['turn_rad'])>RECHECK_TURN_RAD:raise ValueError(f"The {picked['kind']} moved {seen['shift_m']*1000:.0f} mm since the Wrist check; capture again")
 
 
@@ -787,7 +787,7 @@ def refine_after_look(identifier:str):
         scene=json.loads((folder/'pickplace-scene.json').read_text());settled=settle(json.loads(json.dumps(scene)),registry,cfg)
         picked=next(o for o in settled['objects'] if o['id']==settled['pick'])
         rgb=cv2.cvtColor(cv2.imread(str(child/'wrist.jpg')),cv2.COLOR_BGR2RGB)
-        seen=measure(sam,child/'wrist.jpg',cfg,registry,picked,q,decode_mask,colour_filter(rgb,picked.get('color')) if picked.get('support','mat')!='mat' else None)
+        seen=measure(sam,child/'wrist.jpg',cfg,registry,picked,q,decode_mask,colour_filter(rgb,picked.get('color')))
         save_role(child,'wrist-object',seen['result'],child_id)
         for o in scene['objects']:
             if o['id']==scene['pick']:o['position']=[seen['position'][0],seen['position'][1],0.];o['yaw']=seen['yaw']
