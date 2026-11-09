@@ -445,7 +445,8 @@ def imported_video(index,dataset,appearance='raw',start=False):
     folder=imported_episode_folder(found[0],index);base=f'/media/imports/{found[0].name}/episode-{index:03d}/'
     if appearance=='raw':
         return {'status':'ready','video':base+'real-vs-sim.mp4'} if (folder/'real-vs-sim.mp4').is_file() else {'status':'error','error':'Replay video missing'}
-    name=appearance_video_name(appearance);key=(found[0].name,index,appearance)
+    from import_appearance import video_name as import_video_name
+    name=import_video_name(appearance);key=(found[0].name,index,appearance)
     if (folder/name).is_file():return {'status':'ready','video':base+name}
     with video_lock:
         if not start or video_jobs.get(key,{}).get('status')=='rendering':return video_jobs.get(key,{'status':'idle'})
@@ -486,7 +487,8 @@ def frame(index:int,frame:int,appearance:str='raw',dataset:str|None=None):
     if found:
         path=imported_episode_folder(found[0],index)
         if appearance!='raw':
-            target=path/f'frame-{frame:03d}-{appearance}-v{APPEARANCE_VERSION}.jpg'
+            from import_appearance import REFERENCE_VERSION
+            target=path/f'frame-{frame:03d}-{appearance}-v{APPEARANCE_VERSION}-i{REFERENCE_VERSION}.jpg'
             with frames_lock:
                 if not target.is_file():
                     result=subprocess.run([sys.executable,str(ROOT/'scripts/import_appearance.py'),'frame',found[0].name,str(index),appearance,str(frame),str(target)],capture_output=True,text=True,timeout=300)

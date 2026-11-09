@@ -2,7 +2,7 @@
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 const pct=v=>v==null?'—':(v*100).toFixed(1)+'%';
 const mm=values=>values.map(v=>Number((v*1000).toFixed(1))).join(' × ')+' mm';
-const STAGES={starting:'Starting',camera:'Fitting top camera',mat:'Fitting work mat',objects:'Locating objects',replay:'Replaying episodes',complete:'Complete'};
+const STAGES={starting:'Starting',camera:'Fitting top camera',mat:'Fitting work mat',objects:'Locating objects',wrist:'Wrist-camera refinement',motors:'Identifying arm motors',replay:'Replaying episodes',complete:'Complete'};
 const OUTCOMES={success:'success',not_lifted:'not lifted',no_bilateral_grasp:'no grasp',missed_bowl:'missed bowl',not_released:'not released',not_settled:'not settled',error:'error',scene_not_fitted:'scene not found'};
 
 export class ImportView{

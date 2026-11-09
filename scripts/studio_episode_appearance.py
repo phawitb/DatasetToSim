@@ -114,6 +114,13 @@ class EpisodeAppearance:
         # contrast further than generation does.
         self.appearance.min_gain = .35
 
+    def video_file(self):
+        return video_name(self.mode)
+
+    def real_mask(self, view, kind, hsv):
+        """Real pixels that plausibly belong to a semantic class."""
+        return real_filter(kind, hsv)
+
     def pose(self, state):
         self.data.qpos[:6] = self.qpos[state]; self.data.qpos[self.cube:self.cube + 7] = self.cube_pose[state]
         mujoco.mj_forward(self.model, self.data)
@@ -233,7 +240,7 @@ class EpisodeAppearance:
                 for kind in kinds:
                     mask = np.isin(ids, [i for i, c in classes.items() if c == kind]).astype('uint8')
                     mask = cv2.erode(mask, np.ones((ERODE[view], ERODE[view]), np.uint8)) > 0
-                    real_mask = mask & (self.filters[kind](hsv) if kind in self.filters else real_filter(kind, hsv))
+                    real_mask = mask & self.real_mask(view, kind, hsv)
                     if real_mask.sum() > 40: samples[kind].append((real[real_mask], sim[mask], float(gray(real[real_mask][None])[0].mean())))
             for kind in kinds:
                 # Real frames where the arm shades an object are excluded: only
@@ -296,7 +303,7 @@ class EpisodeAppearance:
 
     def video(self):
         folder = self.output; folder.mkdir(parents=True, exist_ok=True)
-        target = folder / video_name(self.mode); raw = target.with_name(target.stem + '-raw.mp4'); partial = target.with_name(target.stem + '-partial.mp4')
+        target = folder / self.video_file(); raw = target.with_name(target.stem + '-raw.mp4'); partial = target.with_name(target.stem + '-partial.mp4')
         captures = {view: cv2.VideoCapture(str(self.ep.video_slices[view].path)) for view in ('top', 'wrist')}
         for view, cap in captures.items(): cap.set(cv2.CAP_PROP_POS_FRAMES, round(self.ep.video_slices[view].start_time * 30))
         writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*'mp4v'), 30, (1280, 1024))

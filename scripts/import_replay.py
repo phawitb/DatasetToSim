@@ -34,6 +34,10 @@ def replay_config(base, calibration):
     data['cameras']['top'] = {'position': camera['position'], 'quaternion': camera['quaternion'], 'fovy': camera['fovy'],
                               'target': camera['target']}
     world['mat'] = {k: calibration['mat'][k] for k in ('position', 'size', 'quaternion')}
+    # Robot height relative to the table plane, measured with the wrist camera (0 when not measured).
+    world['robot_base']['position'][2] += float(calibration.get('robot_lift_m', 0.))
+    # Dataset-level arm motor model, when identification improved held-out tracking.
+    if calibration.get('identified_dynamics'): config['identified_dynamics'] = calibration['identified_dynamics']
     specs = calibration['objects']; manipulated = specs[calibration['manipulated']]
     if manipulated['shape'] != 'box':
         raise ValueError('Imported replay currently supports box-shaped manipulated objects (cube, eraser)')

@@ -41,7 +41,7 @@ from studio_episode_appearance import EpisodeAppearance, MODES, as_640, APPEARAN
 from studio_real_appearance import RealAppearance, complete_background, geom_classes, robust_stats, segmentation_ids  # noqa: E402
 
 IMPORTS = ROOT / 'output/imports'
-REFERENCE_VERSION = 4
+REFERENCE_VERSION = 7
 FILTERS = {
     # Warm-lit recordings: the robot is strongly saturated orange, the mat is a
     # less saturated brown of similar hue, so value/saturation floors matter.
@@ -51,7 +51,13 @@ FILTERS = {
     'object': lambda hsv: (hsv[..., 1] < 70) & (hsv[..., 2] > 185),
     'work_mat': lambda hsv: (hsv[..., 2] < 170),
     'table': lambda hsv: (hsv[..., 1] < 90) & (hsv[..., 2] > 170),
+    # The wrist camera keeps the bowl's own (teal) hue; reject grey/white table and mat spill.
+    ('wrist', 'bowl'): lambda hsv: (hsv[..., 0] > 60) & (hsv[..., 0] < 105) & (hsv[..., 1] > 35) & (hsv[..., 2] > 60),
 }
+
+
+def class_filter(view, kind):
+    return FILTERS.get((view, kind)) or FILTERS.get(kind)
 
 
 def import_folder(identifier):
@@ -95,6 +101,8 @@ def build_reference(scene, log=print):
     if (reference / 'profile.json').is_file(): return reference
     reference.mkdir(exist_ok=True)
     plates, real_colors, sim_colors, samples = [], {'top': {}, 'wrist': {}}, {'top': {}, 'wrist': {}}, []
+    response = {'top': {'radius': [], 'log_ratio': [], 'sharp': []}, 'wrist': {'radius': [], 'log_ratio': [], 'sharp': []}}
+    yy, xx = np.mgrid[:480, :640]; radius = np.hypot(xx - 320, yy - 240) / np.hypot(320, 240)
     option = mujoco.MjvOption(); option.geomgroup[3:] = 0; option.sitegroup[:] = 0
     episodes = sorted(int(p.name.split('-')[1]) for p in scene.folder.glob('episode-*') if (p / 'trace.npz').is_file())
     for index in episodes[::max(1, len(episodes) // 10)]:
@@ -114,13 +122,21 @@ def build_reference(scene, log=print):
                     for kind in set(classes.values()):
                         mask = np.isin(ids, [i for i, c in classes.items() if c == kind]).astype('uint8')
                         mask = cv2.erode(mask, np.ones((7, 7), np.uint8)) > 0
-                        if kind in FILTERS: mask &= FILTERS[kind](hsv)
+                        if class_filter(view, kind): mask &= class_filter(view, kind)(hsv)
                         # Objects move after the grasp: only the first frame pairs them reliably in Top.
                         # Top: objects move after the grasp, so only the first frame pairs them.
                         # Wrist: the colour filter keeps real object pixels where the masks agree.
                         if kind in ('object', 'bowl') and view == 'top' and n: continue
                         if mask.sum() > 30:
                             real_colors[view].setdefault(kind, []).append(rgb[mask][::2]); sim_colors[view].setdefault(kind, []).append(sim[mask][::2])
+                    # Camera response: radial fall-off (vignetting) on the mat, and sharpness.
+                    mat_pixels = cv2.erode(np.isin(ids, [i for i, c in classes.items() if c == 'work_mat']).astype('uint8'), np.ones((9, 9), np.uint8)) > 0
+                    mat_pixels &= FILTERS['work_mat'](hsv)
+                    if mat_pixels.sum() > 2000:
+                        real_l = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(float) + 2; sim_l = cv2.cvtColor(sim, cv2.COLOR_RGB2GRAY).astype(float) + 2
+                        pick = np.flatnonzero(mat_pixels.ravel())[::7]
+                        response[view]['radius'].append(radius.ravel()[pick]); response[view]['log_ratio'].append(np.log(real_l.ravel()[pick] / sim_l.ravel()[pick]))
+                    response[view]['sharp'].append((cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY), cv2.cvtColor(sim, cv2.COLOR_RGB2GRAY)))
                     if view == 'top':
                         surfaces = np.isin(ids, [i for i, c in classes.items() if c in ('work_mat', 'table', 'floor')])
                         foreground = cv2.dilate((~surfaces).astype('uint8'), np.ones((31, 31), np.uint8)) > 0
@@ -136,6 +152,19 @@ def build_reference(scene, log=print):
     corners, _ = ic.project(ic.rectangle_corners([*mat['position'][:2], mat['yaw_rad'], *mat['size'][:2]], mat['position'][2] + mat['size'][2] / 2), camera, 640, 480)
     mat_mask = np.zeros((480, 640), np.uint8); cv2.fillConvexPoly(mat_mask, np.round(corners).astype(np.int32), 1)
     clean, valid, surface_rgb = complete_background(clean, valid, mat_mask > 0)
+    camera_response = {}
+    for view, items in response.items():
+        entry = {'vignetting': [0., 0.], 'blur_sigma_px': 0.}
+        if len(items['radius']) >= 3:
+            r = np.concatenate(items['radius']); y = np.concatenate(items['log_ratio'])
+            A = np.c_[np.ones_like(r), r ** 2, r ** 4]; coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+            entry['vignetting'] = [float(np.clip(coef[1], -3, 1)), float(np.clip(coef[2], -3, 3))]
+        # Blur that makes rendered sharpness (Laplacian energy) match the real camera.
+        def energy(image): return float(cv2.Laplacian(image.astype(np.float32), cv2.CV_32F).var())
+        real_e = np.median([energy(a) for a, _ in items['sharp']])
+        best = min(np.arange(0, 3.01, .25), key=lambda sigma: abs(np.log((np.median([energy(cv2.GaussianBlur(b, (0, 0), sigma) if sigma else b) for _, b in items['sharp']]) + 1) / (real_e + 1))))
+        entry['blur_sigma_px'] = float(best)
+        camera_response[view] = entry
     appearance = {}
     for view in ('top', 'wrist'):
         appearance[view] = {kind: {'real': robust_stats(np.concatenate(pixels)), 'sim': robust_stats(np.concatenate(sim_colors[view][kind])), 'measured': True}
@@ -147,7 +176,7 @@ def build_reference(scene, log=print):
             if kind not in appearance[view]: appearance[view][kind] = appearance['top'].get(kind) or {'real': robust_stats(np.tile(np.uint8(surface_rgb[kind]), (50, 1))), 'sim': None}
     cv2.imwrite(str(reference / 'background.png'), cv2.cvtColor(clean, cv2.COLOR_RGB2BGR))
     cv2.imwrite(str(reference / 'valid-mask.png'), valid.astype('uint8') * 255)
-    profile = {'schema_version': 1, 'dataset': scene.dataset.root.name, 'import': scene.identifier,
+    profile = {'schema_version': 1, 'dataset': scene.dataset.root.name, 'import': scene.identifier, 'camera_response': camera_response,
                'camera': {k: camera[k] for k in ('position', 'quaternion', 'fovy')}, 'samples': samples,
                'background_sha256': hashlib.sha256((reference / 'background.png').read_bytes()).hexdigest(),
                'filled_fraction': float((~valid).mean()), 'surface_rgb': surface_rgb, 'appearance': appearance, 'color_sources': {},
@@ -159,7 +188,6 @@ def build_reference(scene, log=print):
 
 class ImportedEpisodeAppearance(EpisodeAppearance):
     object_kinds = ('robot', 'dark_robot', 'object', 'bowl')
-    filters = FILTERS
 
     def __init__(self, identifier, index, mode):  # noqa: D401 - replaces the SIMCUBE archive loader
         if mode not in MODES: raise ValueError('Unknown appearance mode')
@@ -176,17 +204,48 @@ class ImportedEpisodeAppearance(EpisodeAppearance):
         delays = self.settings.get('camera_delay_frames') or {}
         self.delays = {view: delays.get(view, 0) for view in ('top', 'wrist')}
         self.samples = {view: camera_sample_indices(self.ep.frame_count, self.delays[view]) for view in ('top', 'wrist')}
-        self.output = scene.episode_folder(index); self.work = self.output / f'appearance-{mode}'
+        self.output = scene.episode_folder(index); self.work = self.output / f'appearance-{mode}-i{REFERENCE_VERSION}'
         self.valid_plate = cv2.imread(str(reference / 'valid-mask.png'), cv2.IMREAD_GRAYSCALE) > 0
         plate = reference / 'background.png'
         asset = {'id': 'calibrated-real', 'name': 'Imported workcell (automatic)', 'mode': 'calibrated', 'path': str(plate),
                  'sha256': hashlib.sha256(plate.read_bytes()).hexdigest()}
         self.appearance = RealAppearance(self.work, self.model, MODES[mode] | {'background_id': 'calibrated-real', '_background_asset': asset}, reference=reference)
         self.appearance.min_gain = .35
+        self.reference_profile = json.loads((reference / 'profile.json').read_text())
+        self.response = self.reference_profile.get('camera_response', {})
+        yy, xx = np.mgrid[:480, :640]; self.radius = np.hypot(xx - 320, yy - 240) / np.hypot(320, 240)
+
+    def video_file(self):
+        return video_name(self.mode)
+
+    def real_mask(self, view, kind, hsv):
+        selected = class_filter(view, kind)
+        return selected(hsv) if selected else super().real_mask(view, kind, hsv)
+
+    def match_colors(self, renderer):
+        """Per-episode colours; a class this episode never shows clearly in Wrist keeps the
+        dataset-wide Wrist measurement instead of a Top colour (different exposure)."""
+        saved, measured = super().match_colors(renderer)
+        profile = self.appearance.profile['appearance']
+        for kind, stats in self.reference_profile['appearance'].get('wrist', {}).items():
+            if kind in measured['wrist'] or kind in ('work_mat', 'table', 'floor') or not stats.get('sim'): continue
+            profile['wrist'][kind] = saved['wrist'][kind] = dict(stats, wrist_measured=True)
+        return saved, measured
+
+    def sim_rgb(self, renderer, view, frame):
+        """Rendered view with the real camera's fitted vignetting and blur."""
+        result = super().sim_rgb(renderer, view, frame).astype(np.float32)
+        response = self.response.get(view)
+        if not response: return result.astype(np.uint8)
+        a, b = response['vignetting']; gain = np.exp(a * self.radius ** 2 + b * self.radius ** 4)
+        gain /= gain[self.radius < .35].mean()  # colour matching already set the central level
+        result *= gain[..., None]
+        if response['blur_sigma_px'] > 0: result = cv2.GaussianBlur(result, (0, 0), response['blur_sigma_px'])
+        return np.clip(result, 0, 255).astype(np.uint8)
 
 
 def video_name(mode):
-    return f'comparison-{mode}-v{APPEARANCE_VERSION}.mp4'
+    return f'comparison-{mode}-v{APPEARANCE_VERSION}-i{REFERENCE_VERSION}.mp4'
 
 
 if __name__ == '__main__':

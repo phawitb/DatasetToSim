@@ -85,83 +85,144 @@ def calibrate(dataset, selected, folder, log, camera=None):
     else:
         camera_report = {'method': 'reused from an earlier fit'}
     log(f'Top camera fitted · robot mask IoU {camera_report.get("mean_mask_iou", float("nan")):.3f} · fov {camera["fovy"]:.1f} deg', stage='mat')
-    robots, exclusions = [], []
-    model = ic.robot_model(config)
-    renderer = ic.RobotSilhouette(model, width, height)
-    full = mujoco.Renderer(model, height, width); full.enable_segmentation_rendering()
-    renderer.set_camera(camera['position'], camera['quaternion'], camera['fovy'])
-    robot_bodies = set(range(model.nbody)) - {model.body('cube').id, model.body('bowl').id, 0}
-    robot_geoms = np.flatnonzero(np.isin(model.geom_bodyid, list(robot_bodies)))
+    def scene_fit(config, camera, write_images):
+        """Mat and per-episode object poses through one top camera (robot rendered with ``config``)."""
+        robots, exclusions, chosen = [], [], {}
+        model = ic.robot_model(config)
+        renderer = ic.RobotSilhouette(model, width, height)
+        full = mujoco.Renderer(model, height, width); full.enable_segmentation_rendering()
+        renderer.set_camera(camera['position'], camera['quaternion'], camera['fovy'])
+        robot_bodies = set(range(model.nbody)) - {model.body('cube').id, model.body('bowl').id, 0}
+        robot_geoms = np.flatnonzero(np.isin(model.geom_bodyid, list(robot_bodies)))
 
-    def robot_pixels(rgb, native):
-        renderer.data.qpos[:6] = adapter.to_model(native); mujoco.mj_forward(model, renderer.data)
-        full.update_scene(renderer.data, camera=renderer.camera, scene_option=renderer.option)
-        seg = full.render(); robot = (seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(seg[..., 0], robot_geoms)
-        # Real orange pixels count as robot only where they join the rendered arm (no specks on objects).
-        real = ic.robot_mask(rgb).astype(np.uint8)
-        count, labels, stats, _ = cv2.connectedComponentsWithStats(real)
-        near = cv2.dilate(robot.astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
-        for k in range(1, count):
-            component = labels == k
-            if (component & near).any() and stats[k, cv2.CC_STAT_AREA] >= 20: robot |= component
-        # The jaw cover and cables hang around the robot: exclude a margin.
-        return robot, cv2.dilate(robot.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool)
+        def robot_pixels(rgb, native):
+            renderer.data.qpos[:6] = adapter.to_model(native); mujoco.mj_forward(model, renderer.data)
+            full.update_scene(renderer.data, camera=renderer.camera, scene_option=renderer.option)
+            seg = full.render(); robot = (seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(seg[..., 0], robot_geoms)
+            # Real orange pixels count as robot only where they join the rendered arm (no specks on objects).
+            real = ic.robot_mask(rgb).astype(np.uint8)
+            count, labels, stats, _ = cv2.connectedComponentsWithStats(real)
+            near = cv2.dilate(robot.astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
+            for k in range(1, count):
+                component = labels == k
+                if (component & near).any() and stats[k, cv2.CC_STAT_AREA] >= 20: robot |= component
+            # The jaw cover and cables hang around the robot: exclude a margin.
+            return robot, cv2.dilate(robot.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool)
 
-    try:
-        for index in range(dataset.episode_count):
-            robot, exclusion = robot_pixels(firsts[index], dataset.episode(index).state_deg[0])
-            robots.append(robot); exclusions.append(exclusion)
-        mat, mat_report, mat_mask = ic.fit_mat(firsts, robots, camera, log=log)
-        log('Locating the selected models in each episode…', stage='objects')
-        poses, object_reports = {}, []
+        try:
+            for index in range(dataset.episode_count):
+                robot, exclusion = robot_pixels(firsts[index], dataset.episode(index).state_deg[0])
+                robots.append(robot); exclusions.append(exclusion)
+            mat, mat_report, mat_mask = ic.fit_mat(firsts, robots, camera, log=log)
+            log('Locating the selected models in each episode…', stage='objects')
+            poses, object_reports = {}, []
 
-        def locate(index, keys, frame, rgb):
-            exclusion = exclusions[index] if frame == 0 else robot_pixels(rgb, dataset.episode(index).state_deg[frame])[1]
-            blobs, _ = ic.object_candidates(rgb, mat_mask, exclusion)
-            blobs = sam.refine(rgb, blobs, f'episode-{index}-{frame}')[0]
-            fitted, _ = ic.fit_objects(rgb, keys, specs, camera, mat, mat_mask, exclusion, blobs=blobs)
-            for item in fitted.values(): item['source_frame'] = frame
-            return fitted, exclusion
+            def locate(index, keys, frame, rgb):
+                exclusion = exclusions[index] if frame == 0 else robot_pixels(rgb, dataset.episode(index).state_deg[frame])[1]
+                blobs, _ = ic.object_candidates(rgb, mat_mask, exclusion)
+                blobs = sam.refine(rgb, blobs, f'episode-{index}-{frame}')[0]
+                fitted, _ = ic.fit_objects(rgb, keys, specs, camera, mat, mat_mask, exclusion, blobs=blobs)
+                for key, item in fitted.items():
+                    item['source_frame'] = frame
+                    if frame == 0: chosen[(index, key)] = (blobs[item['blob_index']], ~exclusion)
+                return fitted, exclusion
 
-        for index, rgb in enumerate(firsts):
-            try:
-                fitted, exclusion = locate(index, selected, 0, rgb)
-            except ValueError:
-                # Fit each model alone; a bowl hidden by the arm at frame 0 is
-                # searched in later frames (it stays put until the object is placed).
-                fitted, exclusion = {}, exclusions[index]
-                for key in selected:
-                    try: fitted.update(locate(index, [key], 0, rgb)[0])
-                    except ValueError as error: log(f'Episode {index}: {error}')
-                episode = dataset.episode(index)
-                if container[0] not in fitted:
-                    for frame in range(10, episode.frame_count // 2, 10):
-                        try:
-                            fitted.update(locate(index, [container[0]], frame, ic.read_frames(episode, 'top', [frame])[0])[0]); break
-                        except ValueError: continue
-            missing = [specs[k]['name'] for k in selected if k not in fitted]
-            if missing:
-                object_reports.append({'episode': index, 'error': ', '.join(missing) + ' not found'}); log(f'Episode {index}: {", ".join(missing)} not found'); continue
-            poses[index] = fitted
-            overlay = rgb.copy(); overlay[exclusion] = (overlay[exclusion] * .6).astype(np.uint8)
-            for key, item in fitted.items():
-                sil = ic.silhouette(specs[key], item['pose_xy_yaw'], item['support_z_m'], camera, rgb.shape[:2])
-                contours, _ = cv2.findContours(sil.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-                cv2.drawContours(overlay, contours, -1, (0, 255, 0) if specs[key]['role'] == 'manipulated' else (0, 160, 255), 1)
-            corners, _ = ic.project(ic.rectangle_corners([*mat['position'][:2], mat['yaw_rad'], *mat['size'][:2]], mat['position'][2] + mat['size'][2] / 2), camera, width, height)
-            cv2.polylines(overlay, [np.round(corners).astype(np.int32)], True, (255, 0, 255), 1)
-            cv2.imwrite(str(folder / f'scene-fit-{index:03d}.jpg'), cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
-            object_reports.append({'episode': index, **{k: {'mask_iou': v['mask_iou'], 'blob_area_ratio': v['blob_area_ratio'], 'source_frame': v['source_frame']} for k, v in fitted.items()}})
-            log(f'Episode {index}: ' + ', '.join(f'{specs[k]["name"]} IoU {v["mask_iou"]:.2f}' + (f' (frame {v["source_frame"]})' if v['source_frame'] else '') for k, v in fitted.items()))
-    finally:
-        renderer.close(); full.close()
+            for index, rgb in enumerate(firsts):
+                try:
+                    fitted, exclusion = locate(index, selected, 0, rgb)
+                except ValueError:
+                    # Fit each model alone; a bowl hidden by the arm at frame 0 is
+                    # searched in later frames (it stays put until the object is placed).
+                    fitted, exclusion = {}, exclusions[index]
+                    for key in selected:
+                        try: fitted.update(locate(index, [key], 0, rgb)[0])
+                        except ValueError as error: log(f'Episode {index}: {error}')
+                    episode = dataset.episode(index)
+                    if container[0] not in fitted:
+                        for frame in range(10, episode.frame_count // 2, 10):
+                            try:
+                                fitted.update(locate(index, [container[0]], frame, ic.read_frames(episode, 'top', [frame])[0])[0]); break
+                            except ValueError: continue
+                missing = [specs[k]['name'] for k in selected if k not in fitted]
+                if missing:
+                    object_reports.append({'episode': index, 'error': ', '.join(missing) + ' not found'}); log(f'Episode {index}: {", ".join(missing)} not found'); continue
+                poses[index] = fitted
+                object_reports.append({'episode': index, **{k: {'mask_iou': v['mask_iou'], 'blob_area_ratio': v['blob_area_ratio'], 'source_frame': v['source_frame']} for k, v in fitted.items()}})
+                if write_images:
+                    log(f'Episode {index}: ' + ', '.join(f'{specs[k]["name"]} IoU {v["mask_iou"]:.2f}' + (f' (frame {v["source_frame"]})' if v['source_frame'] else '') for k, v in fitted.items()))
+        finally:
+            renderer.close(); full.close()
+        return mat, mat_report, poses, object_reports, exclusions, chosen
+
+    mat, mat_report, poses, object_reports, exclusions, chosen = scene_fit(config, camera, True)
+
+    # Support-surface height relative to the robot, from the wrist camera: the picked
+    # object's apparent size along the approach fixes the gripper-to-surface distance.
+    # One value for the whole dataset (median over episodes) keeps it robust.
+    lift, lift_report = 0., {'used': False}
+    if specs[manipulated[0]]['shape'] == 'box':
+        log('Measuring the work surface height with the wrist camera…', stage='wrist')
+        offsets = []
+        for index in list(poses)[::max(1, len(poses) // 8)]:
+            item = poses[index][manipulated[0]]; bowl = poses[index][container[0]]
+            if (index, manipulated[0]) not in chosen: continue
+            blob, valid = chosen[(index, manipulated[0])]
+            _, report = ic.refine_pose_with_wrist(dataset.episode(index), specs[manipulated[0]], np.array(item['pose_xy_yaw']), item['support_z_m'], config, mat,
+                                                  camera, blob, valid, avoid_world=(specs[container[0]], bowl['pose_xy_yaw'], bowl['support_z_m']), fit_height=True)
+            if report.get('used') and report.get('surface_offset_m') is not None:
+                offsets.append(report['surface_offset_m']); log(f'Episode {index}: surface offset {report["surface_offset_m"] * 1000:+.1f} mm (wrist IoU {report["wrist_iou_after"]:.2f})')
+        if len(offsets) >= 3:
+            offset = float(np.median(offsets)); spread = float(np.median(np.abs(np.array(offsets) - offset)))
+            # Report only: the apparent-size cue is confounded by the uncalibrated wrist lens
+            # (on T1_1B1O_FF_N20 applying it lifted the jaws over the object, 18 -> 14 successes).
+            lift_report = {'used': False, 'surface_offset_m': offset, 'episode_offsets_m': offsets, 'median_absolute_deviation_m': spread,
+                           'method': 'wrist-camera fit of the picked object with a free support height; median over episodes',
+                           'note': 'measured but not applied: wrist intrinsics/distortion are not calibrated for this cue'}
+            if lift_report['used']:
+                lift = -offset
+                log(f'Robot sits {lift * 1000:+.1f} mm relative to the assumed table plane; refitting the scene', stage='mat')
+                config = ic.lifted_config(config, lift)
+                camera = dict(camera, position=[*camera['position'][:2], camera['position'][2] + lift])
+                mat, mat_report, poses, object_reports, exclusions, chosen = scene_fit(config, camera, False)
+
+    # Per-episode wrist refinement of the picked object (x, y, yaw).
+    wrist_reports = []
+    for index, fitted in poses.items():
+        item = fitted[manipulated[0]]; bowl = fitted[container[0]]
+        if specs[manipulated[0]]['shape'] != 'box' or (index, manipulated[0]) not in chosen: continue
+        blob, valid = chosen[(index, manipulated[0])]
+        refined, report = ic.refine_pose_with_wrist(dataset.episode(index), specs[manipulated[0]], np.array(item['pose_xy_yaw']), item['support_z_m'], config, mat,
+                                                    camera, blob, valid, avoid_world=(specs[container[0]], bowl['pose_xy_yaw'], bowl['support_z_m']))
+        item['top_pose_xy_yaw'] = list(item['pose_xy_yaw']); item['wrist_refinement'] = report
+        if report.get('used'): item['pose_xy_yaw'] = [float(v) for v in refined]
+        wrist_reports.append({'episode': index} | {k: v for k, v in report.items() if k != 'frames'})
+        log(f'Episode {index}: wrist ' + (f'IoU {report["wrist_iou_before"]:.2f} → {report["wrist_iou_after"]:.2f}, moved {report["shift_m"] * 1000:.1f} mm' if report.get('used') else report.get('reason', 'not used')))
+
+    for index, fitted in poses.items():
+        rgb = firsts[index]; exclusion = exclusions[index]
+        overlay = rgb.copy(); overlay[exclusion] = (overlay[exclusion] * .6).astype(np.uint8)
+        for key, item in fitted.items():
+            sil = ic.silhouette(specs[key], item['pose_xy_yaw'], item['support_z_m'], camera, rgb.shape[:2])
+            contours, _ = cv2.findContours(sil.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            cv2.drawContours(overlay, contours, -1, (0, 255, 0) if specs[key]['role'] == 'manipulated' else (0, 160, 255), 1)
+        corners, _ = ic.project(ic.rectangle_corners([*mat['position'][:2], mat['yaw_rad'], *mat['size'][:2]], mat['position'][2] + mat['size'][2] / 2), camera, width, height)
+        cv2.polylines(overlay, [np.round(corners).astype(np.int32)], True, (255, 0, 255), 1)
+        cv2.imwrite(str(folder / f'scene-fit-{index:03d}.jpg'), cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
     sam.close()
     calibration = {'schema_version': 1, 'dataset': str(dataset.root), 'created': datetime.now(timezone.utc).isoformat(timespec='seconds'),
                    'selected_models': selected, 'manipulated': manipulated[0], 'container': container[0],
                    'objects': {k: specs[k] for k in selected}, 'top_camera': camera, 'top_camera_report': camera_report,
                    'mat': mat, 'mat_report': mat_report, 'episode_poses': {str(k): v for k, v in poses.items()},
-                   'object_reports': object_reports, 'shared_profile': 'shared-calibration-v10 (calibration/native-action-current.json)',
+                   'object_reports': object_reports, 'robot_lift_m': lift, 'surface_height_report': lift_report, 'wrist_refinement': wrist_reports,
+                   'shared_profile': 'shared-calibration-v10 (calibration/native-action-current.json)',
                    'automatic': True, 'manual_inputs': ['library model selection only']}
+    write(folder / 'calibration.json', calibration)
+    # Dataset-level arm motor model (accepted only if held-out tracking improves).
+    log('Identifying the arm motor response from recorded actions and states…', stage='motors')
+    import import_dynamics
+    dynamics, motor_report = import_dynamics.identify(calibration, folder, log=log)
+    calibration['motor_identification'] = motor_report
+    if dynamics: calibration['identified_dynamics'] = dynamics
     write(folder / 'calibration.json', calibration)
     return calibration
 

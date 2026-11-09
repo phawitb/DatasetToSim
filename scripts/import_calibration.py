@@ -510,7 +510,7 @@ def fit_objects(rgb, selected, specs, camera, mat_world, mat_mask, exclusion, ta
         if best is None:
             raise ValueError(f'{spec["name"]} was not found on the mat in the first frame')
         pose, iou, index, ratio = best; used.add(index)
-        result[key] = {'pose_xy_yaw': [float(v) for v in pose], 'support_z_m': support, 'mask_iou': float(iou), 'blob_area_ratio': float(ratio),
+        result[key] = {'pose_xy_yaw': [float(v) for v in pose], 'support_z_m': support, 'mask_iou': float(iou), 'blob_area_ratio': float(ratio), 'blob_index': int(index),
                        'blob_pixels': int(blobs[index].sum())}
     return result, blobs
 
@@ -555,3 +555,153 @@ class SamRefiner:
 
     def close(self):
         if self.client: self.client.close()
+
+
+# ------------------------------------------------- wrist-camera pose refinement
+def approach_frames(episode, count=14):
+    """Frames while the gripper is open and closing in on the object, before the jaws touch it.
+
+    Open = native gripper state above 40 % of its episode maximum; the window
+    ends where the closing command starts. Purely from recorded states/actions.
+    """
+    state, action = episode.state_deg[:, 5], episode.action_deg[:, 5]
+    threshold = .4 * state.max()
+    open_idx = np.flatnonzero(state > threshold)
+    if not len(open_idx): return []
+    start = int(open_idx[0])
+    closing = np.flatnonzero((np.arange(len(action)) > start) & (action < .5 * threshold))
+    end = int(closing[0]) if len(closing) else int(open_idx[-1])
+    frames = np.arange(start, end + 1)
+    return sorted(set(np.linspace(frames[0], frames[-1], min(count, len(frames))).astype(int).tolist())) if len(frames) else []
+
+
+class WristView:
+    """Wrist camera pose from recorded joint states (forward kinematics) and its jaw mask."""
+
+    def __init__(self, config, width, height):
+        self.model = robot_model(config); self.data = mujoco.MjData(self.model)
+        self.adapter = NativeJointAdapter(**config['adapter']); self.width, self.height = width, height
+        self.camera = self.model.camera('wrist_cam').id
+        self.delay = (config.get('camera_delay_frames') or {}).get('wrist', 0)
+        self.renderer = mujoco.Renderer(self.model, height, width); self.renderer.enable_segmentation_rendering()
+        self.option = mujoco.MjvOption(); self.option.geomgroup[3:] = 0; self.option.sitegroup[:] = 0
+        bodies = set(range(self.model.nbody)) - {self.model.body('cube').id, self.model.body('bowl').id, 0}
+        self.robot_geoms = np.flatnonzero(np.isin(self.model.geom_bodyid, list(bodies)))
+
+    def at(self, episode, frame):
+        from dataset_to_sim.observations import camera_sample_indices
+        k = int(camera_sample_indices(episode.frame_count, self.delay)[frame])
+        self.data.qpos[:6] = self.adapter.to_model(episode.state_deg[k]); mujoco.mj_forward(self.model, self.data)
+        R = self.data.cam_xmat[self.camera].reshape(3, 3)
+        camera = {'position': self.data.cam_xpos[self.camera].copy(), 'quaternion': Rotation.from_matrix(R).as_quat()[[3, 0, 1, 2]],
+                  'fovy': float(self.model.cam_fovy[self.camera])}
+        self.renderer.update_scene(self.data, camera=self.camera, scene_option=self.option)
+        seg = self.renderer.render()
+        jaws = (seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM)) & np.isin(seg[..., 0], self.robot_geoms)
+        return camera, jaws
+
+    def close(self): self.renderer.close()
+
+
+def surface_region(camera, width, height, mat_world):
+    """Pixels whose ray meets the mat top in front of the camera (works for close-up, partly behind-camera views)."""
+    K, R, p = camera_matrices(camera, width, height)
+    v, u = np.mgrid[:height, :width]
+    rays = np.stack([u + .5, v + .5, np.ones_like(u, float)], -1).reshape(-1, 3) @ np.linalg.inv(K).T @ R
+    top = mat_world['position'][2] + mat_world['size'][2] / 2
+    scale = (top - p[2]) / np.where(np.abs(rays[:, 2]) > 1e-9, rays[:, 2], 1e-9)
+    xy = p[:2] + rays[:, :2] * scale[:, None] - mat_world['position'][:2]
+    c, s = np.cos(mat_world['yaw_rad']), np.sin(mat_world['yaw_rad'])
+    local = xy @ np.array([[c, -s], [s, c]])
+    inside = (scale > 0) & (np.abs(local[:, 0]) <= mat_world['size'][0] / 2) & (np.abs(local[:, 1]) <= mat_world['size'][1] / 2)
+    return inside.reshape(height, width)
+
+
+def wrist_object_blob(rgb, camera, jaws, mat_world, predicted, avoid, gate=45):
+    """The picked object's mask in one wrist frame: non-mat colour inside the projected mat, off the jaws and bowl."""
+    h, w = rgb.shape[:2]
+    region = cv2.erode(surface_region(camera, w, h, mat_world).astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+    excluded = cv2.dilate((jaws | robot_mask(rgb)).astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool) | avoid
+    usable = region & ~excluded
+    if usable.sum() < 500: return None
+    lab = cv2.cvtColor(cv2.GaussianBlur(rgb, (5, 5), 0), cv2.COLOR_RGB2LAB).astype(float)
+    reference = np.median(lab[usable], axis=0); distance = np.linalg.norm(lab - reference, axis=2)
+    spread = np.percentile(np.linalg.norm(lab[usable] - reference, axis=1), 80)
+    candidate = ((distance > max(25., 3 * spread)) & usable).astype(np.uint8)
+    candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    contours, _ = cv2.findContours(candidate, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours: return None
+    filled = [cv2.drawContours(np.zeros((h, w), np.uint8), [c], -1, 1, -1).astype(bool) for c in contours]
+    # The component that best overlaps the (dilated) prediction, with a plausible size.
+    near = cv2.dilate(predicted.astype(np.uint8), np.ones((gate, gate), np.uint8)).astype(bool)
+    scores = [((f & near).sum() / max(1, (f | near).sum()), f) for f in filled if .25 < f.sum() / max(1, predicted.sum()) < 4]
+    scores = [s for s in scores if s[0] > .05]
+    if not scores: return None
+    blob = max(scores, key=lambda s: s[0])[1]
+    # A blob cut by the image border or the jaws is still usable: only the valid area is compared.
+    return blob, region & ~excluded | blob
+
+
+def refine_pose_with_wrist(episode, spec, pose, support, config, mat_world, top_camera, top_blob, top_valid, avoid_world=None, log=None, fit_height=False):
+    """Refine (x, y, yaw) of the picked object with wrist frames of the approach, keeping the top-frame fit in the cost."""
+    frames = approach_frames(episode)
+    if len(frames) < 3: return pose, {'used': False, 'reason': 'no open-gripper approach found'}
+    images = read_frames(episode, 'wrist', frames); h, w = images[0].shape[:2]
+    view = WristView(config, w, h); observations = []
+    try:
+        for frame, rgb in zip(frames, images):
+            camera, jaws = view.at(episode, frame)
+            predicted = silhouette(spec, pose, support, camera, (h, w))
+            avoid = np.zeros((h, w), bool)
+            if avoid_world is not None:
+                avoid = cv2.dilate(silhouette(avoid_world[0], avoid_world[1], avoid_world[2], camera, (h, w)).astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool)
+            found = wrist_object_blob(rgb, camera, jaws, mat_world, predicted, avoid)
+            if found: observations.append((frame, camera, found[0], found[1]))
+    finally:
+        view.close()
+    if len(observations) < 3: return pose, {'used': False, 'reason': f'object segmented in {len(observations)} wrist frames'}
+
+    def ious(p):
+        values = []; z = support + (p[3] if len(p) > 3 else 0.)
+        for _, camera, blob, valid in observations:
+            sil = silhouette(spec, p[:3], z, camera, (h, w))
+            values.append(((sil & blob) & valid).sum() / max(1, ((sil | blob) & valid).sum()))
+        return values
+
+    def top_iou(p):
+        sil = silhouette(spec, p[:3], support + (p[3] if len(p) > 3 else 0.), top_camera, top_blob.shape)
+        return ((sil & top_blob) & top_valid).sum() / max(1, ((sil | top_blob) & top_valid).sum())
+
+    # The wrist camera rides on the gripper, so it measures the object relative to
+    # the jaws, which is what decides the grasp. The top frame is a weak prior.
+    # Trimmed mean: a frame where the jaws already nudge the object, or with motion blur, cannot dominate.
+    trimmed = lambda values: float(np.mean(np.sort(values)[len(values) // 4:]))
+    cost = lambda p: 1 - (trimmed(ious(p)) * .9 + top_iou(p) * .1)
+    before = (float(np.mean(ious(pose))), float(top_iou(pose)))
+    best = None
+    for k, yaw in enumerate([pose[2], pose[2] + np.pi / 2]):
+        if fit_height:
+            # Support-surface height relative to the robot, observed through the object's apparent size.
+            start = np.array([pose[0], pose[1], yaw, 0.])
+            x, value = cma_es(cost, start, np.array([.006, .006, .2, .004]), start - [.03, .03, .9, .02], start + [.03, .03, .9, .02], iterations=80, population=14, seed=11 + k)
+        else:
+            start = np.array([pose[0], pose[1], yaw])
+            x, value = cma_es(cost, start, np.array([.006, .006, .2]), start - [.03, .03, .9], start + [.03, .03, .9], iterations=60, population=12, seed=11 + k)
+        if best is None or value < best[1]: best = (x, value)
+    refined = best[0].copy(); refined[2] = (refined[2] + np.pi / 2) % np.pi - np.pi / 2
+    after = (float(np.mean(ious(refined))), float(top_iou(refined)))
+    height = float(refined[3]) if fit_height else None; refined = refined[:3]
+    report = {'used': True, 'frames': [o[0] for o in observations], 'wrist_iou_before': before[0], 'wrist_iou_after': after[0],
+              'top_iou_before': before[1], 'top_iou_after': after[1], 'shift_m': float(np.hypot(*(refined[:2] - pose[:2]))),
+              'surface_offset_m': height}
+    if after[0] <= before[0] + .02:
+        report['used'] = False; report['reason'] = 'refinement did not improve the wrist fit'
+        return pose, report
+    return refined, report
+
+
+def lifted_config(config, lift):
+    """Configuration with the robot raised by ``lift`` metres above the table plane (negative lowers it)."""
+    config = copy.deepcopy(config)
+    config['base_calibration']['world']['robot_base']['position'][2] += float(lift)
+    return config
