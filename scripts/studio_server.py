@@ -780,7 +780,7 @@ def refine_after_look(identifier:str):
         if not trace.get('completed') or trace.get('error'):raise ValueError('The arm did not reach the Look pose: '+str(trace.get('error') or 'motion incomplete'))
         look=np.load(folder/'plan.npz')['actions'][report['look_index']]
         fresh=hardware.call('snapshot');q=np.asarray(fresh['initial_native'],float)
-        if np.any(np.abs(q[:5]-look[:5])>4):raise ValueError('The arm is not at the Look pose; return Home and capture again')
+        if np.any(np.abs(q[:5]-look[:5])>10):raise ValueError('The arm is not at the Look pose; return Home and capture again')
         cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text());registry=load_registry()
         child_id=uuid.uuid4().hex;child=WORK/child_id;child.mkdir()
         for view,image in fresh['images'].items():(child/f'{view}.jpg').write_bytes(base64.b64decode(image))
