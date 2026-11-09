@@ -162,7 +162,7 @@ def stack_poses_from_mask(config,mask,rgb,*,label='From'):
     from strict_action_scene import episode_scene
     from dataset_to_sim.scene_estimation import _sample,_distance
     colors=_color_pixels(rgb,mask);name=max(colors,key=lambda k:colors[k].sum());top_mask=colors[name]
-    if top_mask.sum()<.35*np.asarray(mask,bool).sum():raise ValueError(f'{label}: the top cube colour is unclear; click the top cube')
+    if top_mask.sum()<.2*np.asarray(mask,bool).sum():raise ValueError(f'{label}: the top cube colour is unclear; click the top cube')
     top_mask=cv2.morphologyEx(top_mask.astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
     n,labels,stats,_=cv2.connectedComponentsWithStats(top_mask);top_mask=labels==1+int(np.argmax(stats[1:,4]))
     contour=_contour(top_mask);corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)

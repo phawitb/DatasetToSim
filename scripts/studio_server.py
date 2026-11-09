@@ -285,6 +285,12 @@ async def protect(request:Request,call_next):
 @app.exception_handler(ValueError)
 async def invalid(request,exc):return JSONResponse({'error':str(exc)},status_code=409)
 
+@app.exception_handler(Exception)
+async def unexpected(request,exc):
+    # Never send a bare "Internal Server Error": the page must always get a readable reason.
+    import traceback;traceback.print_exc()
+    return JSONResponse({'error':f'{type(exc).__name__}: {exc}'},status_code=500)
+
 @app.get('/')
 def index():return FileResponse(ROOT/'web/index.html')
 

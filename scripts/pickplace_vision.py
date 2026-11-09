@@ -74,6 +74,8 @@ def classify(config, registry, rgb, mask):
     """Which registry object a mask is, or None. Cubes also report a stack."""
     from studio_sam_auto import classify as classify_known, cube_color
     info = classify_known(config, rgb, mask)
+    if info and info['kind'] == 'stack' and info.get('color') is None:
+        info = None  # stacks are painted cubes; a plain box (the eraser) is checked below
     if info and info['kind'] == 'cube' and info.get('color') is None:
         # Cubes are painted red or green; a colourless "cube" may be the clear roll
         # seen from above (e.g. inside the bowl). Prefer the roll when it fits.
@@ -137,7 +139,14 @@ def detect(client, folder, config, decode, registry=None):
         kind = f['info']['kind']
         if kind == 'stack':
             from studio_sam_geometry import stack_poses_from_mask
-            top, bottom, fit, _ = stack_poses_from_mask(config, f['mask'], rgb)
+            try:
+                top, bottom, fit, _ = stack_poses_from_mask(config, f['mask'], rgb)
+            except ValueError:
+                # Colours do not separate the cubes: fit the stack shape (same yaw for both).
+                from studio_sam_geometry import cube_pose_from_mask
+                top, fit, _ = cube_pose_from_mask(config, f['mask'], elevated=True)
+                bottom = {**top, 'position': [*top['position'][:2], top['position'][2] - top['size'] - .0002]}
+                fit['top_color'] = f['info'].get('color')
             from studio_sam_geometry import _color_pixels
             top_colour = fit.get('top_color')
             counts = {k: int(v.sum()) for k, v in _color_pixels(rgb, f['mask']).items() if k != top_colour}
@@ -152,6 +161,7 @@ def detect(client, folder, config, decode, registry=None):
             continue
         record = save_role(folder, f'object-{len(objects)}', f['result'], revision)
         objects.append({'id': f'o{len(objects) + 1}', 'kind': kind, 'color': f['info'].get('color'), **record, 'support': 'mat'})
+    _stack_pairs(objects, folder, config)
     _assign_supports(objects, folder, registry)
     _fit_poses(objects, folder, config, registry, rgb)
     return {'revision': revision, 'image_sha256': digest, 'model': found[0]['result']['model'], 'objects': objects,
@@ -160,6 +170,36 @@ def detect(client, folder, config, decode, registry=None):
 
 def _mask(folder, record):
     return cv2.imread(str(Path(folder) / record['mask_file']), cv2.IMREAD_GRAYSCALE) > 0
+
+
+def _stack_pairs(objects, folder, config):
+    """Two cube masks at the same place are a stack seen as two masks (top face and
+    the lower cube's sides): the bigger mask is the top cube, refitted one cube higher."""
+    from studio_sam_geometry import cube_pose_from_mask
+    from strict_action_scene import episode_scene
+    cubes = [o for o in objects if o['kind'] == 'cube' and o['support'] == 'mat' and 'xy' not in o]
+    for o in cubes:
+        mask = _mask(folder, o)
+        if 'position' not in o:
+            world, _, _ = cube_pose_from_mask(config, mask); o['_xy'] = world['position'][:2]; o['_area'] = int(mask.sum())
+    for i, a in enumerate(cubes):
+        for b in cubes[i + 1:]:
+            if a['support'] != 'mat' or b['support'] != 'mat':
+                continue
+            touching = np.any(cv2.dilate(_mask(folder, a).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool) & _mask(folder, b))
+            if touching and np.linalg.norm(np.asarray(a['_xy']) - b['_xy']) < .03:
+                top, bottom = (a, b) if a['_area'] >= b['_area'] else (b, a)
+                try:
+                    world, _, _ = cube_pose_from_mask(config, _mask(folder, top), elevated=True)
+                except ValueError:
+                    continue
+                # A real stack: the raised top cube sits right over the lower one.
+                if np.linalg.norm(np.asarray(world['position'][:2]) - bottom['_xy']) > .01:
+                    continue
+                top['support'] = bottom['id']
+                top['xy'] = world['position'][:2]; top['yaw'] = 2 * float(np.arctan2(world['quaternion'][3], world['quaternion'][0]))
+    for o in cubes:
+        o.pop('_xy', None); o.pop('_area', None)
 
 
 def _assign_supports(objects, folder, registry):
