@@ -121,8 +121,19 @@ def _stacked_score(rgb,item):
     return green if color=='red' else red if color=='green' else max(red,green)
 
 
-def auto_place(config,source_xy,obstacles):
-    """Nearest reachable empty-mat spot about 100 mm from the stack."""
+def free_mat(rgb,masks=()):
+    """Pixels of plain mat: not the arm, not any object (with a margin)."""
+    hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)
+    free=((hsv[:,:,2]<130)&(hsv[:,:,1]<70)).astype(np.uint8)&~robot_pixels(rgb).astype(np.uint8)&1
+    for m in masks:free&=~cv2.dilate(np.asarray(m,np.uint8),np.ones((21,21),np.uint8))&1
+    return cv2.erode(free,np.ones((25,25),np.uint8)).astype(bool)
+
+
+def auto_place(config,source_xy,obstacles,free=None):
+    """Nearest reachable empty-mat spot about 100 mm from the stack; `free` is an
+    image mask the spot must lie in (plain mat seen by the top camera)."""
+    from studio_sam_geometry import mat_to_pixel
+    edge=config['base_calibration']['world']['cube']['size']
     mat=config['base_calibration']['world']['mat'];base=np.asarray(config['base_calibration']['world']['robot_base']['position'][:2])
     best=None
     for x in np.arange(mat['position'][0]-.17,mat['position'][0]+.171,.01):
@@ -131,6 +142,9 @@ def auto_place(config,source_xy,obstacles):
             if not .15<=reach<=.30:continue
             try:validate_placement(config,xy,source_xy,obstacles)
             except ValueError:continue
+            if free is not None:
+                u,v=np.round(mat_to_pixel(config,xy,edge/2)).astype(int)
+                if not (0<=u<640 and 0<=v<480 and free[v,u]):continue
             cost=abs(np.linalg.norm(xy-np.asarray(source_xy[:2]))-.10)+.2*abs(reach-.22)
             if best is None or cost<best[0]:best=(cost,xy)
     return None if best is None else best[1]

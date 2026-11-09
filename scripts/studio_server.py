@@ -36,7 +36,7 @@ from studio_runtime import request_restart,supervise
 from studio_episode_appearance import APPEARANCE_VERSION,video_name as appearance_video_name
 from studio_sam_home import home_scene
 from studio_home_wrist import released_reference,wrist_home_scene
-from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair
+from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair,auto_selection,finalize_selection,object_record,place_record
 from studio_sam_geometry import load_selection,validate_pair,scene_from_masks,validate_vision_age
 from dataset_to_sim.dataset import DatasetIndex
 from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,JOINTS
@@ -575,7 +575,7 @@ def capture(body:dict):
     global current
     with operation_lock:
         task=body.get('task','bowl')
-        if task not in ['bowl','stack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube or Place tape in bowl')
+        if task not in ['bowl','stack','unstack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube, Unstack cube or Place tape in bowl')
         if 'bowl_present' in body and not isinstance(body['bowl_present'],bool):raise ValueError('Bowl presence must be true or false')
         if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
@@ -583,6 +583,7 @@ def capture(body:dict):
         identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
         source=body.get('source','live')
         if task=='stack' and source!='live':raise ValueError('Stacking requires a live two-cube capture')
+        if task=='unstack' and source!='live':raise ValueError('Unstacking requires a live capture of the stacked cubes')
         if task=='tape' and source!='live':raise ValueError('Place tape in bowl requires a live capture with the tape roll')
         if source=='live':
             snapshot=hardware.call('snapshot')
@@ -598,7 +599,8 @@ def capture(body:dict):
             cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
             snapshot={'source':'dataset','episode':index,'captured_at':time.time(),'initial_native':ep.state_deg[0].tolist(),'calibration_hash':cfg['follower_calibration_sha256']}
         else:raise ValueError('Choose live or dataset capture')
-        snapshot.update(id=identifier,task=task,bowl_present=body.get('bowl_present',True) if task=='stack' else True)
+        # Stack/unstack: an explicit bowl choice is kept; otherwise the SAM obstacles decide.
+        snapshot.update(id=identifier,task=task,bowl_present=body.get('bowl_present') if task in ('stack','unstack') else True)
         (folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
         current=identifier;jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':snapshot}
         return jobs[identifier]
@@ -610,36 +612,73 @@ def get_plan(identifier:str):
     if (folder/'selection.json').exists():result['selection']=json.loads((folder/'selection.json').read_text())
     return result
 
+def selection_guard(folder,identifier):
+    if restarting:raise ValueError('Server restarting')
+    if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
+    if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
+    if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
+    capture=json.loads((folder/'capture.json').read_text())
+    if capture.get('source')!='live' or capture.get('purpose')=='home':raise ValueError('Capture a live scene to select objects')
+    plan=folder/'plan.json'
+    if plan.exists() and json.loads(plan.read_text()).get('executed'):raise ValueError('Capture a new scene after execution')
+    return capture
+
+
+def invalidate_plan(folder,identifier,capture):
+    # A new selection invalidates every old trajectory and simulation.
+    for name in ['plan.json','plan.npz']:
+        (folder/name).unlink(missing_ok=True)
+    jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':capture}
+
+
+@app.post('/api/captures/{identifier}/auto_select')
+def auto_select_objects(identifier:str):
+    """SAM every modelled object after Capture: From, To and all obstacles."""
+    folder=folder_for(identifier)
+    with operation_lock:
+        capture=selection_guard(folder,identifier)
+        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        selection=auto_selection(sam,folder,capture.get('task','bowl'),cfg)
+        invalidate_plan(folder,identifier,capture)
+        return selection
+
+
 @app.post('/api/captures/{identifier}/select')
 def select_object(identifier:str,body:dict):
+    """Change one role by clicking: From, To (unstack: an empty mat spot) or add an obstacle."""
+    from studio_sam_auto import classify
     folder=folder_for(identifier);role=body.get('role')
-    if role not in ['from','to','obstacle']:raise ValueError('Choose From, To or Bowl obstacle')
+    if role not in ['from','to','obstacle']:raise ValueError('Choose From, To or Obstacle')
     with operation_lock:
-        if restarting:raise ValueError('Server restarting')
-        if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
-        if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
-        if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
-        capture=json.loads((folder/'capture.json').read_text())
-        if role=='obstacle' and (capture.get('task')!='stack' or not capture.get('bowl_present',True)):raise ValueError('Bowl obstacle is only used for stacking with a bowl present')
-        if capture.get('source')!='live' or capture.get('purpose')=='home':raise ValueError('Capture a live scene to select objects')
-        plan=folder/'plan.json'
-        if plan.exists() and json.loads(plan.read_text()).get('executed'):raise ValueError('Capture a new scene after execution')
+        capture=selection_guard(folder,identifier)
+        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
         path=folder/'selection.json';selection=json.loads(path.read_text()) if path.exists() else {}
-        result=sam.predict(folder/'top.jpg',body.get('point'))
-        if result['image_sha256']!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed during segmentation')
-        if selection and selection['model']!=result['model']:raise ValueError('SAM model changed; capture a new scene')
+        if 'obstacle' in selection and 'objects' not in selection:selection['objects']=[{**selection.pop('obstacle'),'kind':'bowl'}]
         revision=uuid.uuid4().hex
-        selected=save_role(folder,role,result,revision)
-        for other in [r for r in ['from','to','obstacle'] if r!=role and r in selection]:
-            mask=cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)
-            if mask is None:raise ValueError('Previous mask missing; capture again')
-            validate_pair(decode_mask(result),mask>0)
-        selection.update({role:selected,'revision':revision,'image_sha256':result['image_sha256'],'model':result['model']})
-        path.write_text(json.dumps(selection,indent=2))
-        # A new selection invalidates every old trajectory and simulation.
-        for name in ['plan.json','plan.npz']:
-            (folder/name).unlink(missing_ok=True)
-        jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':capture}
+        if role=='to' and capture.get('task')=='unstack':
+            selected=place_record(cfg,folder,body.get('point'),selection)
+            selection.update({'to':selected,'revision':revision})
+        else:
+            result=sam.predict(folder/'top.jpg',body.get('point'))
+            if result['image_sha256']!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed during segmentation')
+            if selection.get('model') and selection['model']!=result['model']:raise ValueError('SAM model changed; capture a new scene')
+            mask=decode_mask(result)
+            if role=='obstacle':
+                rgb=cv2.cvtColor(cv2.imread(str(folder/'top.jpg')),cv2.COLOR_BGR2RGB);info=classify(cfg,rgb,mask)
+                if not info:raise ValueError('Obstacles must be a modelled object: a 19.5 mm cube, the tape roll or the bowl')
+                for item in selection.get('objects',[]):
+                    other=cv2.imread(str(folder/item['mask_file']),cv2.IMREAD_GRAYSCALE)>0
+                    if np.count_nonzero(mask&other)/max(1,min(mask.sum(),other.sum()))>.3:raise ValueError('That object is already selected')
+                selection.setdefault('objects',[]).append(object_record(folder,len(selection.get('objects',[])),result,info,revision))
+            else:
+                selected=save_role(folder,role,result,revision)
+                for other in [r for r in ['from','to'] if r!=role and r in selection and 'mask_file' in selection[r]]:
+                    validate_pair(mask,cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)>0)
+                selection[role]=selected
+                if role=='from' and capture.get('task')=='unstack':selection.pop('to',None)  # the empty spot was checked against the old stack
+            selection.update({'revision':revision,'image_sha256':result['image_sha256'],'model':result['model']})
+        selection=finalize_selection(folder,selection)
+        invalidate_plan(folder,identifier,capture)
         return selection
 
 
@@ -652,7 +691,8 @@ def verify_selected_scene(folder,report,fresh):
     checked,masks=refresh_pair(sam,folder,selection,image,image.stem)
     if checked['model']!=selection['model']:raise ValueError('SAM model changed; capture and select again')
     cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present',True)))
+    # Every obstacle is segmented again too: none may have moved since simulation.
+    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present')))
     validate_scene_match(report['world'],observed.world)
 
 

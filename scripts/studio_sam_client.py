@@ -111,13 +111,14 @@ def auto_selection(client,folder,task,config):
     selection={'revision':revision,'image_sha256':image_sha,'model':found[0]['result']['model'],
                'objects':[object_record(folder,i,item['result'],item['info'],revision) for i,item in enumerate(found)]}
     source,target,notes=assign_roles(task,found,rgb)
-    if source is not None:selection['from']=save_role(folder,'from',found[source]['result'],revision)|{'kind':found[source]['info']['kind'],'auto':True}
-    if target is not None:selection['to']=save_role(folder,'to',found[target]['result'],revision)|{'kind':found[target]['info']['kind'],'auto':True}
+    if source is not None:selection['from']=save_role(folder,'from',found[source]['result'],revision)|{'kind':found[source]['info']['kind'],'color':found[source]['info'].get('color'),'auto':True}
+    if target is not None:selection['to']=save_role(folder,'to',found[target]['result'],revision)|{'kind':found[target]['info']['kind'],'color':found[target]['info'].get('color'),'auto':True}
     if task=='unstack' and source is not None:
         try:
             top,_,_=cube_pose_from_mask(config,found[source]['mask'],elevated=True)
             others=[obstacle_world(config,item['info']['kind'],item['mask']) for i,item in enumerate(found) if i!=source]
-            xy=auto_place(config,top['position'],others)
+            from studio_sam_auto import free_mat
+            xy=auto_place(config,top['position'],others,free_mat(rgb,[item['mask'] for item in found]))
             if xy is None:notes.append('No clear empty spot found; click an empty spot on the mat as To')
             else:
                 edge=config['base_calibration']['world']['cube']['size']

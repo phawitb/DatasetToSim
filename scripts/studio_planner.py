@@ -51,7 +51,7 @@ def load_scene(folder):
         from studio_sam_geometry import load_selection,scene_from_masks
         selection,masks=load_selection(folder)
         capture.update(selection_revision=selection['revision'],selection=selection)
-        scene=scene_from_masks(config,*masks,task=capture.get('task','bowl'),bowl_present=capture.get('bowl_present',True))
+        scene=scene_from_masks(config,*masks,task=capture.get('task','bowl'),bowl_present=capture.get('bowl_present'))
     else:scene=estimate_scene(config,rgb)
     cal=episode_scene(config,scene)
     return capture,config,scene,cal,build_model(cal,config)
@@ -285,7 +285,7 @@ def planned_obstacle_clearance(folder):
     obstacles=obstacle_geoms(model,cal.world,capture.get('task'))
     if not obstacles:return None
     actions=np.load(folder/'plan.npz')['actions']
-    return obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,OBSTACLE_PLAN_MARGIN_M*3)
+    return obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,OBSTACLE_PLAN_MARGIN_M)
 
 
 def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_profile=None):
@@ -297,26 +297,31 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
     technique=validate_technique(technique if technique is not None else json.loads(options.read_text()).get('motion_technique','classic') if options.exists() else 'classic')
     if timing_profile is None and options.exists():timing_profile=json.loads(options.read_text()).get('timing_profile','conservative')
     capture=json.loads((folder/'capture.json').read_text())
-    report=_prepare_route(folder,technique,speed_scale,timing_profile)
-    clearance=planned_obstacle_clearance(folder) if capture.get('source')=='live' else None
-    if clearance is not None:
-        tape=report['world']['cube'].get('object')=='tape'
-        routes=[(0.,None),(.04,None)]+([] if tape else [(0.,0),(0.,1),(.04,0),(.04,1)])
-        attempts=[{'hover_extra_m':0.,'grasp_turn':None,**clearance}];chosen=0
-        def clear(c):return c['minimum_m'] is None or c['minimum_m']>=OBSTACLE_PLAN_MARGIN_M
-        for index,(extra,turn) in enumerate(routes[1:],1):
-            if clear(attempts[chosen]):break
+    if capture.get('source')!='live':report=_prepare_route(folder,technique,speed_scale,timing_profile)
+    else:
+        def clear(c):return c['cleared']
+        def distance(c):return c['slack_m']
+        attempts=[];chosen=None;routes=[(0.,None),(.04,None),(0.,0),(0.,1),(.04,0),(.04,1)]
+        for extra,turn in routes:
             try:
-                _prepare_route(folder,technique,speed_scale,timing_profile,extra,turn);c=planned_obstacle_clearance(folder)
-            except ValueError as exc:c={'minimum_m':-1.,'closest':None,'frame':None,'error':str(exc)}
+                report=_prepare_route(folder,technique,speed_scale,timing_profile,extra,turn)
+                c=planned_obstacle_clearance(folder)
+            except ValueError as exc:
+                # Another route may avoid what blocked this one (e.g. a jaw on an obstacle).
+                attempts.append({'hover_extra_m':extra,'grasp_turn':turn,'error':str(exc)});continue
+            if c is None:chosen=None;attempts=[];break  # nothing to avoid
             attempts.append({'hover_extra_m':extra,'grasp_turn':turn,**c})
-            if (c['minimum_m'] if c['minimum_m'] is not None else np.inf)>(attempts[chosen]['minimum_m'] if attempts[chosen]['minimum_m'] is not None else np.inf):chosen=len(attempts)-1
-        best=attempts[chosen]
-        if chosen!=len(attempts)-1:report=_prepare_route(folder,technique,speed_scale,timing_profile,best['hover_extra_m'],best['grasp_turn'])
-        else:report=json.loads((folder/'plan.json').read_text())
-        report['obstacle_planning']={'method':'Commanded joints with the object carried rigidly; static obstacle collision geometry; contact physics still decides',
-                                     'margin_m':OBSTACLE_PLAN_MARGIN_M,'chosen':chosen,'cleared':clear(best),'attempts':attempts}
-        (folder/'plan.json').write_text(json.dumps(report,indent=2))
+            if chosen is None or distance(c)>distance(attempts[chosen]):chosen=len(attempts)-1
+            if clear(c) or report['world']['cube'].get('object')=='tape' and extra:break  # a round roll has no face pairs
+        if attempts:
+            if chosen is None:
+                (folder/'obstacle-planning.json').write_text(json.dumps(attempts,indent=2))
+                raise ValueError(f"No route around the obstacles ({attempts[0]['error']}); move obstacles further from the object and capture again")
+            best=attempts[chosen]
+            if chosen!=len(attempts)-1:report=_prepare_route(folder,technique,speed_scale,timing_profile,best['hover_extra_m'],best['grasp_turn'])
+            report['obstacle_planning']={'method':'Commanded joints with the object carried rigidly; static obstacle collision geometry; contact physics still decides',
+                                         'margin_m':OBSTACLE_PLAN_MARGIN_M,'chosen':chosen,'cleared':clear(best),'attempts':attempts}
+            (folder/'plan.json').write_text(json.dumps(report,indent=2))
     capture,config,scene,cal,model=load_scene(folder)
     if preview:render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
     return report
@@ -357,10 +362,11 @@ def simulate(folder):
     blocked=obstacle_geoms(m,cal.world,report.get('task'))
     if blocked:
         # Arm and carried object must stay clear of every obstacle in the contact trace.
-        clearance=obstacle_clearance(m,trace_frames(m,trace),blocked,OBSTACLE_SIM_MARGIN_M*3)
-        report['obstacle_clearance']=clearance|{'required_m':OBSTACLE_SIM_MARGIN_M}
-        if clearance['minimum_m'] is not None and clearance['minimum_m']<OBSTACLE_SIM_MARGIN_M:
-            failures.append(f"Obstacle clearance {clearance['minimum_m']*1000:.1f} mm ({clearance['closest'].replace('_',' ')}; need {OBSTACLE_SIM_MARGIN_M*1000:.0f} mm): move the obstacle or the object")
+        clearance=obstacle_clearance(m,trace_frames(m,trace),blocked,OBSTACLE_SIM_MARGIN_M)
+        report['obstacle_clearance']=clearance
+        if not clearance['cleared']:
+            need=clearance['object_required_m'] if clearance['closest'].startswith('cube ') else clearance['required_m']
+            failures.append(f"Obstacle clearance {clearance['minimum_m']*1000:.1f} mm ({clearance['closest'].replace('_',' ')}; need {need*1000:.1f} mm): move the obstacle or the object")
     checks=not failures
     report.update(outcome=outcome,transfer_checks_passed=checks,transfer_check_failures=failures,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),
