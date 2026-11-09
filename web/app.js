@@ -10,8 +10,8 @@ const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const APPEARANCES={raw:{label:'MUJOCO',name:'Raw'},background:{label:'REAL BG',name:'Real background'},realistic:{label:'REALISTIC',name:'Realistic'}};
 function savedAppearance(){try{const value=localStorage.getItem('sim-appearance');return APPEARANCES[value]?value:'raw';}catch{return 'raw';}}
 const importedDataset=()=>state.datasets?.find(d=>d.id===state.selectedDataset)?.source==='import';
-const appearanceQuery=(appearance=state.appearance)=>{const parts=[];if(importedDataset())parts.push('dataset='+encodeURIComponent(state.selectedDataset));else if(appearance!=='raw')parts.push('appearance='+appearance);return parts.length?'?'+parts.join('&'):'';};
-const episodeVideo=()=>state.episode?.videos?.[importedDataset()?'raw':state.appearance]||null;
+const appearanceQuery=(appearance=state.appearance)=>{const parts=[];if(appearance!=='raw')parts.push('appearance='+appearance);if(importedDataset())parts.push('dataset='+encodeURIComponent(state.selectedDataset));return parts.length?'?'+parts.join('&'):'';};
+const episodeVideo=()=>state.episode?.videos?.[state.appearance]||null;
 const clientId=crypto.randomUUID();
 const state={token:'',runs:[],historyMode:false,page:'datasets',datasets:[],selectedDataset:null,restarting:false,instance:null,activeCapture:null,episodes:[],episode:null,index:0,frame:0,view:'top',mode:'dataset',capture:null,selection:null,selectionRole:'from',selecting:false,plan:null,robot:{},busy:false,filter:'all',lastJob:'',request:0,appearance:savedAppearance()};
 const video=$('#video'),real=$('#real-canvas'),sim=$('#sim-canvas');
@@ -44,7 +44,7 @@ function renderList(){if(state.historyMode){renderRuns();return;}const query=$('
 function setMode(mode){
  if(mode!==state.mode)state.request++;video.pause();state.mode=mode;
  $('#real-label').textContent=mode==='dataset'?'RECORDED':state.plan?.execution?.video?'RECORDED RUN':'CAPTURE STILL';
- $('#sim-label').textContent=mode==='dataset'?(importedDataset()?APPEARANCES.raw.label:APPEARANCES[state.appearance].label):'PLANNED';$('#sim-appearance').classList.toggle('hidden',mode!=='dataset'||importedDataset());
+ $('#sim-label').textContent=mode==='dataset'?APPEARANCES[state.appearance].label:'PLANNED';$('#sim-appearance').classList.toggle('hidden',mode!=='dataset');
  $('#comparison-note').textContent=mode==='dataset'?'Original recorded actions · shared robot, camera and contact parameters':'Image-conditioned IK plan · simulation success does not establish real-world success';
  if(mode==='dataset'&&state.episode){setVideo(episodeVideo());$('#episode-label').textContent=`EPISODE ${String(state.index).padStart(2,'0')}`;setOutcome(state.episode.report.outcome);}
  else{setVideo(planVideo());$('#episode-label').textContent=state.page==='history'?'RECORDED RUN':'NEW RUN';setOutcome(state.plan?.outcome||(state.capture?'select objects':'capture needed'));if(!realImage)blank('real','Connect the robot and capture the current scene.');if(!simImage&&!state.plan?.video)blank('sim','Generate a plan to reconstruct this scene.');}

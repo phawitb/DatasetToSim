@@ -36,7 +36,7 @@ MAX_SHADOW = .35  # Strength ceiling: shadows stay faint even if the fit is stro
 
 def real_filter(kind, hsv):
     hue, sat, val = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-    return {'robot': (hue <= 25) & (sat > 100) & (val > 60),
+    return {'object': (sat < 90) & (val > 140),'robot': (hue <= 25) & (sat > 100) & (val > 60),
             'red': ((hue < 8) | (hue > 170)) & (sat > 120) & (val > 50),
             'bowl': (hue > 35) & (hue < 110) & (val > 50) & (sat < 150),
             'dark_robot': (val < 80) & (sat < 110),
@@ -67,7 +67,16 @@ def output_folder(index):
     return ROOT / 'output/studio' / f'replay-{index:02d}'
 
 
+def as_640(rgb):
+    """Studio canvases are 640 x 480; lower-resolution recordings are upscaled for display."""
+    return rgb if rgb.shape[:2] == (480, 640) else cv2.resize(rgb, (640, 480), interpolation=cv2.INTER_CUBIC)
+
+
 class EpisodeAppearance:
+    object_kinds = OBJECT_KINDS
+    filters = {}
+    label_prefix = ''
+
     def __init__(self, index, mode):
         if mode not in MODES: raise ValueError('Unknown appearance mode')
         self.index, self.mode = index, mode
@@ -98,7 +107,8 @@ class EpisodeAppearance:
         delays = self.settings.get('camera_delay_frames') or {}
         self.delays = {view: delays.get(view, 0) for view in ('top', 'wrist')}
         self.samples = {view: camera_sample_indices(self.ep.frame_count, self.delays[view]) for view in ('top', 'wrist')}
-        self.work = output_folder(index) / f'appearance-{mode}'
+        self.output = output_folder(index); self.work = self.output / f'appearance-{mode}'
+        self.valid_plate = cv2.imread(str(REFERENCE / 'valid-mask.png'), cv2.IMREAD_GRAYSCALE) > 0
         self.appearance = RealAppearance(self.work, self.model, MODES[mode] | {'background_id': 'calibrated-real'})
         # Real objects are lit diffusely; allow flattening rendered shading
         # contrast further than generation does.
@@ -147,7 +157,7 @@ class EpisodeAppearance:
         source = self.ep.video_slices[view]; cap = cv2.VideoCapture(str(source.path))
         cap.set(cv2.CAP_PROP_POS_FRAMES, round(source.start_time * 30) + frame); ok, bgr = cap.read(); cap.release()
         if not ok: raise ValueError('Could not decode recorded frame')
-        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        return as_640(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
 
     def set_light(self, azimuth, elevation):
         direction = light_direction(azimuth, elevation)
@@ -171,7 +181,7 @@ class EpisodeAppearance:
 
     def fit_shadow(self, renderer):
         plate = gray(self.appearance.plate)
-        valid_plate = cv2.imread(str(REFERENCE / 'valid-mask.png'), cv2.IMREAD_GRAYSCALE) > 0
+        valid_plate = self.valid_plate
         surfaces = [i for i, c in self.appearance.classes.items() if c in ('work_mat', 'table', 'floor')]
         frames = np.unique(np.linspace(0, self.ep.frame_count - 1, 6, dtype=int)); observed = []
         for frame in frames:
@@ -213,7 +223,7 @@ class EpisodeAppearance:
         frames = np.unique(np.linspace(0, self.ep.frame_count - 1, 10, dtype=int))
         saved = {'top': {}, 'wrist': {}}; measured = {'top': [], 'wrist': []}
         for view in ('top', 'wrist'):
-            kinds = OBJECT_KINDS + (WRIST_SURFACES if view == 'wrist' else ())
+            kinds = self.object_kinds + (WRIST_SURFACES if view == 'wrist' else ())
             samples = {kind: [] for kind in kinds}
             for frame in frames:
                 real = self.real_frame(view, int(frame)); hsv = cv2.cvtColor(real, cv2.COLOR_RGB2HSV)
@@ -223,7 +233,7 @@ class EpisodeAppearance:
                 for kind in kinds:
                     mask = np.isin(ids, [i for i, c in classes.items() if c == kind]).astype('uint8')
                     mask = cv2.erode(mask, np.ones((ERODE[view], ERODE[view]), np.uint8)) > 0
-                    real_mask = mask & real_filter(kind, hsv)
+                    real_mask = mask & (self.filters[kind](hsv) if kind in self.filters else real_filter(kind, hsv))
                     if real_mask.sum() > 40: samples[kind].append((real[real_mask], sim[mask], float(gray(real[real_mask][None])[0].mean())))
             for kind in kinds:
                 # Real frames where the arm shades an object are excluded: only
@@ -243,11 +253,11 @@ class EpisodeAppearance:
                 profile[view][kind] = saved[view][kind] = stats; measured[view].append(kind)
         # An object never measured in Wrist keeps its Top color without the
         # mat-based exposure shift, which darkens bright objects too much.
-        for kind in OBJECT_KINDS + ('green',):
+        for kind in self.object_kinds + ('green',):
             if kind in measured['wrist']: continue
             if kind in measured['top']:
                 profile['wrist'][kind] = saved['wrist'][kind] = dict(profile['top'][kind], sim=self.render_stats(renderer, 'wrist', kind, frames) or profile['top'][kind]['sim'], wrist_measured=True)
-            elif kind in ('red', 'green'):
+            elif kind in ('red', 'green', 'object'):
                 profile['wrist'].pop(kind, None); saved['wrist'][kind] = None
         return saved, measured
 
@@ -266,7 +276,7 @@ class EpisodeAppearance:
         for view in ('top', 'wrist'):
             canvas = np.zeros((512, 1280, 3), np.uint8); canvas[32:, :640] = real[view]; canvas[32:, 640:] = self.sim_rgb(renderer, view, frame)
             note = f' | camera delay {self.delays[view]}f' if self.delays[view] else ''
-            for text, pos in [(f'REAL | EP {self.index:02d} | {view} | frame {frame:03d} | {frame / 30:.2f}s', (10, 23)), (f'{LABELS[self.mode]} | {view}{note}', (650, 23))]:
+            for text, pos in [(f'REAL | {self.label_prefix}EP {self.index:02d} | {view} | frame {frame:03d} | {frame / 30:.2f}s', (10, 23)), (f'{LABELS[self.mode]} | {view}{note}', (650, 23))]:
                 cv2.putText(canvas, text, pos, cv2.FONT_HERSHEY_SIMPLEX, .49, (255, 255, 255), 1, cv2.LINE_AA)
             rows.append(canvas)
         return np.vstack(rows)
@@ -278,14 +288,14 @@ class EpisodeAppearance:
             source = self.ep.video_slices[view]; cap = cv2.VideoCapture(str(source.path))
             cap.set(cv2.CAP_PROP_POS_FRAMES, round(source.start_time * 30) + frame); ok, bgr = cap.read(); cap.release()
             if not ok: raise ValueError('Could not decode recorded frame')
-            real[view] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            real[view] = as_640(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
         with mujoco.Renderer(self.model, height=480, width=640) as renderer:
             self.calibrate(renderer)
             image = self.canvas(renderer, real, frame)
         if not cv2.imwrite(str(target), cv2.cvtColor(image, cv2.COLOR_RGB2BGR)): raise RuntimeError('Could not save frame')
 
     def video(self):
-        folder = output_folder(self.index); folder.mkdir(parents=True, exist_ok=True)
+        folder = self.output; folder.mkdir(parents=True, exist_ok=True)
         target = folder / video_name(self.mode); raw = target.with_name(target.stem + '-raw.mp4'); partial = target.with_name(target.stem + '-partial.mp4')
         captures = {view: cv2.VideoCapture(str(self.ep.video_slices[view].path)) for view in ('top', 'wrist')}
         for view, cap in captures.items(): cap.set(cv2.CAP_PROP_POS_FRAMES, round(self.ep.video_slices[view].start_time * 30))
@@ -299,7 +309,7 @@ class EpisodeAppearance:
                     for view, cap in captures.items():
                         ok, bgr = cap.read()
                         if not ok: raise RuntimeError('Incomplete source video')
-                        real[view] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                        real[view] = as_640(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
                     writer.write(cv2.cvtColor(self.canvas(renderer, real, f), cv2.COLOR_RGB2BGR))
         finally:
             writer.release()

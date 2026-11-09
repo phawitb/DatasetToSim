@@ -436,18 +436,32 @@ def episode_video_status(index,appearance='raw'):
     return video_jobs.get((index,'raw'),{'status':'idle'})
 
 @app.get('/api/episodes/{index}/video')
-def video_status(index:int,appearance:str='raw',dataset:str|None=None):return imported_video(index,dataset) or episode_video_status(index,appearance_mode(appearance))
+def video_status(index:int,appearance:str='raw',dataset:str|None=None):return imported_video(index,dataset,appearance_mode(appearance)) or episode_video_status(index,appearance_mode(appearance))
 
-def imported_video(index,dataset):
-    """Imported datasets have one recorded-appearance video per episode."""
+def imported_video(index,dataset,appearance='raw',start=False):
+    """Imported episodes: replay video, or Real background / Realistic views rendered on demand."""
     found=imported_dataset(dataset)
     if not found:return None
-    path=imported_episode_folder(found[0],index)/'real-vs-sim.mp4'
-    return {'status':'ready','video':f'/media/imports/{found[0].name}/episode-{index:03d}/real-vs-sim.mp4'} if path.is_file() else {'status':'error','error':'Replay video missing'}
+    folder=imported_episode_folder(found[0],index);base=f'/media/imports/{found[0].name}/episode-{index:03d}/'
+    if appearance=='raw':
+        return {'status':'ready','video':base+'real-vs-sim.mp4'} if (folder/'real-vs-sim.mp4').is_file() else {'status':'error','error':'Replay video missing'}
+    name=appearance_video_name(appearance);key=(found[0].name,index,appearance)
+    if (folder/name).is_file():return {'status':'ready','video':base+name}
+    with video_lock:
+        if not start or video_jobs.get(key,{}).get('status')=='rendering':return video_jobs.get(key,{'status':'idle'})
+        video_jobs[key]={'status':'rendering'}
+        def render():
+            try:
+                result=subprocess.run([sys.executable,str(ROOT/'scripts/import_appearance.py'),'video',found[0].name,str(index),appearance],capture_output=True,text=True,timeout=1200)
+                if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1] if result.stderr else 'Render failed')
+                video_jobs[key]={'status':'ready','video':base+name}
+            except Exception as exc:video_jobs[key]={'status':'error','error':str(exc)}
+        video_pool.submit(render)
+        return video_jobs[key]
 
 @app.post('/api/episodes/{index}/video')
 def prepare_video(index:int,appearance:str='raw',dataset:str|None=None):
-    status=imported_video(index,dataset)
+    status=imported_video(index,dataset,appearance_mode(appearance),start=True)
     if status:return status
     appearance=appearance_mode(appearance);key=(index,appearance)
     with video_lock:
@@ -470,7 +484,15 @@ def prepare_video(index:int,appearance:str='raw',dataset:str|None=None):
 def frame(index:int,frame:int,appearance:str='raw',dataset:str|None=None):
     found=imported_dataset(dataset)
     if found:
-        path=imported_episode_folder(found[0],index);target=path/f'frame-{frame:03d}.jpg'
+        path=imported_episode_folder(found[0],index)
+        if appearance!='raw':
+            target=path/f'frame-{frame:03d}-{appearance}-v{APPEARANCE_VERSION}.jpg'
+            with frames_lock:
+                if not target.is_file():
+                    result=subprocess.run([sys.executable,str(ROOT/'scripts/import_appearance.py'),'frame',found[0].name,str(index),appearance,str(frame),str(target)],capture_output=True,text=True,timeout=300)
+                    if result.returncode:raise ValueError(result.stderr.strip().splitlines()[-1] if result.stderr else 'Frame render failed')
+            return FileResponse(target)
+        target=path/f'frame-{frame:03d}.jpg'
         if not target.is_file():
             capture=cv2.VideoCapture(str(path/'real-vs-sim.mp4'));capture.set(cv2.CAP_PROP_POS_FRAMES,frame);ok,image=capture.read();capture.release()
             if not ok:raise ValueError('Frame out of bounds')

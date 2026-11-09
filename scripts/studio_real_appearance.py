@@ -29,6 +29,8 @@ def geom_classes(model):
         names[i]=name
         color=model.mat_rgba[model.geom_matid[i],:3] if model.geom_matid[i]>=0 else model.geom_rgba[i,:3]
         if name in ('table','work_mat','floor'):kind=name
+        # Library objects of an imported scene (near-white eraser and its sleeve band).
+        elif name.startswith('eraser_') or (name=='cube_geom' and model.geom_type[i]==mujoco.mjtGeom.mjGEOM_BOX and min(color)>.7):kind='object'
         elif name in ('cube_geom','target_cube_geom') and model.geom_type[i]==mujoco.mjtGeom.mjGEOM_BOX:kind='red' if color[0]>color[1] else 'green'
         elif name=='cube_geom':kind='tape'
         # The tape roll keeps its own measured material colors (no real-image profile yet).
@@ -123,12 +125,13 @@ def preserve_lighting(matched, illuminated, reference):
 
 
 class RealAppearance:
-    def __init__(self,folder,model,options,lighting=None):
+    def __init__(self,folder,model,options,lighting=None,reference=None):
+        reference=Path(reference) if reference else REFERENCE;self.reference=reference
         self.background=bool(options.get('real_background',False));self.processing=bool(options.get('real_image_processing',False))
         # Optional: plate brightness from the real camera only, without rendered light falloff/shadows.
         self.shading=bool(options.get('rendered_shading',True))
         self.model=model;self.classes=geom_classes(model);self.maps={};self.lighting=lighting or {}
-        self.profile=json.loads((REFERENCE/'profile.json').read_text())
+        self.profile=json.loads((reference/'profile.json').read_text())
         self.folder=Path(folder);self.folder.mkdir(parents=True,exist_ok=True)
         from studio_generation_assets import resolve_background
         import shutil
@@ -149,20 +152,20 @@ class RealAppearance:
             shutil.copyfile(source,self.folder/'real-background.png')
         self.profile['background_asset']={key:asset[key] for key in ('id','name','mode','sha256')}
         if self.background_mode=='calibrated':
-            shutil.copyfile(REFERENCE/'valid-mask.png',self.folder/'real-background-valid.png')
+            shutil.copyfile(reference/'valid-mask.png',self.folder/'real-background-valid.png')
         else:
             self.profile['background_mapping']='Uploaded image mapped onto the workcell planes using the reference camera; image is not camera-calibrated.'
             self.profile['surface_rgb']={kind:np.median(self.plate.reshape(-1,3),axis=0).tolist() for kind in ('work_mat','table','floor')}
             self.profile['filled_fraction']=0.
             self.profile['background_sha256']=digest
         (self.folder/'real-appearance.json').write_text(json.dumps(self.profile,indent=2))
-        self.provenance={'reference_sha256':hashlib.sha256((REFERENCE/'profile.json').read_bytes()).hexdigest(),
+        self.provenance={'reference_sha256':hashlib.sha256((reference/'profile.json').read_bytes()).hexdigest(),
             'background_sha256':digest,'background_asset':self.profile['background_asset'],
             'real_background':self.background,'real_image_processing':self.processing,
             'method':'Plane reprojection of selected plate; rendered robot/object occlusion; per-camera semantic Lab matching followed by requested rendered illumination.',
             'limitations':('Single calibrated workcell and planar background; occluded plate pixels filled from same real surface.' if self.background_mode=='calibrated' else self.profile['background_mapping'])+' No neural translation, texture reconstruction or hardware-transfer guarantee.',
             'wrist_cube_color_estimate':'Top segmented cube colors adjusted by measured Top-to-Wrist mat Lab shift.',
-            'background_filled_fraction':self.profile['filled_fraction'],'color_sources':self.profile['color_sources']}
+            'background_filled_fraction':self.profile['filled_fraction'],'color_sources':self.profile.get('color_sources',{})}
         if self.background_mode=='uploaded':
             self.provenance['uploaded_background_camera_response']={
                 'method':'Estimated Wrist response: additive real Wrist-minus-Top work-mat Lab mean; uploaded texture and color variation retained, without material-statistics fitting.',
@@ -316,7 +319,7 @@ class RealAppearance:
                     top_stats=self.profile['appearance']['top']
                     source_stats=top_stats.get(kind,top_stats['table'])['real']
                 source=np.asarray(source_stats['mean']);target=np.asarray(stats['real']['mean'])
-                if view=='wrist' and kind in ('red','green','bowl') and not stats.get('wrist_measured'):
+                if view=='wrist' and kind in ('red','green','bowl','object') and not stats.get('wrist_measured'):
                     # Only Top has segmented cube references. Estimate the
                     # wrist camera exposure/color shift from the shared mat.
                     top_mat=self.profile['appearance']['top']['work_mat']['real']
