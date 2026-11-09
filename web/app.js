@@ -130,14 +130,34 @@ async function runAll(){
   const reuse=state.page==='new'&&state.capture?.source==='live'&&state.capture.id===state.activeCapture&&!state.plan?.executed&&Date.now()/1000-state.capture.captured_at<90&&selectionRoles().every(r=>state.selection?.[r]);
   if(!reuse){step('1/5 Returning Home so the camera sees the whole mat');await returnHome(check);check();step('2/5 Capturing scene and selecting objects with SAM');if(!await doCapture())throw new Error('Capture failed');}
   check();if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('SAM could not select From and To. Click them in the camera image, then press Run all again.');
-  let result;
-  while(true){
-   step(`3/5 Planning a route around every obstacle · ${$('#motion-speed').value}% travel`);if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
-   step('4/5 Testing the plan in contact physics');if(!await operation('simulate'))throw new Error('Simulation did not start');result=await waitJob('simulate');await showPlan(result);check();
-   // Only a joint lagging its command is fixed by going slower: retry 25% slower, never below 100%.
-   const speed=Number($('#motion-speed').value),failures=result.transfer_check_failures||[];
-   if(result.outcome==='success'&&!result.transfer_checks_passed&&failures.length&&failures.every(f=>f.includes('lower Travel speed'))&&speed>100){$('#motion-speed').value=String(Math.max(100,speed-25));updateControls();event(`Run all · ${failures.join('; ')} · retrying at ${$('#motion-speed').value}% travel`);continue;}
-   break;}
+  // Plan and simulate repeatedly with other speeds and motion techniques until one passes
+  // every check. Each try is a full plan + contact simulation; nothing is relaxed.
+  const firstTechnique=$('#motion-technique').value,firstSpeed=Number($('#motion-speed').value);
+  const variants=[];
+  for(const technique of [firstTechnique,...['natural','flow','gentle','classic'].filter(t=>t!==firstTechnique)])
+   for(let speed=firstSpeed;speed>=100;speed-=25)variants.push({technique,speed});
+  if(!variants.some(v=>v.speed===100&&v.technique==='classic'))variants.push({technique:'classic',speed:100});
+  let result=null,lastError='';
+  for(const [index,variant] of variants.entries()){
+   check();
+   // Execution needs a capture under 180 s old: take a fresh one (arm is still at Home) before it expires.
+   if(Date.now()/1000-state.capture.captured_at>130){step('Capture is getting old · capturing the scene again');if(!await doCapture())throw new Error('Capture failed');if(!selectionRoles().every(r=>state.selection?.[r]))throw new Error('SAM could not select From and To on the new capture.');}
+   $('#motion-technique').value=variant.technique;$('#motion-speed').value=String(variant.speed);updateControls();
+   const label=`try ${index+1}/${variants.length} · ${motionLabels[variant.technique]} · ${variant.speed}%`;
+   try{
+    step(`3/5 Planning a route around every obstacle · ${label}`);if(!await operation('plan'))throw new Error('Planning did not start');await showPlan(await waitJob('plan'));check();
+    step(`4/5 Testing the plan in contact physics · ${label}`);if(!await operation('simulate'))throw new Error('Simulation did not start');result=await waitJob('simulate');await showPlan(result);check();
+   }catch(e){if(!state.runAll)throw e;lastError=e.message;result=null;event(`Run all · ${label} failed: ${e.message}`);continue;}
+   if(result.outcome==='success'&&result.transfer_checks_passed)break;
+   lastError=result.outcome!=='success'?'Outcome: '+result.outcome:(result.transfer_check_failures||[]).join('; ');
+   event(`Run all · ${label} did not pass: ${lastError} · trying another plan`);
+   // Going slower only helps a joint that trails its command; otherwise change technique.
+   const failures=result.transfer_check_failures||[];
+   if(!(result.outcome==='success'&&failures.length&&failures.every(f=>f.includes('lower Travel speed')))){
+    const next=variants.findIndex((v,k)=>k>index&&v.technique!==variant.technique);
+    if(next>index+1)variants.splice(index+1,next-index-1);}
+  }
+  if(!result)throw new Error('No plan could be simulated; the robot was not moved. Last error: '+lastError);
   if(result.outcome!=='success'||!result.transfer_checks_passed)throw new Error('Simulation did not pass; the robot was not moved. '+(result.transfer_check_failures?.join('; ')||'Outcome: '+result.outcome));
   if(!state.robot.connected||Date.now()/1000-result.captured_at>180)throw new Error('Robot disconnected or capture expired; the robot was not moved.');
   step('5/5 Executing on SO-101 · Esc or Stop motion halts it');if(!await operation('execute'))throw new Error('Execution was refused by the safety checks');
