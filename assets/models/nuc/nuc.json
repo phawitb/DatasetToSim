@@ -1,0 +1,15 @@
+{
+  "note": "Intel NUC7i3BNH mini PC (tall chassis) from Intel's spec: 115 x 111 x 51 mm, glossy black top. Mass about 0.7 kg is an estimate. Too wide for the SO-101 jaws (about 60 mm), so it is a place-only object.",
+  "size_m": [
+    0.115,
+    0.111,
+    0.051
+  ],
+  "top_m": 0.004,
+  "mass_kg": 0.7,
+  "friction": [
+    0.8,
+    0.005,
+    0.0001
+  ]
+}

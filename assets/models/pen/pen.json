@@ -1,0 +1,14 @@
+{
+  "note": "Ballpoint pen with a clear hexagonal barrel, orange cap (with clip) and orange end plug. Estimated, not measured: 149 mm long, 8 mm across the barrel flats, 9.8 mm cap. Mass is an estimate.",
+  "length_m": 0.149,
+  "across_flats_m": 0.008,
+  "cap_diameter_m": 0.0098,
+  "cap_length_m": 0.032,
+  "plug_length_m": 0.006,
+  "mass_kg": 0.006,
+  "friction": [
+    0.6,
+    0.005,
+    0.0001
+  ]
+}

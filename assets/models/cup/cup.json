@@ -1,0 +1,16 @@
+{
+  "note": "Tapered white plastic cup with a ribbed side and a rolled rim. Estimated, not measured: 78 mm tall, 70 mm across the rim, 46 mm across the base, 1 mm wall. Mass is an estimate.",
+  "height_m": 0.078,
+  "top_outer_diameter_m": 0.07,
+  "bottom_outer_diameter_m": 0.046,
+  "wall_m": 0.001,
+  "floor_m": 0.0012,
+  "lip_m": 0.0012,
+  "ribs": 24,
+  "mass_kg": 0.005,
+  "friction": [
+    0.7,
+    0.005,
+    0.0001
+  ]
+}
