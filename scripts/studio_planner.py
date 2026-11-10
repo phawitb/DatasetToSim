@@ -454,6 +454,25 @@ def simulate(folder):
         if not clearance['cleared']:
             need=clearance['object_required_m'] if clearance['closest'].startswith('cube ') else clearance['required_m']
             failures.append(f"Obstacle clearance {clearance['minimum_m']*1000:.1f} mm ({clearance['closest'].replace('_',' ')}; need {need*1000:.1f} mm): move the obstacle or the object")
+    if report.get('task')=='pickplace':
+        # The real arm sags up to ~15 mm more than simulated when reaching far, and the
+        # Wrist camera sticks out beside the jaws: every part of the arm (not the carried
+        # object) must keep 12 mm from every other object, the destination included.
+        spec=cal.world['pickplace'];picked=next(o for o in cal.world['objects'] if o['id']==spec['pick'])
+        # The jaws work right at a stacking target's top and just above the cube below the
+        # picked one, and a roll hung on the fixed jaw is lowered right into its container;
+        # otherwise containers (the bowl) and everything else keep the full margin.
+        skip={spec['pick'],*spec['carried'],picked.get('support')}|({spec['place'].get('object')} if spec['place']['type']=='top' or spec['grasp']['pads']=='fixed_in_hole' else set())
+        bodies=[o['body'] for o in cal.world['objects'] if o['id'] not in skip and o.get('body')]
+        ids=[mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,b) for b in bodies]
+        geoms=[g for g in range(m.ngeom) if m.geom_bodyid[g] in ids and (m.geom_contype[g] or m.geom_conaffinity[g])]
+        if geoms:
+            object_bodies={mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,o['body']) for o in cal.world['objects'] if o.get('body')}|{m.body('cube').id}
+            robot=[g for g in range(m.ngeom) if m.geom_bodyid[g] not in object_bodies and m.body_weldid[m.geom_bodyid[g]]!=0 and m.geom_contype[g]&(2|8)]
+            arm=obstacle_clearance(m,trace_frames(m,trace),geoms,.012,movers=robot)
+            report['arm_clearance']=arm
+            if arm['arm_minimum_m'] is not None and arm['arm_minimum_m']<.012:
+                failures.append(f"Arm passes {arm['arm_minimum_m']*1000:.1f} mm from an object (need 12 mm; the real arm sags lower): {(arm['closest'] or '').replace('_',' ')}")
     checks=not failures
     report.update(outcome=outcome,transfer_checks_passed=checks,transfer_check_failures=failures,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),

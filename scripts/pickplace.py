@@ -285,10 +285,10 @@ def plan_spec(scene, registry, config, candidate=0):
         bottom = centre[2]
         release = item['release']
         if item['type'] == 'inside' and grasp['spec']['pads'] != 'fixed_in_hole':
-            # Lower into the container until the object's bottom is 15 mm above the rim,
+            # Lower into the container until the object's bottom is 35 mm above the rim,
             # hold still, then open: a short, straight drop instead of one from travel height.
             dshape = registry['objects'][destination['kind']]['shape']
-            bottom = destination['position'][2] - bottom_offset(dshape) + height(dshape) + .015
+            bottom = destination['position'][2] - bottom_offset(dshape) + height(dshape) + .035
             release = 'lower'
         if item.get('inner_radius_m') and min_width(shape) < 2 * item['inner_radius_m'] + .004:
             # Too small to bridge the hole of a ring top: set it on the ring wall instead,

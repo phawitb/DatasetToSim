@@ -66,7 +66,7 @@ def obstacle_geoms(model,world,task):
     return ids
 
 
-def obstacle_clearance(model,frames,obstacles,required):
+def obstacle_clearance(model,frames,obstacles,required,movers=None):
     """Distances from the obstacles to the arm and to the manipulated object.
 
     `frames` are full qpos vectors. The arm must keep `required`. The object may
@@ -78,6 +78,7 @@ def obstacle_clearance(model,frames,obstacles,required):
     if not obstacles:return None
     cube=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,'cube')
     moving=set(int(i) for i in range(model.ngeom) if model.body_weldid[model.geom_bodyid[i]]!=0 and (model.geom_contype[i] or model.geom_conaffinity[i]))
+    if movers is not None:moving=set(int(i) for i in movers)-set(int(o) for o in obstacles)
     saved=model.geom_margin[obstacles].copy();model.geom_margin[obstacles]=3*required
     data=mujoco.MjData(model);blocked=set(obstacles);detect=3*required
     arm=[detect,None,None];held=[detect,None,None];initial=detect
@@ -86,7 +87,7 @@ def obstacle_clearance(model,frames,obstacles,required):
             data.qpos[:]=q;mujoco.mj_fwdPosition(model,data)
             for contact in data.contact[:data.ncon]:
                 pair={int(contact.geom1),int(contact.geom2)}
-                if not (pair&blocked and pair&moving):continue
+                if not (pair&blocked and pair&moving) or not pair-blocked:continue
                 other=(pair-blocked).pop();hit=(pair&blocked).pop();dist=float(contact.dist)
                 is_object=model.geom_bodyid[other]==cube
                 if is_object and index==0:initial=min(initial,dist)
