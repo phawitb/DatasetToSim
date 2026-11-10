@@ -115,3 +115,68 @@ def compare_arm(reference_image, image):
         return {'arm_iou': None, 'arm_offset_px': None}
     (dx, dy), _ = cv2.phaseCorrelate(a.astype(np.float32), b.astype(np.float32))
     return {'arm_iou': round(float((a & b).sum() / (a | b).sum()), 3), 'arm_offset_px': [round(dx, 1), round(dy, 1)]}
+
+
+def _static_mask(config, image, arm=False):
+    """Pixels of the fixed scene: outside the mat (objects move there) and, unless the
+    arm stands in the dataset frame's pose (`arm`), not the arm."""
+    camera = config['base_calibration']['cameras']['top']; mat = config['base_calibration']['world']['mat']
+    half = np.asarray(mat['size'][:2]) / 2 + .03; c = np.asarray(mat['position'][:2])
+    corners = project(camera, [[c[0] + sx * half[0], c[1] + sy * half[1], 0.] for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+    mask = np.full(image.shape[:2], 255, np.uint8)
+    cv2.fillPoly(mask, [corners.astype(np.int32)], 0)
+    if not arm:
+        orange = cv2.inRange(cv2.cvtColor(image, cv2.COLOR_BGR2HSV), (5, 120, 120), (22, 255, 255))
+        mask[cv2.dilate(orange, np.ones((25, 25), np.uint8)) > 0] = 0
+    return mask
+
+
+def measure(image, config=None, arm=False):
+    """Similarity transform from the dataset view to `image`, and how far points on
+    the mat moved (pixels)."""
+    config = config or base_config()
+    ref = reference()
+    orb = cv2.ORB_create(3000)
+    k1, d1 = orb.detectAndCompute(cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY), _static_mask(config, ref, arm))
+    k2, d2 = orb.detectAndCompute(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), _static_mask(config, image, arm))
+    if d1 is None or d2 is None:
+        return None, {'ok': False, 'moved_px': None, 'note': 'Too little texture around the mat to compare with the dataset view'}
+    pairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(d1, d2, k=2)
+    good = [m for m, n in (p for p in pairs if len(p) == 2) if m.distance < .75 * n.distance]
+    if len(good) < MIN_INLIERS:
+        return None, {'ok': False, 'moved_px': None, 'note': f'Only {len(good)} features match the dataset view'}
+    a = np.float32([k1[m.queryIdx].pt for m in good]); b = np.float32([k2[m.trainIdx].pt for m in good])
+    A, inliers = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=2.)
+    if A is None or inliers.sum() < MIN_INLIERS:
+        return None, {'ok': False, 'moved_px': None, 'note': 'The view does not match the dataset view'}
+    mat = config['base_calibration']['world']['mat']
+    half = np.asarray(mat['size'][:2]) / 2; c = np.asarray(mat['position'][:2]); top = mat['position'][2] + mat['size'][2] / 2
+    grid = np.array([[c[0] + sx * half[0], c[1] + sy * half[1], top] for sx in (-1, 0, 1) for sy in (-1, 0, 1)])
+    uv = project(config['base_calibration']['cameras']['top'], grid)
+    moved = (uv @ A[:, :2].T + A[:, 2]) - uv
+    shift = float(np.max(np.linalg.norm(moved, axis=1)))
+    turn = float(np.degrees(np.arctan2(A[1, 0], A[0, 0]))); scale = float(np.hypot(A[0, 0], A[1, 0]))
+    return A, {'ok': True, 'moved_px': round(shift, 2), 'turn_deg': round(turn, 3), 'scale': round(scale, 4), 'inliers': int(inliers.sum())}
+
+
+def align(folder, config=None, name='top.jpg'):
+    """Warp a top-camera image (default the capture's top.jpg) onto the dataset view
+    when the camera moved."""
+    path = Path(folder) / name; image = cv2.imread(str(path))
+    A, result = measure(image, config)
+    result['aligned'] = False
+    if A is None:
+        return result
+    if result['moved_px'] > MAX_WARP_PX:
+        result.update(ok=False, note=f"The top camera moved {result['moved_px']:.0f} px from the dataset view; put it back where it was")
+        return result
+    if result['moved_px'] > ALIGN_FROM_PX:
+        path.with_name(path.stem + '-raw.jpg').write_bytes(path.read_bytes())
+        warped = cv2.warpAffine(image, A, (image.shape[1], image.shape[0]), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REPLICATE)
+        cv2.imwrite(str(path), warped, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        result['aligned'] = True
+        # Confirm: the warped image must now match the dataset view.
+        _, after = measure(warped, config)
+        result['residual_px'] = after.get('moved_px')
+    result['checked_at'] = time.time()
+    return result
