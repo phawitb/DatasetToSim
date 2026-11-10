@@ -1,9 +1,9 @@
 {
-  "note": "Ballpoint pen (MALA) with a clear barrel, orange ink tube, plain orange cap and rounded orange end. Estimated, not measured: 149 mm long, 8 mm barrel, 9.8 mm cap. Collision is a hexagonal prism so it does not roll. Mass is an estimate.",
-  "length_m": 0.149,
-  "across_flats_m": 0.008,
-  "cap_diameter_m": 0.0098,
-  "cap_length_m": 0.032,
+  "note": "Ballpoint pen (MALA) with a clear barrel, orange ink tube, plain orange cap and rounded orange end. Measured: 135 mm long, 12 mm across the cap; the barrel (11 mm) is estimated. Collision is a hexagonal prism so it does not roll. Mass is an estimate.",
+  "length_m": 0.135,
+  "across_flats_m": 0.011,
+  "cap_diameter_m": 0.012,
+  "cap_length_m": 0.03,
   "plug_length_m": 0.006,
   "mass_kg": 0.006,
   "friction": [

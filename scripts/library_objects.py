@@ -19,18 +19,23 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / 'assets/models'
 
-PEN = {'length_m': .149, 'across_flats_m': .008, 'cap_diameter_m': .0098, 'cap_length_m': .032,
+# Measured by the user 2026-11-10: pen 12 mm diameter x 135 mm; cup 75 mm rim and 55 mm
+# base (outside), 2 mm rim; box 115 x 112 x 48 mm on four 10 mm round feet, 4 mm tall.
+# Cup height: 85 mm along the slanted side -> sqrt(85² - 10²) = 84.4 mm vertical.
+# Not measured: pen barrel (the cap is the 12 mm part), masses.
+PEN = {'length_m': .135, 'across_flats_m': .011, 'cap_diameter_m': .012, 'cap_length_m': .030,
        'plug_length_m': .006, 'mass_kg': .006, 'friction': [.6, .005, .0001]}
-CUP = {'height_m': .078, 'top_outer_diameter_m': .070, 'bottom_outer_diameter_m': .046, 'wall_m': .001,
-       'floor_m': .0012, 'lip_m': .0012, 'ribs': 24, 'mass_kg': .005, 'friction': [.7, .005, .0001]}
-NUC = {'size_m': [.115, .111, .051], 'top_m': .004, 'mass_kg': .7, 'friction': [.8, .005, .0001]}
+CUP = {'height_m': .0844, 'top_outer_diameter_m': .075, 'bottom_outer_diameter_m': .055, 'wall_m': .002,
+       'floor_m': .002, 'lip_m': .002, 'ribs': 24, 'mass_kg': .035, 'friction': [.7, .005, .0001]}
+NUC = {'size_m': [.115, .112, .052], 'body_height_m': .048, 'foot_height_m': .004, 'foot_diameter_m': .010,
+       'foot_inset_m': .011, 'top_m': .004, 'mass_kg': .7, 'friction': [.8, .005, .0001]}
 KINDS = ('pen', 'cup', 'nuc')
 NOTES = {
     'pen': 'Ballpoint pen (MALA) with a clear barrel, orange ink tube, plain orange cap and rounded orange end. '
-           'Estimated, not measured: 149 mm long, 8 mm barrel, 9.8 mm cap. Collision is a hexagonal prism so it does not roll. Mass is an estimate.',
-    'cup': 'Tapered off-white plastic cup with faint horizontal ribs and a thin rim. Estimated, not measured: 78 mm tall, '
-           '70 mm across the rim, 46 mm across the base, 1 mm wall. Mass is an estimate.',
-    'nuc': 'Intel NUC7i3BNH mini PC (tall chassis) from Intel\'s spec: 115 x 111 x 51 mm, glossy black top with silver trim, front USB/audio/power panel. '
+           'Measured: 135 mm long, 12 mm across the cap; the barrel (11 mm) is estimated. Collision is a hexagonal prism so it does not roll. Mass is an estimate.',
+    'cup': 'Tapered off-white plastic cup with faint horizontal ribs and a thin rim. Measured: 75 mm across the rim, '
+           '55 mm across the base (outside), 2 mm rim. 85 mm along the slanted side, so 84.4 mm tall. Mass (35 g, from a 2 mm polypropylene wall) is an estimate.',
+    'nuc': 'Intel NUC7i3BNH mini PC, measured: 115 x 112 x 48 mm body on four 10 mm round feet 4 mm tall (52 mm overall), glossy black top with silver trim, front USB/audio/power panel. '
            'Mass about 0.7 kg is an estimate. Too wide for the SO-101 jaws (about 60 mm), so it is a place-only object.',
 }
 WALL_SEGMENTS = 32
@@ -145,10 +150,11 @@ def nuc_parts():
     """Photos: black body, glossy black top with a silver trim line, front I/O panel
     (blue and yellow USB, audio, square power button) above the Intel badge, vent
     slots on both sides, rear HDMI, LAN, USB, USB-C and 19 V power."""
-    sx, sy, sz = NUC['size_m']; top = NUC['top_m']
+    sx, sy, sz = NUC['size_m']; top = NUC['top_m']; foot = NUC['foot_height_m']
     front, side, trim = sx / 2, sy / 2, .0012
     z_trim = sz / 2 - top - trim / 2
-    parts = [('nuc_chassis', [.08, .08, .09, 1], *_box([0, 0, (-sz / 2 + z_trim - trim / 2) / 2], [sx - .001, sy - .001, z_trim - trim / 2 + sz / 2])),
+    low = -sz / 2 + foot
+    parts = [('nuc_chassis', [.08, .08, .09, 1], *_box([0, 0, (low + z_trim - trim / 2) / 2], [sx - .001, sy - .001, z_trim - trim / 2 - low])),
              ('nuc_trim', [.72, .73, .76, 1], *_box([0, 0, z_trim], [sx, sy, trim])),
              ('nuc_top', [.02, .02, .025, 1], *_box([0, 0, sz / 2 - top / 2], [sx - .0006, sy - .0006, top]))]
     out = .0003
@@ -169,7 +175,21 @@ def nuc_parts():
                  ('nuc_dc_in', [.35, .35, .38, 1], [back, .042, -.004], [out, .006, .006])]
     for name, rgba, centre, size in features:
         parts.append((name, rgba, *_box(centre, size)))
+    for k, (x, y) in enumerate(_nuc_feet()):
+        parts.append((f'nuc_foot_{k}', [.05, .05, .05, 1], *_foot(x, y)))
     return parts
+
+
+def _nuc_feet():
+    sx, sy, _ = NUC['size_m']; inset = NUC['foot_inset_m']
+    return [(sx2 * (sx / 2 - inset), sy2 * (sy / 2 - inset)) for sx2 in (-1, 1) for sy2 in (-1, 1)]
+
+
+def _foot(x, y):
+    sz, h = NUC['size_m'][2], NUC['foot_height_m']
+    ring = _circle(NUC['foot_diameter_m'] / 2, 16, (x, y))
+    v, f = _prism_x(ring, -sz / 2, -sz / 2 + h)  # prism along its first axis, then turn it upright
+    return v[:, [1, 2, 0]], f
 
 
 PARTS = {'pen': pen_parts, 'cup': cup_parts, 'nuc': nuc_parts}
@@ -189,7 +209,8 @@ def collision_hulls(kind):
         L = PEN['length_m']
         return [_prism_x(_hexagon(PEN['across_flats_m']), -L / 2, L / 2)[0]]
     if kind == 'nuc':
-        return [_box([0, 0, 0], NUC['size_m'])[0]]
+        sx, sy, sz = NUC['size_m']; foot = NUC['foot_height_m']
+        return [_box([0, 0, foot / 2], [sx, sy, sz - foot])[0]] + [_foot(x, y)[0] for x, y in _nuc_feet()]
     h, wall, floor = CUP['height_m'], CUP['wall_m'], CUP['floor_m']
     hulls = []
     for k in range(WALL_SEGMENTS):
