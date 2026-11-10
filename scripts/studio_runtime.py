@@ -7,6 +7,12 @@ ROOT=Path(__file__).resolve().parents[1]
 def request_restart():
     path=os.environ.get('STUDIO_RESTART_FILE');instance=os.environ.get('STUDIO_INSTANCE')
     if not path or not instance:raise ValueError('Restart unavailable: launch Studio with scripts/studio_server.py')
+    # The restart file is watched by the supervisor named in it; if that process is
+    # gone (e.g. its terminal was closed) nobody would act on the request.
+    try:
+        supervisor=int(Path(path).stem.rsplit('-',1)[1]);os.kill(supervisor,0)
+    except (ValueError,IndexError):pass
+    except ProcessLookupError:raise ValueError('The Studio supervisor has stopped, so Restart cannot work; start Studio again from the terminal: python3 scripts/studio_server.py')
     target=Path(path);temporary=target.with_suffix('.tmp')
     temporary.write_text(json.dumps({'instance':instance}));temporary.replace(target)
 
