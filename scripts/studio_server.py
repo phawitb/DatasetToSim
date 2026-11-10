@@ -757,9 +757,18 @@ def camera_pose(request:Request,body:dict|None=None):
         if dataset_build_busy():raise ValueError('Finish or cancel data generation before moving the robot')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
-        target=np.asarray(reference_pose()['state_native'],float)
+        from top_camera import poses
+        body=body or {}
+        index=int(body.get('pose',0));listed=poses()
+        if not 0<=index<len(listed):raise ValueError('Unknown camera check pose')
+        home=json.loads((ROOT/'calibration/studio-home.json').read_text())
+        # Raised poses are reached through the Home corridor: unfolded, raised, pose.
+        via=body.get('via')
+        if via not in (None,'unfolded','raised','home'):raise ValueError('Unknown waypoint')
+        target=np.asarray(home[via] if via else listed[index]['state_native'],float)
+        if via:camera_pose.last=None
         command=target.copy()
-        if body and body.get('correct') and camera_pose.last is not None:
+        if not via and body.get('correct') and camera_pose.last is not None:
             # The servos stop a few degrees short of a rest pose: command past it by the
             # remaining error (bounded), measured after the previous move.
             measured=np.asarray(hardware.call('status')['positions'],float)
@@ -769,23 +778,31 @@ def camera_pose(request:Request,body:dict|None=None):
         current=None
         with stop_lock:
             if restarting:raise ValueError('Server restarting')
-            return hardware.call('go_home',target=command.tolist())|{'target':target.tolist(),'command':command.tolist()}
+            return hardware.call('go_home',target=command.tolist())|{'target':target.tolist(),'command':command.tolist(),'count':len(listed)}
 camera_pose.last=None
 
 
 @app.post('/api/camera/check')
-def camera_check_now():
+def camera_check_now(body:dict|None=None):
     """With the arm in the dataset frame's pose: compare the live top image with that
     frame, arm included. No motion here."""
-    from top_camera import measure,reference_pose,POSE_TOLERANCE_DEG
+    from top_camera import measure,poses,compare_arm,REFERENCE,POSE_TOLERANCE_DEG
     if hardware.call('status').get('running'):raise ValueError('Wait for the arm to stop')
-    snapshot=hardware.call('snapshot');pose=reference_pose()
+    index=int((body or {}).get('pose',0));pose=poses()[index]
+    snapshot=hardware.call('snapshot')
     error=np.abs(np.asarray(snapshot['initial_native'][:5])-np.asarray(pose['state_native'][:5]))
     if np.max(error)>POSE_TOLERANCE_DEG:raise ValueError(f'The arm is {np.max(error):.1f}° from the dataset frame pose; move it there first')
     image=cv2.imdecode(np.frombuffer(base64.b64decode(snapshot['images']['top']),np.uint8),cv2.IMREAD_COLOR)
-    _,result=measure(image,arm=True)
-    folder=WORK/'camera-check';folder.mkdir(exist_ok=True);cv2.imwrite(str(folder/'latest.jpg'),image)
-    return result|{'episode':pose['episode'],'pose_error_deg':float(np.max(error))}
+    reference=cv2.imread(str(REFERENCE.parent/pose['image']))
+    # Camera: the static scene (arm included only in the rest pose, where it is static).
+    _,result=measure(image,arm=not pose['raised'])
+    result|=compare_arm(reference,image)
+    folder=WORK/'camera-check';folder.mkdir(exist_ok=True)
+    side=np.hstack([reference,image,cv2.addWeighted(reference,.5,image,.5,0)])
+    for x,label in [(10,f"dataset ep{pose['episode']} frame {pose['frame']}"),(650,'live, same arm pose'),(1290,'50/50 overlay')]:
+        cv2.putText(side,label,(x,26),cv2.FONT_HERSHEY_SIMPLEX,.7,(0,0,255),2)
+    cv2.imwrite(str(folder/f'pose-{index}.jpg'),side)
+    return result|{'pose':index,'episode':pose['episode'],'frame':pose['frame'],'pose_error_deg':float(np.max(error)),'joint_error_deg':np.round(np.asarray(snapshot['initial_native'][:5])-pose['state_native'][:5],2).tolist(),'image':f'/media/studio/camera-check/pose-{index}.jpg'}
 
 
 def wrist_recheck(folder,report,fresh):

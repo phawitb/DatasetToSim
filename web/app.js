@@ -191,22 +191,29 @@ async function runAll(){
  finally{state.runAll=false;updateControls();}}
 $('#run-all').onclick=runAll;
 async function calibrateCamera(){
- // Move the arm to the pose of the dataset reference frame, then compare the live top
- // image with that frame (arm included). Every capture is also lined up with the
- // dataset view automatically when the camera has moved.
+ // Move the arm to the arm pose of each dataset reference frame (rest pose, then raised
+ // poses through the Home corridor) and compare the live top image with that frame.
+ // Every capture is also lined up with the dataset view automatically.
  if(state.runAll||state.busy||state.robot.running)return;state.runAll=true;updateControls();
  const say=t=>{$('#run-all-status').textContent=t;event(t);};
- try{say('Camera check · moving the arm to the dataset frame pose · Esc or Stop motion halts it');
-  let r=null;
-  for(let attempt=0;attempt<4&&!r;attempt++){
-   await api('/api/camera/pose',{correct:attempt>0});const started=Date.now();
-   while(true){await new Promise(r=>setTimeout(r,500));if(!state.runAll)throw new Error('Stopped');const robot=(await api('/api/status')).robot;state.robot=robot;updateControls();
-    if(robot.error&&!robot.running)throw new Error('Move stopped: '+robot.error);if(!robot.running&&Date.now()-started>800)break;if(Date.now()-started>30000)throw new Error('The move took too long');}
-   await new Promise(r=>setTimeout(r,600));
-   say('Camera check · comparing the top camera with the dataset frame');
-   try{r=await api('/api/camera/check',{});}catch(e){if(!/from the dataset frame pose/.test(e.message)||attempt===3)throw e;say('Camera check · '+e.message+' · correcting the pose');}}
-  const text=r.moved_px==null?'Camera check: '+(r.note||'could not compare with the dataset frame'):r.moved_px<=1?`Camera matches dataset episode ${r.episode} (${r.moved_px.toFixed(1)} px, arm pose within ${r.pose_error_deg.toFixed(1)}°)`:r.moved_px<=25?`Camera moved ${r.moved_px.toFixed(1)} px (turn ${r.turn_deg.toFixed(2)}°) from dataset episode ${r.episode} · captures are lined up with it automatically`:`Camera moved ${r.moved_px.toFixed(0)} px from the dataset frame · put it back where it was`;
-  say(text);}
+ const settle=async()=>{const started=Date.now();while(true){await new Promise(r=>setTimeout(r,500));if(!state.runAll)throw new Error('Stopped');const robot=(await api('/api/status')).robot;state.robot=robot;updateControls();
+   if(robot.error&&!robot.running)throw new Error('Move stopped: '+robot.error);if(!robot.running&&Date.now()-started>800)break;if(Date.now()-started>30000)throw new Error('The move took too long');}};
+ const results=[];let count=1;
+ try{
+  for(let pose=0;pose<count;pose++){
+   say(`Camera check ${pose+1}/${count} · moving the arm to the dataset frame pose · Esc or Stop motion halts it`);
+   if(pose===1){for(const via of ['unfolded','raised']){await api('/api/camera/pose',{pose,via});await settle();}}
+   else if(pose>1){await api('/api/camera/pose',{pose,via:'raised'});await settle();}
+   let r=null;
+   for(let attempt=0;attempt<4&&!r;attempt++){
+ const moved=await api('/api/camera/pose',{pose,correct:attempt>0});count=moved.count||count;await settle();await new Promise(r=>setTimeout(r,600));
+    try{r=await api('/api/camera/check',{pose});}catch(e){if(!/from the dataset frame pose/.test(e.message)||attempt===3)throw e;say(`Camera check ${pose+1}/${count} · ${e.message} · correcting the pose`);}}
+   results.push(r);
+   event(`Camera check ${pose+1}/${count} · dataset ep${r.episode} frame ${r.frame} · camera ${r.moved_px==null?'not compared':r.moved_px.toFixed(1)+' px'} · arm overlap ${r.arm_iou==null?'—':(r.arm_iou*100).toFixed(0)+'%'} offset ${r.arm_offset_px?r.arm_offset_px.map(v=>v.toFixed(0)).join(', ')+' px':'—'} · joints within ${r.pose_error_deg.toFixed(1)}°`);}
+  say('Camera check · returning Home through the raised corridor');
+  for(const via of ['raised','unfolded','home']){await api('/api/camera/pose',{pose:0,via});await settle();}
+  const cam=results[0];
+  say(`Camera vs dataset ${cam.moved_px==null?'not compared':cam.moved_px.toFixed(1)+' px'} · arm overlap ${results.map(r=>r.arm_iou==null?'—':(r.arm_iou*100).toFixed(0)+'%').join(' / ')} in the ${results.length} poses`);}
  catch(e){if(e.message!=='Stopped')toast(e.message,true);$('#run-all-status').textContent='Camera check stopped: '+e.message;}
  finally{state.runAll=false;updateControls();}}
 $('#calibrate-camera').onclick=calibrateCamera;
