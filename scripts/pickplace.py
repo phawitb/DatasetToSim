@@ -27,6 +27,10 @@ SUPPORT_CLEARANCE_M = .0325
 PLACE_CLEARANCE_M = .005
 CARRY_CLEARANCE_M = .025
 MOVED_LIMIT_M = .004
+# Jaw tips must stay this far above the base of the object they hold (grasp) and above
+# the surface it is set on (placing on top), so they never touch what is underneath.
+TIP_MARGIN_M = .004
+GRASP_RAISE_MAX_M = .015
 COLORS = {'red': '.85 .045 .035 1', 'green': '.045 .65 .09 1', 'blue': '.1 .3 .85 1', 'yellow': '.9 .8 .1 1', None: '.65 .48 .27 1'}
 
 
@@ -253,7 +257,7 @@ def grasp_candidates(registry, obj, base_xy):
     return out
 
 
-def plan_spec(scene, registry, config, candidate=0):
+def plan_spec(scene, registry, config, candidate=0, grasp_raise=0.):
     """Grasp, place and clearance numbers the planner needs, from the registry."""
     objects = {o['id']: o for o in scene['objects']}
     if scene.get('pick') not in objects:
@@ -276,6 +280,9 @@ def plan_spec(scene, registry, config, candidate=0):
         top = surface_world(below, surface(registry, below, picked.get('support_surface')))[2]
         # Keep the jaw tips off the object underneath (a stack, or the bowl floor).
         z_cmd = max(z_cmd, top + SUPPORT_CLEARANCE_M) if surface(registry, below, picked.get('support_surface'))['type'] == 'top' else z_cmd
+    # The loaded arm sags below its command at the grasp: the plan step raises the
+    # grasp until the simulated jaw tips stay above the picked object's base.
+    z_cmd += min(max(float(grasp_raise), 0.), GRASP_RAISE_MAX_M)
     picked_bottom = picked['position'][2] - bottom_offset(shape)
     hold_depth = z_cmd - picked_bottom
     if place.get('object'):
@@ -451,6 +458,36 @@ def _vertices(model, data, body):
             local = np.array(list(itertools.product([-1, 1], repeat=3))) * model.geom_size[g]
         out.append(local @ data.geom_xmat[g].reshape(3, 3).T + data.geom_xpos[g])
     return np.vstack(out)
+
+
+def jaw_tip_clearance(model, trace, scene, spec, registry):
+    """Lowest simulated jaw tip above the held object's base while closing on it, and
+    above the destination's top while setting the object on it (metres)."""
+    import mujoco
+    jaws = [g for g in range(model.ngeom) if model.geom(g).name.startswith(('fixed_jaw', 'moving_jaw'))]
+    objects = {o['id']: o for o in scene['objects']}
+    picked = objects[spec['pick']]
+    shape = registry['objects'][picked['kind']]['shape']
+    start_bottom = picked['position'][2] - bottom_offset(shape)
+    pose = np.asarray(trace['cube_pose'])
+    dest_top = None
+    if spec['place']['type'] == 'top':
+        dest_top = spec['place']['bottom_z']
+    data = mujoco.MjData(model); address = model.joint('cube_free').qposadr[0]
+    grasp = place = None
+    for i in range(0, len(pose), 2):
+        data.qpos[:6] = trace['qpos'][i]; data.qpos[address:address + 7] = pose[i]
+        mujoco.mj_kinematics(model, data)
+        tips = [data.geom_xpos[g] - [0, 0, (np.abs(data.geom_xmat[g].reshape(3, 3)) @ model.geom_aabb[g][3:])[2]] for g in jaws]
+        near = [p for p in tips if np.linalg.norm(p[:2] - pose[i][:2]) < .03]
+        if not near:
+            continue
+        low = min(near, key=lambda p: p[2])
+        if pose[i][2] - pose[0][2] < .002 and np.linalg.norm(pose[i][:2] - pose[0][:2]) < .005:
+            grasp = low[2] - start_bottom if grasp is None else min(grasp, low[2] - start_bottom)
+        elif dest_top is not None and np.linalg.norm(pose[i][:2] - spec['place']['xy']) < .015:
+            place = low[2] - dest_top if place is None else min(place, low[2] - dest_top)
+    return {'grasp_m': None if grasp is None else float(grasp), 'place_m': None if place is None else float(place), 'margin_m': TIP_MARGIN_M}
 
 
 def verdict(model, trace, scene, spec, registry, config):

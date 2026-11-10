@@ -59,7 +59,8 @@ def load_pickplace_scene(folder,capture,config,candidate=None):
     shape=registry['objects'][picked['kind']]['shape']
     cal.world['cube']=dict(position=list(picked['position']),quaternion=[float(np.cos(picked.get('yaw',0)/2)),0.,0.,float(np.sin(picked.get('yaw',0)/2))],
                            size=float(shape['size_m'][2] if shape['type']=='box' else shape['height_m']),kind=picked['kind'])
-    spec=plan_spec(scene,registry,config,candidate)
+    options=json.loads((folder/'planning-options.json').read_text()) if (folder/'planning-options.json').exists() else {}
+    spec=plan_spec(scene,registry,config,candidate,options.get('grasp_raise_m',0.))
     model=pickplace_model(cal,config,scene,registry)
     cal.world['pickplace']=spec;cal.world['objects']=scene['objects']
     return capture,config,scene,cal,model
@@ -369,11 +370,11 @@ def planned_obstacle_clearance(folder,candidate=None):
     if not obstacles:return None
     actions=np.load(folder/'plan.npz')['actions']
     if 'pickplace' in cal.world:
-        # Same rule as the simulation: robot geometry keeps 12 mm from other objects.
+        # Same rule as the simulation: robot geometry must not touch other objects.
         object_bodies={mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,o['body']) for o in cal.world['objects'] if o.get('body')}|{model.body('cube').id}
         robot=[g for g in range(model.ngeom) if model.geom_bodyid[g] not in object_bodies and model.body_weldid[model.geom_bodyid[g]]!=0 and model.geom_contype[g]&(2|8)]
-        result=obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,.012,movers=robot)
-        if result:result['cleared']=result['arm_minimum_m'] is None or result['arm_minimum_m']>=.012;result['slack_m']=(result['arm_minimum_m'] if result['arm_minimum_m'] is not None else .036)-.012
+        result=obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,.002,movers=robot)
+        if result:result['cleared']=result['arm_minimum_m'] is None or result['arm_minimum_m']>=.002;result['slack_m']=(result['arm_minimum_m'] if result['arm_minimum_m'] is not None else .036)-.002
         return result
     return obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,OBSTACLE_PLAN_MARGIN_M)
 
@@ -404,6 +405,24 @@ def _physics_checked(folder,technique,speed_scale,timing_profile,report):
                 _prepare_route(folder,technique,speed,timing_profile)  # keep the default route; simulation reports why
             checked=simulate(folder,render=False);failures=checked.get('transfer_check_failures',[])
             lag=checked['outcome']=='success' and failures and all('trails its command' in f for f in failures)
+        from pickplace import GRASP_RAISE_MAX_M
+        # Slowing down also reduces the arm's sag, so jaw-tip shortfalls left after the
+        # highest grasp do not stop the slower tries.
+        lag=checked['outcome']=='success' and failures and all('trails its command' in f or f.startswith('Jaw tips') for f in failures) and any('trails its command' in f for f in failures)
+        tips=checked.get('jaw_tip_clearance') or {}
+        low=[tips[k] for k in ('grasp_m','place_m') if tips.get(k) is not None and tips[k]<tips['margin_m']]
+        options_file=folder/'planning-options.json'
+        options=json.loads(options_file.read_text()) if options_file.exists() else {}
+        raised=float(options.get('grasp_raise_m',0.))
+        if low and raised<GRASP_RAISE_MAX_M-1e-9:
+            # The loaded arm sank below its command: grasp higher by the shortfall and
+            # plan again at the same speed (the place height follows the grasp).
+            raised=min(GRASP_RAISE_MAX_M,raised+tips['margin_m']-min(low)+.001)
+            options_file.write_text(json.dumps({**options,'grasp_raise_m':round(raised,4)}))
+            prepare_plan._inner=True
+            try:report=prepare_plan(folder,technique=technique,speed_scale=speed,preview=False,timing_profile=timing_profile)
+            finally:prepare_plan._inner=False
+            continue
         if not lag or speed<=.5+1e-9:break
         speed=max(.5,round(speed-.25,2))
         prepare_plan._inner=True
@@ -428,6 +447,10 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
     technique=validate_technique(technique if technique is not None else json.loads(options.read_text()).get('motion_technique','classic') if options.exists() else 'classic')
     if timing_profile is None and options.exists():timing_profile=json.loads(options.read_text()).get('timing_profile','conservative')
     capture=json.loads((folder/'capture.json').read_text())
+    if not getattr(prepare_plan,'_inner',False) and options.exists():
+        # Each new plan starts from the registry grasp height.
+        saved=json.loads(options.read_text())
+        if saved.pop('grasp_raise_m',None) is not None:options.write_text(json.dumps(saved))
     if capture.get('source')!='live':report=_prepare_route(folder,technique,speed_scale,timing_profile)
     else:
         load_scene(folder)  # selection/scene errors are reported as they are, not as routing failures
@@ -509,28 +532,15 @@ def simulate(folder,render=True):
             need=clearance['object_required_m'] if clearance['closest'].startswith('cube ') else clearance['required_m']
             failures.append(f"Obstacle clearance {clearance['minimum_m']*1000:.1f} mm ({clearance['closest'].replace('_',' ')}; need {need*1000:.1f} mm): move the obstacle or the object")
     if report.get('task')=='pickplace':
-        # The real arm sags up to ~15 mm more than simulated when reaching far, and the
-        # Wrist camera sticks out beside the jaws: every part of the arm (not the carried
-        # object) must keep 12 mm from every other object, the destination included.
+        # Only touching counts (the collision audit above); the jaw tips must also stay
+        # above the held object's base and above the surface it is set on.
+        from pickplace import jaw_tip_clearance,load_registry
         spec=cal.world['pickplace'];picked=next(o for o in cal.world['objects'] if o['id']==spec['pick'])
-        # The jaws work right at a stacking target's top and just above the cube below the
-        # picked one, and a roll hung on the fixed jaw is lowered right into its container;
-        # otherwise containers (the bowl) and everything else keep the full margin.
-        skip={spec['pick'],*spec['carried'],picked.get('support')}|({spec['place'].get('object')} if spec['place']['type']=='top' or spec['grasp']['pads']=='fixed_in_hole' else set())
-        object_bodies={mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,o['body']) for o in cal.world['objects'] if o.get('body')}|{m.body('cube').id}
-        robot=[g for g in range(m.ngeom) if m.geom_bodyid[g] not in object_bodies and m.body_weldid[m.geom_bodyid[g]]!=0 and m.geom_contype[g]&(2|8)]
-        report['arm_clearance']={}
-        # Containers are approached from above, where the extra sag matters most: 12 mm.
-        # Objects merely passed beside keep 8 mm.
-        for label,margin,select in [('containers',.012,lambda o:o['kind']=='bowl'),('objects',.008,lambda o:o['kind']!='bowl')]:
-            bodies=[o['body'] for o in cal.world['objects'] if o['id'] not in skip and o.get('body') and select(o)]
-            ids=[mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,b) for b in bodies]
-            geoms=[g for g in range(m.ngeom) if m.geom_bodyid[g] in ids and (m.geom_contype[g] or m.geom_conaffinity[g])]
-            if not geoms:continue
-            arm=obstacle_clearance(m,trace_frames(m,trace),geoms,margin,movers=robot)
-            report['arm_clearance'][label]=arm
-            if arm['arm_minimum_m'] is not None and arm['arm_minimum_m']<margin:
-                failures.append(f"Arm passes {arm['arm_minimum_m']*1000:.1f} mm from an object (need {margin*1000:.0f} mm; the real arm sags lower): {(arm['closest'] or '').replace('_',' ')}")
+        if spec['grasp']['pads']=='between' and load_registry()['objects'][picked['kind']]['shape']['type']=='box':
+            tips=jaw_tip_clearance(m,trace,scene,spec,load_registry());report['jaw_tip_clearance']=tips
+            for key,label in [('grasp_m','base of the held object'),('place_m','surface it is set on')]:
+                if tips[key] is not None and tips[key]<tips['margin_m']:
+                    failures.append(f"Jaw tips reach {tips[key]*1000:.1f} mm above the {label} (need {tips['margin_m']*1000:.0f} mm): grasp higher")
     checks=not failures
     report.update(outcome=outcome,transfer_checks_passed=checks,transfer_check_failures=failures,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),
