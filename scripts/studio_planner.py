@@ -71,7 +71,8 @@ def load_pickplace_scene(folder,capture,config,candidate=None):
 def load_scene(folder,candidate=None):
     capture=json.loads((folder/'capture.json').read_text())
     if capture.get('task')=='pickplace':
-        config=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        from top_camera import live_config
+        config=live_config()  # the live top camera, when it has been calibrated
         return load_pickplace_scene(folder,capture,config,candidate)
     if capture.get('source')=='synthetic':
         from studio_generation_scene import load_generation_scene

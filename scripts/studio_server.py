@@ -55,6 +55,9 @@ imports=ImportManager();atexit.register(imports.close)
 replay_previews=ReplayDatasetManager(ROOT/'output/replay-previews',media_prefix='/media/replay-previews');atexit.register(replay_previews.close)
 
 
+from top_camera import live_config
+
+
 def simulated_native(folder,count):
     """Joint positions the contact simulation reached before each command: the hardware
     holds the real arm to these (sag included) during still holds."""
@@ -617,6 +620,11 @@ def capture(body:dict):
         if source=='live':
             snapshot=hardware.call('snapshot')
             for view,image in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(image))
+            # Line the top image up with the recorded dataset's view (the camera
+            # calibration's view) if the camera has moved; the raw image is kept.
+            from top_camera import align
+            try:snapshot['camera_check']=align(folder)
+            except Exception as exc:snapshot['camera_check']={'ok':False,'moved_px':None,'note':str(exc)}
         elif source=='dataset':
             ds=DatasetIndex(DATA);index=int(body.get('episode',0))
             if not 0<=index<ds.episode_count:raise ValueError('Unknown episode')
@@ -666,7 +674,7 @@ def auto_select_objects(identifier:str,body:dict|None=None):
     folder=folder_for(identifier)
     with operation_lock:
         capture=selection_guard(folder,identifier)
-        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        cfg=live_config()
         if capture.get('task')=='pickplace':
             from pickplace_vision import detect,remap,scene_file
             selection=detect(sam,folder,cfg,decode_mask)
@@ -690,7 +698,7 @@ def select_object(identifier:str,body:dict):
     if role not in ['from','to','obstacle']:raise ValueError('Choose From, To or Obstacle')
     with operation_lock:
         capture=selection_guard(folder,identifier)
-        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        cfg=live_config()
         path=folder/'selection.json';selection=json.loads(path.read_text()) if path.exists() else {}
         if capture.get('task')=='pickplace':
             from pickplace_vision import choose,scene_file
@@ -737,11 +745,22 @@ def select_object(identifier:str,body:dict):
         return selection
 
 
+@app.post('/api/camera/check')
+def camera_check_now():
+    """Compare the live top camera with the recorded dataset's view, without moving."""
+    from top_camera import measure
+    if hardware.call('status').get('running'):raise ValueError('Stop the robot before checking the camera')
+    images=hardware.call('snapshot')['images']
+    image=cv2.imdecode(np.frombuffer(base64.b64decode(images['top']),np.uint8),cv2.IMREAD_COLOR)
+    _,result=measure(image)
+    return result
+
+
 def wrist_recheck(folder,report,fresh):
     """After the Wrist check: the object must still be where the Wrist camera saw it."""
     from pickplace import load_registry,settle
     from pickplace_wrist import measure,colour_filter,RECHECK_SHIFT_M,RECHECK_TURN_RAD
-    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text());registry=load_registry()
+    cfg=live_config();registry=load_registry()
     scene=settle(json.loads((folder/'pickplace-scene.json').read_text()),registry,cfg)
     picked=next(o for o in scene['objects'] if o['id']==scene['pick'])
     image=folder/f'wrist-recheck-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['wrist']))
@@ -758,7 +777,10 @@ def verify_selected_scene(folder,report,fresh):
         selection=json.loads((folder/'selection.json').read_text())
         if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
         image=folder/f'preflight-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['top']))
-        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+        from top_camera import align
+        moved=align(folder,name=image.name)
+        if moved.get('ok') is False and moved.get('moved_px') is not None:raise ValueError(moved.get('note') or 'The top camera moved')
+        cfg=live_config()
         observed=refresh(sam,folder,selection,image,cfg,decode_mask,image.stem)
         planned=json.loads((folder/'pickplace-scene.json').read_text())
         compare(planned['objects'],observed,planned['pick'])
@@ -770,7 +792,7 @@ def verify_selected_scene(folder,report,fresh):
     image.write_bytes(base64.b64decode(fresh['images']['top']))
     checked,masks=refresh_pair(sam,folder,selection,image,image.stem)
     if checked['model']!=selection['model']:raise ValueError('SAM model changed; capture and select again')
-    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
+    cfg=live_config()
     # Every obstacle is segmented again too: none may have moved since simulation.
     rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
     observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present'),rgb=rgb))
@@ -796,9 +818,11 @@ def refine_after_look(identifier:str):
         look=np.load(folder/'plan.npz')['actions'][report['look_index']]
         fresh=hardware.call('snapshot');q=np.asarray(fresh['initial_native'],float)
         if np.any(np.abs(q[:5]-look[:5])>10):raise ValueError('The arm is not at the Look pose; return Home and capture again')
-        cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text());registry=load_registry()
+        cfg=live_config();registry=load_registry()
         child_id=uuid.uuid4().hex;child=WORK/child_id;child.mkdir()
         for view,image in fresh['images'].items():(child/f'{view}.jpg').write_bytes(base64.b64decode(image))
+        from top_camera import align
+        align(child)
         scene=json.loads((folder/'pickplace-scene.json').read_text());settled=settle(json.loads(json.dumps(scene)),registry,cfg)
         picked=next(o for o in settled['objects'] if o['id']==settled['pick'])
         rgb=cv2.cvtColor(cv2.imread(str(child/'wrist.jpg')),cv2.COLOR_BGR2RGB)
@@ -853,6 +877,9 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
         if json.loads((folder/'capture.json').read_text()).get('task')=='pickplace':
             if not (folder/'pickplace-scene.json').exists():raise ValueError('Choose From and To first')
+            moved=json.loads((folder/'capture.json').read_text())
+            if (moved.get('camera_check') or {}).get('ok') is False and moved['camera_check'].get('moved_px') is not None:
+                raise ValueError(moved['camera_check'].get('note') or 'The top camera moved too far from the dataset view')
             selection=json.loads((folder/'selection.json').read_text())
             if json.loads((folder/'pickplace-scene.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
             if operation!='plan' and (folder/'plan.json').exists() and json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
