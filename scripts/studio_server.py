@@ -745,15 +745,47 @@ def select_object(identifier:str,body:dict):
         return selection
 
 
+@app.post('/api/camera/pose')
+def camera_pose(request:Request,body:dict|None=None):
+    """Move the arm straight to the arm pose of the dataset reference frame (a rest pose
+    next to Home), so the camera check compares like with like."""
+    global current
+    from top_camera import reference_pose
+    if not request.headers.get('x-studio-client'):raise ValueError('Moving the arm requires an owning control page')
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if dataset_build_busy():raise ValueError('Finish or cancel data generation before moving the robot')
+        if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
+        if hardware.call('status').get('running'):raise ValueError('Robot is executing')
+        target=np.asarray(reference_pose()['state_native'],float)
+        command=target.copy()
+        if body and body.get('correct') and camera_pose.last is not None:
+            # The servos stop a few degrees short of a rest pose: command past it by the
+            # remaining error (bounded), measured after the previous move.
+            measured=np.asarray(hardware.call('status')['positions'],float)
+            command=camera_pose.last.copy();command[:5]+=np.clip(target[:5]-measured[:5],-4,4)
+            command[:5]=np.clip(command[:5],target[:5]-10,target[:5]+10)
+        camera_pose.last=command
+        current=None
+        with stop_lock:
+            if restarting:raise ValueError('Server restarting')
+            return hardware.call('go_home',target=command.tolist())|{'target':target.tolist(),'command':command.tolist()}
+camera_pose.last=None
+
+
 @app.post('/api/camera/check')
 def camera_check_now():
-    """Compare the live top camera with the recorded dataset's view, without moving."""
-    from top_camera import measure
-    if hardware.call('status').get('running'):raise ValueError('Stop the robot before checking the camera')
-    images=hardware.call('snapshot')['images']
-    image=cv2.imdecode(np.frombuffer(base64.b64decode(images['top']),np.uint8),cv2.IMREAD_COLOR)
-    _,result=measure(image)
-    return result
+    """With the arm in the dataset frame's pose: compare the live top image with that
+    frame, arm included. No motion here."""
+    from top_camera import measure,reference_pose,POSE_TOLERANCE_DEG
+    if hardware.call('status').get('running'):raise ValueError('Wait for the arm to stop')
+    snapshot=hardware.call('snapshot');pose=reference_pose()
+    error=np.abs(np.asarray(snapshot['initial_native'][:5])-np.asarray(pose['state_native'][:5]))
+    if np.max(error)>POSE_TOLERANCE_DEG:raise ValueError(f'The arm is {np.max(error):.1f}° from the dataset frame pose; move it there first')
+    image=cv2.imdecode(np.frombuffer(base64.b64decode(snapshot['images']['top']),np.uint8),cv2.IMREAD_COLOR)
+    _,result=measure(image,arm=True)
+    folder=WORK/'camera-check';folder.mkdir(exist_ok=True);cv2.imwrite(str(folder/'latest.jpg'),image)
+    return result|{'episode':pose['episode'],'pose_error_deg':float(np.max(error))}
 
 
 def wrist_recheck(folder,report,fresh):

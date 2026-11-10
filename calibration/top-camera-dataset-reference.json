@@ -1,0 +1,13 @@
+{
+  "dataset": "/Users/phawit/Projects/VLA-Benchmark/data/SIMCUBE_1O1B_VF",
+  "episode": 10,
+  "frame": 0,
+  "state_native": [
+    2.681318759918213,
+    -98.94505310058594,
+    91.12088012695312,
+    72.61538696289062,
+    3.472527503967285,
+    0.8124576807022095
+  ]
+}

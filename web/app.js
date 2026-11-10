@@ -191,13 +191,24 @@ async function runAll(){
  finally{state.runAll=false;updateControls();}}
 $('#run-all').onclick=runAll;
 async function calibrateCamera(){
- // No robot motion: the live top image is compared with the recorded dataset's view.
- // Every capture is warped onto that view automatically when the camera has moved.
- const button=$('#calibrate-camera');button.disabled=true;
- try{const r=await api('/api/camera/check',{});
-  const text=r.moved_px==null?'Camera check: '+(r.note||'could not compare with the dataset view'):r.moved_px<=1?`Camera matches the dataset view (${r.moved_px.toFixed(1)} px)`:r.moved_px<=25?`Camera moved ${r.moved_px.toFixed(1)} px (turn ${r.turn_deg.toFixed(2)}°) from the dataset view · captures are lined up with it automatically`:`Camera moved ${r.moved_px.toFixed(0)} px from the dataset view · put it back where it was`;
-  $('#run-all-status').textContent=text;event(text);}
- catch(e){toast(e.message,true);}finally{updateControls();}}
+ // Move the arm to the pose of the dataset reference frame, then compare the live top
+ // image with that frame (arm included). Every capture is also lined up with the
+ // dataset view automatically when the camera has moved.
+ if(state.runAll||state.busy||state.robot.running)return;state.runAll=true;updateControls();
+ const say=t=>{$('#run-all-status').textContent=t;event(t);};
+ try{say('Camera check · moving the arm to the dataset frame pose · Esc or Stop motion halts it');
+  let r=null;
+  for(let attempt=0;attempt<4&&!r;attempt++){
+   await api('/api/camera/pose',{correct:attempt>0});const started=Date.now();
+   while(true){await new Promise(r=>setTimeout(r,500));if(!state.runAll)throw new Error('Stopped');const robot=(await api('/api/status')).robot;state.robot=robot;updateControls();
+    if(robot.error&&!robot.running)throw new Error('Move stopped: '+robot.error);if(!robot.running&&Date.now()-started>800)break;if(Date.now()-started>30000)throw new Error('The move took too long');}
+   await new Promise(r=>setTimeout(r,600));
+   say('Camera check · comparing the top camera with the dataset frame');
+   try{r=await api('/api/camera/check',{});}catch(e){if(!/from the dataset frame pose/.test(e.message)||attempt===3)throw e;say('Camera check · '+e.message+' · correcting the pose');}}
+  const text=r.moved_px==null?'Camera check: '+(r.note||'could not compare with the dataset frame'):r.moved_px<=1?`Camera matches dataset episode ${r.episode} (${r.moved_px.toFixed(1)} px, arm pose within ${r.pose_error_deg.toFixed(1)}°)`:r.moved_px<=25?`Camera moved ${r.moved_px.toFixed(1)} px (turn ${r.turn_deg.toFixed(2)}°) from dataset episode ${r.episode} · captures are lined up with it automatically`:`Camera moved ${r.moved_px.toFixed(0)} px from the dataset frame · put it back where it was`;
+  say(text);}
+ catch(e){if(e.message!=='Stopped')toast(e.message,true);$('#run-all-status').textContent='Camera check stopped: '+e.message;}
+ finally{state.runAll=false;updateControls();}}
 $('#calibrate-camera').onclick=calibrateCamera;
 async function poll(){if(state.restarting)return;try{const status=await api('/api/status');state.robot=status.robot;state.activeCapture=status.current;if(state.mode==='live'&&!state.capture)$('#real-label').textContent='LIVE CAMERA';if(state.robot.running&&state.mode==='live'&&state.capture?.id===state.robot.execution&&state.plan?.video){$('#real-label').textContent='LIVE ROBOT';video.playbackRate=1;$('#speed').value='1';if(Math.abs(video.currentTime-state.robot.elapsed)>.2)video.currentTime=state.robot.elapsed;if(video.paused&&playback.ready)video.play().catch(()=>{});playbackLabel('Live robot / sim clock');}$('#connection').className='status'+(state.robot.connected?' connected':'');$('#connection').innerHTML=`<i></i>${state.robot.running?'Executing motion':state.robot.connected?(state.robot.torque_enabled===false?'Torque off · arm free':state.robot.torque_enabled===true?'SO-101 connected':'Torque state unknown'):'Robot offline'}`;const job=status.job;if(job?.status==='running'||job?.status==='recording'){state.busy=true;$('#step-'+job.stage).classList.add('busy');}else if(job&&['complete','error'].includes(job.status)){const key=job.id+job.stage+job.status;if(state.lastJob!==key){state.lastJob=key;refreshRuns().catch(()=>{});state.busy=false;$$('.step.busy').forEach(e=>e.classList.remove('busy'));if(job.status==='error'){if(state.page==='new')toast(job.error,true);}else if(job.stage==='prepare'&&state.page==='new'){state.busy=false;event(job.plan.execution?.completed?'Home reached · camera view clear · capture a new scene':'Home stopped · '+(job.plan.execution?.error||'motion interrupted'));}else if(state.capture?.id===job.id){await showPlan(job.plan);event(job.stage==='execute'?`Hardware ${job.plan.execution?.completed?'completed':'stopped'} · synchronized real/sim recording ready`:job.stage==='plan'?`IK plan ready · ${job.plan.frames} actions`:`Physics result: ${pretty(job.plan.outcome)} · ${job.plan.transfer_checks_passed?'transfer checks passed':'transfer checks blocked execution'}`);}}}if(state.robot.error&&state.robot.error!==state.robot.lastError&&state.robot.error!==state.lastRobotError){state.lastRobotError=state.robot.error;toast(state.robot.error,true);}updateControls();}catch(e){$('#connection').innerHTML='<i></i>Server unavailable';state.robot={connected:false};updateControls();}setTimeout(poll,1000);}
 async function livePreview(){if(state.restarting)return;if(state.page==='new'&&state.mode==='live'&&(!state.capture||(state.capture.id===state.activeCapture&&(state.robot.running||(state.plan?.executed&&!state.plan?.execution?.video))))&&state.robot.connected&&!liveBusy){liveBusy=true;try{const view=state.view,id=state.capture?.id;const frame=await image('/api/live/'+view+'?t='+Date.now());if(state.page==='new'&&state.mode==='live'&&state.view===view&&state.capture?.id===id&&(!state.capture||(state.capture.id===state.activeCapture&&(state.robot.running||(state.plan?.executed&&!state.plan?.execution?.video))))){realImage=frame;draw();}}catch{}finally{liveBusy=false;}}setTimeout(livePreview,150);}
