@@ -208,7 +208,9 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     if not refining:
         # Unfold the distal joint before a vertical lift from the compact rest pose.
         # Otherwise an IK solution can drive the jaws through the shoulder housing.
-        if start[2] < .08 and start[0] < cube[0]:
+        # From the compact rest pose the jaws sit on the mat next to the shoulder: unfold
+        # first whenever starting low (objects close to the base included).
+        if start[2] < .08 and (start[0] < cube[0] or pp):
             unfolded=initial.copy();unfolded[3]=max(limits[3,0],initial[3]-45.)
             waypoint('Unfold from rest',unfolded,2.5);current=adapter.to_model(unfolded)
             start=center(current).copy()
@@ -351,7 +353,9 @@ def pickplace_obstacles(model,world):
     """Geoms the arm and the carried object must clear: every object that stays put,
     except the destination and the support the picked object starts on."""
     spec=world['pickplace'];objects={o['id']:o for o in world['objects']}
-    picked=objects[spec['pick']];skip={spec['place'].get('object'),picked.get('support'),*spec['carried']}
+    picked=objects[spec['pick']]
+    keep_destination=spec['place']['type']=='inside' and spec['grasp']['pads']!='fixed_in_hole'
+    skip={picked.get('support'),*spec['carried']}|(set() if keep_destination else {spec['place'].get('object')})
     bodies={o['body'] for o in world['objects'] if o['id']!=spec['pick'] and o['id'] not in skip and o.get('body')}
     ids=[mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,b) for b in bodies]
     return [g for g in range(model.ngeom) if model.geom_bodyid[g] in ids and (model.geom_contype[g] or model.geom_conaffinity[g])]
@@ -364,7 +368,55 @@ def planned_obstacle_clearance(folder,candidate=None):
     obstacles=pickplace_obstacles(model,cal.world) if 'pickplace' in cal.world else obstacle_geoms(model,cal.world,capture.get('task'))
     if not obstacles:return None
     actions=np.load(folder/'plan.npz')['actions']
+    if 'pickplace' in cal.world:
+        # Same rule as the simulation: robot geometry keeps 12 mm from other objects.
+        object_bodies={mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,o['body']) for o in cal.world['objects'] if o.get('body')}|{model.body('cube').id}
+        robot=[g for g in range(model.ngeom) if model.geom_bodyid[g] not in object_bodies and model.body_weldid[model.geom_bodyid[g]]!=0 and model.geom_contype[g]&(2|8)]
+        result=obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,.012,movers=robot)
+        if result:result['cleared']=result['arm_minimum_m'] is None or result['arm_minimum_m']>=.012;result['slack_m']=(result['arm_minimum_m'] if result['arm_minimum_m'] is not None else .036)-.012
+        return result
     return obstacle_clearance(model,planned_frames(model,adapter,actions),obstacles,OBSTACLE_PLAN_MARGIN_M)
+
+
+def _physics_checked(folder,technique,speed_scale,timing_profile,report):
+    """Run the contact simulation (no video) on the plan; if a joint only trails its
+    command, plan again slower (down to 50%), so Generate plan hands over a plan that
+    passes. Any other failure is left for the full simulation to report."""
+    tries=[]
+    speed=speed_scale
+    while True:
+        checked=simulate(folder,render=False)
+        failures=checked.get('transfer_check_failures',[])
+        tries.append({'speed_scale':speed,'outcome':checked['outcome'],'failures':failures})
+        lag=checked['outcome']=='success' and failures and all('trails its command' in f for f in failures)
+        near=[f for f in failures if f.startswith('Arm passes')]
+        if near and not getattr(_physics_checked,'_routing',False):
+            # Too close to an object in contact physics: try the other routes (higher
+            # travel, other grasp candidates) with the same physics check.
+            count=load_scene(folder)[3].world['pickplace']['candidate_count'];best=None
+            for extra,turn in [(e,c) for c in range(min(count,7)) for e in (0.,.04)][1:]:
+                try:candidate=_prepare_route(folder,technique,speed,timing_profile,extra,turn)
+                except ValueError:continue
+                result=simulate(folder,render=False);bad=[f for f in result.get('transfer_check_failures',[]) if f.startswith('Arm passes')]
+                tries.append({'speed_scale':speed,'route':[extra,turn],'outcome':result['outcome'],'failures':result.get('transfer_check_failures',[])})
+                if result['outcome']=='success' and not bad:best=(extra,turn);break
+            if best is None:
+                _prepare_route(folder,technique,speed,timing_profile)  # keep the default route; simulation reports why
+            checked=simulate(folder,render=False);failures=checked.get('transfer_check_failures',[])
+            lag=checked['outcome']=='success' and failures and all('trails its command' in f for f in failures)
+        if not lag or speed<=.5+1e-9:break
+        speed=max(.5,round(speed-.25,2))
+        prepare_plan._inner=True
+        try:report=prepare_plan(folder,technique=technique,speed_scale=speed,preview=False,timing_profile=timing_profile)
+        finally:prepare_plan._inner=False
+    report=json.loads((folder/'plan.json').read_text())
+    # Hand over an unsimulated plan: the Simulation step must run on exactly this plan.
+    report.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None,simulated_timestamp_hash=None,
+                  simulated_speed_scale=None,simulated_timing_profile=None,simulated_timing_contract_hash=None,speed_check=tries)
+    for key in ['pickplace_assessment','transfer_check_failures','arm_clearance','audit','collision_audit']:report.pop(key,None)
+    (folder/'plan.json').write_text(json.dumps(report,indent=2))
+    (folder/'planning-options.json').write_text(json.dumps({**(json.loads((folder/'planning-options.json').read_text()) if (folder/'planning-options.json').exists() else {}),'speed_scale':report['speed_scale']}))
+    return report
 
 
 def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_profile=None):
@@ -405,12 +457,14 @@ def prepare_plan(folder,technique=None,speed_scale=None,preview=True,timing_prof
             report['obstacle_planning']={'method':'Commanded joints with the object carried rigidly; static obstacle collision geometry; contact physics still decides',
                                          'margin_m':OBSTACLE_PLAN_MARGIN_M,'chosen':chosen,'cleared':clear(best),'attempts':attempts}
             (folder/'plan.json').write_text(json.dumps(report,indent=2))
+    if capture.get('task')=='pickplace' and capture.get('source')=='live' and not getattr(prepare_plan,'_inner',False):
+        report=_physics_checked(folder,technique,speed_scale,timing_profile,report)
     capture,config,scene,cal,model=load_scene(folder,report.get('grasp_candidate'))
     if preview:render_preview(model,NativeJointAdapter(**config['adapter']).to_model(capture['initial_native']),folder/'preview.jpg')
     return report
 
 
-def simulate(folder):
+def simulate(folder,render=True):
     report=json.loads((folder/'plan.json').read_text()); capture,config,scene,cal,m=load_scene(folder,report.get('grasp_candidate'))
     adapter=NativeJointAdapter(**config['adapter']); saved=np.load(folder/'plan.npz');actions=saved['actions'];ts=saved['timestamps']
     if array_hash(actions)!=report['action_hash']: raise ValueError('Plan changed since generation')
@@ -463,16 +517,20 @@ def simulate(folder):
         # picked one, and a roll hung on the fixed jaw is lowered right into its container;
         # otherwise containers (the bowl) and everything else keep the full margin.
         skip={spec['pick'],*spec['carried'],picked.get('support')}|({spec['place'].get('object')} if spec['place']['type']=='top' or spec['grasp']['pads']=='fixed_in_hole' else set())
-        bodies=[o['body'] for o in cal.world['objects'] if o['id'] not in skip and o.get('body')]
-        ids=[mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,b) for b in bodies]
-        geoms=[g for g in range(m.ngeom) if m.geom_bodyid[g] in ids and (m.geom_contype[g] or m.geom_conaffinity[g])]
-        if geoms:
-            object_bodies={mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,o['body']) for o in cal.world['objects'] if o.get('body')}|{m.body('cube').id}
-            robot=[g for g in range(m.ngeom) if m.geom_bodyid[g] not in object_bodies and m.body_weldid[m.geom_bodyid[g]]!=0 and m.geom_contype[g]&(2|8)]
-            arm=obstacle_clearance(m,trace_frames(m,trace),geoms,.012,movers=robot)
-            report['arm_clearance']=arm
-            if arm['arm_minimum_m'] is not None and arm['arm_minimum_m']<.012:
-                failures.append(f"Arm passes {arm['arm_minimum_m']*1000:.1f} mm from an object (need 12 mm; the real arm sags lower): {(arm['closest'] or '').replace('_',' ')}")
+        object_bodies={mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,o['body']) for o in cal.world['objects'] if o.get('body')}|{m.body('cube').id}
+        robot=[g for g in range(m.ngeom) if m.geom_bodyid[g] not in object_bodies and m.body_weldid[m.geom_bodyid[g]]!=0 and m.geom_contype[g]&(2|8)]
+        report['arm_clearance']={}
+        # Containers are approached from above, where the extra sag matters most: 12 mm.
+        # Objects merely passed beside keep 8 mm.
+        for label,margin,select in [('containers',.012,lambda o:o['kind']=='bowl'),('objects',.008,lambda o:o['kind']!='bowl')]:
+            bodies=[o['body'] for o in cal.world['objects'] if o['id'] not in skip and o.get('body') and select(o)]
+            ids=[mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_BODY,b) for b in bodies]
+            geoms=[g for g in range(m.ngeom) if m.geom_bodyid[g] in ids and (m.geom_contype[g] or m.geom_conaffinity[g])]
+            if not geoms:continue
+            arm=obstacle_clearance(m,trace_frames(m,trace),geoms,margin,movers=robot)
+            report['arm_clearance'][label]=arm
+            if arm['arm_minimum_m'] is not None and arm['arm_minimum_m']<margin:
+                failures.append(f"Arm passes {arm['arm_minimum_m']*1000:.1f} mm from an object (need {margin*1000:.0f} mm; the real arm sags lower): {(arm['closest'] or '').replace('_',' ')}")
     checks=not failures
     report.update(outcome=outcome,transfer_checks_passed=checks,transfer_check_failures=failures,collision_audit=collision,audit=trace['audit'],bowl_containment=inside,
                   max_cube_height_m=float(trace['cube_pose'][:,2].max()),max_tracking_error=np.max(tracking,axis=0).tolist(),
@@ -483,6 +541,7 @@ def simulate(folder):
     np.savez_compressed(folder/'trace.npz',qpos=trace['qpos'],cube_pose=trace['cube_pose'],native=adapter.to_native(trace['qpos']),timestamps=trace['sample_times'],**extra)
     # Save the physical verdict even if the graphics environment fails.
     (folder/'plan.json').write_text(json.dumps(report,indent=2))
+    if not render:return report
     try:
         render_trace(m,trace,folder)
         report['video']='simulation.mp4'
