@@ -24,6 +24,8 @@ from studio_motion import interpolate_flow, interpolate_ruckig, validate_techniq
 
 JOINT_LABELS=['Shoulder pan','Shoulder lift','Elbow','Wrist flex','Wrist roll','Gripper']
 HARDWARE_SHOULDER_LIFT_MARGIN_DEG=8.
+# Gap left between a box and the fixed jaw while the jaws come down around it.
+FIXED_JAW_GAP_M=.004
 
 
 def interpolate_native(waypoints,speed_scale=1.,derivative_limits=None):
@@ -128,6 +130,9 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
         aperture,open_grip,close_grip,release_grip=jaw_openings(m,d,adapter,current,grasp_width())
     elif pp and pp['grasp']['native']=='from_width':
         aperture,open_grip,close_grip,release_grip=jaw_openings(m,d,adapter,current,pp['grasp']['width_m'])
+    fixed_ref=None
+    if pp and not tape and pp['grasp']['pads']=='between' and pp.get('shape')=='box':
+        fixed_ref=float(m.geom('fixed_pad').size[0])+FIXED_JAW_GAP_M+pp['grasp']['width_m']/2
     def center(q):
         if tape:
             # Fixed jaw in the core hole, moving jaw outside: the reference point is the
@@ -136,6 +141,13 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
             fixed=d.geom('fixed_pad').xpos;toward=(d.geom('moving_pad').xpos-fixed)[:2]
             return np.r_[fixed[:2]-FIXED_PAD_RADIUS_M*toward/np.linalg.norm(toward),fixed[2]]
         d.qpos[:6]=q;d.qpos[5]=max(aperture,q[5]);mujoco.mj_forward(m,d)
+        if fixed_ref is not None:
+            # A box is set beside the fixed jaw, not midway between the pads: the real
+            # moving jaw opens less than the model, and midway it came down on the cube.
+            # The moving jaw then presses the box against the fixed one; the reference
+            # does not depend on the opening, so the arm holds still while closing.
+            fixed=d.geom('fixed_pad').xpos;toward=(d.geom('moving_pad').xpos-fixed)[:2]
+            return np.r_[fixed[:2]+fixed_ref*toward/np.linalg.norm(toward),fixed[2]]
         return (d.geom('fixed_pad').xpos+d.geom('moving_pad').xpos)/2
     def jaw_angle():
         # Horizontal direction the jaws close along, after center(q) ran forward kinematics.
@@ -268,6 +280,10 @@ def plan(folder,stack_offset=None,preview=True,technique="classic",speed_scale=1
     derivative_limits=None if timing is None else timing['limits']
     if timing is not None:
         waypoints=generation_durations(waypoints,names)
+        if pp:
+            # Still holds long enough for the hardware to close the servos' remaining
+            # error before the jaws close and before the release.
+            waypoints=[(q,max(sec,.6) if name in ('Grasp settle','Placement settle') else sec) for (q,sec),name in zip(waypoints,names)]
         motion.update(timing_profile='recorded',timing_reference=timing,
                       enforced_derivatives=['velocity'] if technique=='classic' else ['velocity','acceleration','jerk'])
     else:motion['timing_profile']='conservative'

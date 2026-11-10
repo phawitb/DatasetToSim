@@ -341,7 +341,7 @@ def plan_spec(scene, registry, config, candidate=0, grasp_raise=0.):
         place_yaw = grasp['jaw_yaw'] + delta
     pad_xy = np.asarray(target['xy']) + _rotate(delta, np.r_[offset, 0.])[:2]
     target['pad_xy'] = pad_xy.tolist()
-    return {'pick': picked['id'], 'kind': picked['kind'], 'grasp': {**{k: v for k, v in grasp.items() if k != 'spec'}, 'z_cmd': float(z_cmd),
+    return {'pick': picked['id'], 'kind': picked['kind'], 'shape': shape['type'], 'grasp': {**{k: v for k, v in grasp.items() if k != 'spec'}, 'z_cmd': float(z_cmd),
             'pads': grasp['spec']['pads'], 'width_m': grasp['spec']['width_m'], 'native': grasp['spec']['gripper_native']},
             'candidate': candidate, 'candidate_count': len(candidates), 'place': {**target, 'pad_z': float(place_z), 'yaw': place_yaw},
             'hover_m': float(hover), 'hold_depth_m': float(hold_depth), 'carried': sorted(carried),

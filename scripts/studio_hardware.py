@@ -22,6 +22,11 @@ from studio_recording import Recording
 from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits, validate_simulated_timing, motion_speed_limits
 
 
+# Hold compensation: per-frame integral gain, bound (deg) and fade per moving frame.
+HOLD_GAIN=.2
+HOLD_LIMIT_DEG=4.
+HOLD_FADE=.85
+
 def open_calibrated_connection(robot):
     # LeRobot robot.connect() configures motors inside torque_disabled().
     # This workcell is already configured: preserve torque across handoffs.
@@ -220,6 +225,12 @@ class Hardware:
                 journal_path=ROOT/'output/studio'/plan['id']/'hardware-commands.jsonl'
                 journal_path.parent.mkdir(parents=True,exist_ok=True)
                 journal=journal_path.open('a',buffering=1)
+                # Servo hold compensation (pick and place): while the arm joints are commanded
+                # to hold still (grasp and placement settles, closing, releasing), the real
+                # servos stop 2-4 deg short of the command, ~1 cm at the jaws. Add the
+                # remaining error back, integrated and bounded, so the jaws reach the
+                # simulated pose; the offset fades out as soon as the arm moves again.
+                compensate=plan.get('task')=='pickplace';offset=np.zeros(6)
                 for i,(q,t) in enumerate(zip(actions,ts)):
                     if self.stopped.wait(max(0,start+float(t)-time.monotonic())):break
                     if time.monotonic()-self.last_heartbeat>3:raise RuntimeError('Control page heartbeat lost')
@@ -228,8 +239,12 @@ class Hardware:
                     measured=self.positions()
                     previous=actions[max(0,i-1)]
                     if np.any(np.abs(measured-previous)>np.array([10.]*5+[25.])):raise RuntimeError('Robot deviated from planned motion')
-                    self.send(q);self.progress=(i+1)/len(actions)
-                    self.history.append({'time':time.monotonic()-start,'target':q.tolist(),'measured':measured.tolist()})
+                    if compensate:
+                        if i>0 and np.all(np.abs(q[:5]-actions[i-1][:5])<.05):
+                            offset[:5]=np.clip(offset[:5]+HOLD_GAIN*(q[:5]-measured[:5]),-HOLD_LIMIT_DEG,HOLD_LIMIT_DEG)
+                        else:offset*=HOLD_FADE
+                    self.send(q+offset);self.progress=(i+1)/len(actions)
+                    self.history.append({'time':time.monotonic()-start,'target':q.tolist(),'measured':measured.tolist(),'sent':(q+offset).tolist()})
                     journal.write(json.dumps(self.history[-1])+'\n')
                 if not self.stopped.is_set():self.stopped.wait(1/30)
             except Exception as exc:self.error=str(exc)
