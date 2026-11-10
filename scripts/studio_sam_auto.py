@@ -80,7 +80,7 @@ def cube_color(rgb,mask):
     if len(vivid)<max(10,.15*len(hsv)):return None
     hue=vivid[:,0];counts={name:np.count_nonzero(m) for name,m in CUBE_HUES(hue).items()}
     best=max(counts,key=counts.get)
-    return best if counts[best]>.5*len(vivid) else None
+    return best if counts[best]>.45*len(vivid) else None
 
 
 def classify(config,rgb,mask):

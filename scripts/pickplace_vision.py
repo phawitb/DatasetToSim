@@ -90,7 +90,8 @@ def classify(config, registry, rgb, mask):
             _, fit, _ = tape_pose_from_mask(config, np.asarray(mask, bool), label='Object')
             return {'kind': 'tape', 'fit_rmse_px': fit['boundary_rmse_px']}
         except ValueError:
-            return None  # neither a painted cube nor the roll: not a known object
+            # Lighting can shift a cube's hue between colour names; its shape still fits.
+            return info if info.get('fit_rmse_px', 9) <= 2. else None
     if info:
         return info
     return _other_box(config, registry, rgb, mask)
