@@ -26,11 +26,11 @@ CUP = {'height_m': .078, 'top_outer_diameter_m': .070, 'bottom_outer_diameter_m'
 NUC = {'size_m': [.115, .111, .051], 'top_m': .004, 'mass_kg': .7, 'friction': [.8, .005, .0001]}
 KINDS = ('pen', 'cup', 'nuc')
 NOTES = {
-    'pen': 'Ballpoint pen with a clear hexagonal barrel, orange cap (with clip) and orange end plug. '
-           'Estimated, not measured: 149 mm long, 8 mm across the barrel flats, 9.8 mm cap. Mass is an estimate.',
-    'cup': 'Tapered white plastic cup with a ribbed side and a rolled rim. Estimated, not measured: 78 mm tall, '
+    'pen': 'Ballpoint pen (MALA) with a clear barrel, orange ink tube, plain orange cap and rounded orange end. '
+           'Estimated, not measured: 149 mm long, 8 mm barrel, 9.8 mm cap. Collision is a hexagonal prism so it does not roll. Mass is an estimate.',
+    'cup': 'Tapered off-white plastic cup with faint horizontal ribs and a thin rim. Estimated, not measured: 78 mm tall, '
            '70 mm across the rim, 46 mm across the base, 1 mm wall. Mass is an estimate.',
-    'nuc': 'Intel NUC7i3BNH mini PC (tall chassis) from Intel\'s spec: 115 x 111 x 51 mm, glossy black top. '
+    'nuc': 'Intel NUC7i3BNH mini PC (tall chassis) from Intel\'s spec: 115 x 111 x 51 mm, glossy black top with silver trim, front USB/audio/power panel. '
            'Mass about 0.7 kg is an estimate. Too wide for the SO-101 jaws (about 60 mm), so it is a place-only object.',
 }
 WALL_SEGMENTS = 32
@@ -92,49 +92,82 @@ def cup_radius(z):
     return bottom + (top - bottom) * (z + h / 2) / h
 
 
+def _lathe_x(rings, n=32, z_offset=0., **kw):
+    """Surface of revolution about the x axis through rings [(radius, x)]."""
+    v, f = _lathe([(r, x, 0) for r, x in rings], n=n, **kw)
+    return np.c_[v[:, 2], v[:, 0], v[:, 1] + z_offset], f
+
+
+def _dome(r, x_flat, x_end, steps=5):
+    """Rings from a flat section at x_flat to a rounded end at x_end."""
+    depth = x_end - x_flat
+    return [(r * np.cos(t), x_flat + depth * np.sin(t)) for t in np.linspace(0, np.pi / 2 * .97, steps)]
+
+
 def pen_parts():
+    """Photos: round clear barrel, orange ink tube inside, plain orange cap with a
+    rounded end (no clip), rounded orange end plug in a short clear collar."""
     L, flats = PEN['length_m'], PEN['across_flats_m']
     x0, x1 = -L / 2, L / 2
-    cap_r = PEN['cap_diameter_m'] / 2
-    lift = cap_r - flats / 2  # the cap rests on the mat too, so its axis sits higher than the barrel's
+    cap_r, r = PEN['cap_diameter_m'] / 2, flats / 2
+    lift = cap_r - r  # the cap rests on the mat too, so its axis sits higher than the barrel's
     cap0 = x1 - PEN['cap_length_m']
-    parts = [('pen_barrel', [.90, .93, .96, .45], *_prism_x(_hexagon(flats), x0 + PEN['plug_length_m'], cap0 + .004)),
-             ('pen_ink', [.95, .45, .08, 1], *_prism_x(_circle(.0015, 16), x0 + .010, cap0 - .004)),
-             ('pen_tip', [.75, .76, .78, 1], *_prism_x(_circle(.0012, 12), cap0 - .004, cap0 + .006)),
-             ('pen_plug', [.98, .42, .05, 1], *_prism_x(_circle(.0031, 24), x0, x0 + PEN['plug_length_m'])),
-             ('pen_cap', [.98, .42, .05, 1], *_prism_x(_circle(cap_r, 32, (0, lift)), cap0, x1))]
-    clip_v, clip_f = _box([x1 - .016, 0, lift + cap_r + .0006], [.026, .003, .0012])
-    parts.append(('pen_clip', [.98, .42, .05, 1], clip_v, clip_f))
-    return parts
+    plug = PEN['plug_length_m']
+    orange = [.98, .38, .10, 1]
+    cap = _lathe_x([(cap_r * .97, cap0)] + _dome(cap_r, x1 - .003, x1), z_offset=lift, closed_bottom=True, closed_top=True)
+    end = _lathe_x(list(reversed(_dome(r * .95, x0 + plug * .5, x0))) + [(r * .95, x0 + plug)], closed_bottom=True, closed_top=True)
+    return [('pen_barrel', [.90, .93, .96, .40], *_lathe_x([(r, x0 + plug), (r, cap0 + .004)], closed_bottom=True, closed_top=True)),
+            ('pen_ink', [.86, .30, .16, 1], *_lathe_x([(.0018, x0 + .012), (.0018, cap0 - .002)], n=16, closed_bottom=True, closed_top=True)),
+            ('pen_ink_plug', orange, *_lathe_x([(r * .9, x0 + plug), (r * .9, x0 + plug + .007)], closed_bottom=True, closed_top=True)),
+            ('pen_end', orange, *end),
+            ('pen_cap', orange, *cap)]
 
 
 def cup_parts():
+    """Photos: plain thin rim, faint horizontal grooves around the side, recessed foot."""
     h, wall, floor, lip = CUP['height_m'], CUP['wall_m'], CUP['floor_m'], CUP['lip_m']
-    zs = np.linspace(-h / 2, h / 2 - lip, 12)
-    # Ribs on the lower two thirds of the side, fading out towards the rim.
-    weight = np.clip((h / 2 - lip - .02 - zs) / .01, 0, 1)
-    outer = _lathe([(cup_radius(z), z, w) for z, w in zip(zs, weight)], ribs=CUP['ribs'], rib_depth=.025, closed_bottom=True)
+    zs = np.linspace(-h / 2 + .002, h / 2 - lip, 60)
+    # Shallow horizontal ribs (about 4 mm pitch) from the foot to 12 mm below the rim.
+    fade = np.clip((h / 2 - .012 - zs) / .006, 0, 1)
+    groove = .0002 * fade * (np.cos(2 * np.pi * (zs + h / 2) / .004) > 0.3)
+    rings = [(cup_radius(-h / 2) - .0015, -h / 2, 0), (cup_radius(-h / 2 + .002), -h / 2 + .002, 0)]
+    rings += [(cup_radius(z) - g, z, 0) for z, g in zip(zs[1:], groove[1:])]
+    outer = _lathe(rings, closed_bottom=True)
     inner = _lathe([(cup_radius(z) - wall, z, 0) for z in np.linspace(-h / 2 + floor, h / 2 - lip, 6)], closed_bottom=True)
     r = cup_radius(h / 2)
-    # Rolled rim: a closed loop of rings around the top edge.
-    rim = _lathe([(a, b, 0) for a, b in [(r - wall, h / 2 - lip), (r + lip * .6, h / 2 - lip), (r + lip, h / 2 - lip / 2),
-                                         (r + lip * .6, h / 2), (r - wall, h / 2), (r - wall, h / 2 - lip)]])
-    white = [.96, .96, .95, 1]
-    return [('cup_outer', white, *outer), ('cup_inner', [.93, .93, .92, 1], *inner), ('cup_rim', white, *rim)]
+    rim = _lathe([(a, b, 0) for a, b in [(r - wall, h / 2 - lip), (r, h / 2 - lip), (r, h / 2 - lip * .3), (r - wall * .3, h / 2),
+                                         (r - wall * .7, h / 2), (r - wall, h / 2 - lip * .3), (r - wall, h / 2 - lip)]])
+    white = [.95, .94, .89, 1]
+    return [('cup_outer', white, *outer), ('cup_inner', [.93, .91, .84, 1], *inner), ('cup_rim', white, *rim)]
 
 
 def nuc_parts():
+    """Photos: black body, glossy black top with a silver trim line, front I/O panel
+    (blue and yellow USB, audio, square power button) above the Intel badge, vent
+    slots on both sides, rear HDMI, LAN, USB, USB-C and 19 V power."""
     sx, sy, sz = NUC['size_m']; top = NUC['top_m']
-    front = sx / 2
-    parts = [('nuc_chassis', [.17, .17, .18, 1], *_box([0, 0, -top / 2], [sx, sy, sz - top])),
-             ('nuc_top', [.03, .03, .04, 1], *_box([0, 0, sz / 2 - top / 2], [sx - .001, sy - .001, top]))]
-    ports = [('nuc_power', [.80, .82, .85, 1], [front, -.042, .012], [.0006, .007, .007]),
-             ('nuc_usb_front_a', [.05, .05, .06, 1], [front, .006, -.006], [.0006, .013, .0055]),
-             ('nuc_usb_front_b', [.05, .05, .06, 1], [front, .024, -.006], [.0006, .013, .0055]),
-             ('nuc_audio', [.05, .05, .06, 1], [front, .040, -.006], [.0006, .004, .004]),
-             ('nuc_ir', [.25, .05, .06, 1], [front, -.020, .012], [.0006, .010, .004]),
-             ('nuc_vent', [.08, .08, .09, 1], [-front, 0, .010], [.0006, .090, .012])]
-    for name, rgba, centre, size in ports:
+    front, side, trim = sx / 2, sy / 2, .0012
+    z_trim = sz / 2 - top - trim / 2
+    parts = [('nuc_chassis', [.08, .08, .09, 1], *_box([0, 0, (-sz / 2 + z_trim - trim / 2) / 2], [sx - .001, sy - .001, z_trim - trim / 2 + sz / 2])),
+             ('nuc_trim', [.72, .73, .76, 1], *_box([0, 0, z_trim], [sx, sy, trim])),
+             ('nuc_top', [.02, .02, .025, 1], *_box([0, 0, sz / 2 - top / 2], [sx - .0006, sy - .0006, top]))]
+    out = .0003
+    features = [('nuc_front_panel', [.03, .03, .035, 1], [front, -.001, .006], [out, .072, .012]),
+                ('nuc_usb_blue', [.10, .30, .80, 1], [front + out, -.024, .006], [out, .012, .0045]),
+                ('nuc_usb_yellow', [.85, .62, .10, 1], [front + out, -.005, .006], [out, .012, .0045]),
+                ('nuc_audio', [.35, .35, .38, 1], [front + out, .012, .006], [out, .0035, .0035]),
+                ('nuc_power', [.15, .15, .17, 1], [front + out, .027, .006], [out, .007, .007]),
+                ('nuc_badge', [.12, .35, .75, 1], [front, -.034, -.010], [out, .010, .011])]
+    for name, y in (('nuc_vent_left', -side), ('nuc_vent_right', side)):
+        features.append((name, [.01, .01, .012, 1], [.004, y, -.006], [.075, out, .012]))
+    back = -front
+    features += [('nuc_rear_vents', [.01, .01, .012, 1], [back, -.010, .011], [out, .060, .006]),
+                 ('nuc_hdmi', [.35, .35, .38, 1], [back, .022, -.002], [out, .015, .005]),
+                 ('nuc_lan', [.35, .35, .38, 1], [back, .002, -.002], [out, .013, .010]),
+                 ('nuc_usb_rear', [.10, .30, .80, 1], [back, -.018, -.002], [out, .013, .012]),
+                 ('nuc_usb_c', [.35, .35, .38, 1], [back, -.036, .002], [out, .009, .003]),
+                 ('nuc_dc_in', [.35, .35, .38, 1], [back, .042, -.004], [out, .006, .006])]
+    for name, rgba, centre, size in features:
         parts.append((name, rgba, *_box(centre, size)))
     return parts
 
