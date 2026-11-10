@@ -346,7 +346,10 @@ def _prepare_route(folder,technique,speed_scale,timing_profile,hover_extra=0.,gr
         stacking=report['task']=='stack'
         if pickplace:
             spec=report['world']['pickplace']
-            goal=np.r_[spec['place']['xy'],spec['place']['bottom_z']+spec['picked_bottom_offset_m']+.004]
+            # Set onto another object: release only once the held object rests on it (no
+            # gap), so it cannot tip or roll off; elsewhere a 4 mm drop is harmless.
+            gap=0. if spec['place']['type']=='top' else .004
+            goal=np.r_[spec['place']['xy'],spec['place']['bottom_z']+spec['picked_bottom_offset_m']+gap]
         else:
             goal=np.asarray(report['world']['target_cube' if stacking else 'placement']['position'],float).copy()
             goal[2]+=(report['world']['target_cube']['size'] if stacking else 0)+.004
@@ -359,7 +362,7 @@ def _prepare_route(folder,technique,speed_scale,timing_profile,hover_extra=0.,gr
             if np.any(np.abs(candidate)>.020):raise ValueError('Stack placement correction exceeds 20 mm; reposition the cubes and capture again')
             if attempt==4:raise ValueError('Stack placement did not converge; reposition the cubes and capture again')
             offset=candidate;report=plan(folder,stack_offset=offset,preview=False,technique=technique,speed_scale=speed_scale,timing_profile=timing_profile,**route)
-        report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':.004}
+        report['stack_planning']={'method':'Bounded contact-physics prediction of held cube center; scene and physical parameters unchanged','iterations':iterations,'maximum_offset_m':.020,'release_gap_m':gap if pickplace else .004}
         (folder/'plan.json').write_text(json.dumps(report,indent=2))
     if pickplace:
         report['grasp_candidate']=grasp_index;(folder/'plan.json').write_text(json.dumps(report,indent=2))

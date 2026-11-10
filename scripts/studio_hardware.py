@@ -226,11 +226,13 @@ class Hardware:
                 journal_path.parent.mkdir(parents=True,exist_ok=True)
                 journal=journal_path.open('a',buffering=1)
                 # Servo hold compensation (pick and place): while the arm joints are commanded
-                # to hold still (grasp and placement settles, closing, releasing), the real
-                # servos stop 2-4 deg short of the command, ~1 cm at the jaws. Add the
-                # remaining error back, integrated and bounded, so the jaws reach the
-                # simulated pose; the offset fades out as soon as the arm moves again.
-                compensate=plan.get('task')=='pickplace';offset=np.zeros(6)
+                # to hold still (grasp and placement settles, closing, releasing), drive the
+                # real joints to where the contact simulation's joints were (its gravity sag
+                # included, which the plan already accounts for). The real servos otherwise
+                # stop 1-4 deg off, ~1 cm at the jaws. Integrated, bounded, and faded out as
+                # soon as the arm moves again.
+                expected=np.asarray(plan['simulated_native'],float)[:len(actions)] if plan.get('simulated_native') is not None else None
+                compensate=plan.get('task')=='pickplace' and expected is not None and expected.shape==actions.shape;offset=np.zeros(6)
                 for i,(q,t) in enumerate(zip(actions,ts)):
                     if self.stopped.wait(max(0,start+float(t)-time.monotonic())):break
                     if time.monotonic()-self.last_heartbeat>3:raise RuntimeError('Control page heartbeat lost')
@@ -241,7 +243,7 @@ class Hardware:
                     if np.any(np.abs(measured-previous)>np.array([10.]*5+[25.])):raise RuntimeError('Robot deviated from planned motion')
                     if compensate:
                         if i>0 and np.all(np.abs(q[:5]-actions[i-1][:5])<.05):
-                            offset[:5]=np.clip(offset[:5]+HOLD_GAIN*(q[:5]-measured[:5]),-HOLD_LIMIT_DEG,HOLD_LIMIT_DEG)
+                            offset[:5]=np.clip(offset[:5]+HOLD_GAIN*(expected[i][:5]-measured[:5]),-HOLD_LIMIT_DEG,HOLD_LIMIT_DEG)
                         else:offset*=HOLD_FADE
                     self.send(q+offset);self.progress=(i+1)/len(actions)
                     self.history.append({'time':time.monotonic()-start,'target':q.tolist(),'measured':measured.tolist(),'sent':(q+offset).tolist()})

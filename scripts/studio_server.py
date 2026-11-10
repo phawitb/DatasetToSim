@@ -54,6 +54,15 @@ replay_datasets=ReplayDatasetManager(ROOT/'output/generated');atexit.register(re
 imports=ImportManager();atexit.register(imports.close)
 replay_previews=ReplayDatasetManager(ROOT/'output/replay-previews',media_prefix='/media/replay-previews');atexit.register(replay_previews.close)
 
+
+def simulated_native(folder,count):
+    """Joint positions the contact simulation reached before each command: the hardware
+    holds the real arm to these (sag included) during still holds."""
+    try:
+        native=np.load(folder/'trace.npz')['native']
+    except (OSError,KeyError):return None
+    return native[:count].tolist() if len(native)>=count else None
+
 def dataset_build_busy():return generation.busy() or replay_datasets.busy() or replay_previews.busy()
 
 @asynccontextmanager
@@ -866,7 +875,7 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
             latest=hardware.call('snapshot');execution_gate(report,latest['initial_native'],latest['calibration_hash'])
             validate_vision_age(fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),time.time())
             if latest['stop_generation']!=fresh['stop_generation']:raise ValueError('Stop requested during segmentation')
-            saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
+            saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'simulated_native':simulated_native(folder,len(saved['actions'])),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
             if report.get('task')=='pickplace' and report.get('look_index') is not None:
                 # Stop still above the object; the Wrist check then re-plans the grasp.
                 payload['stop_index']=int(report['look_index']);report['look_pending']=True
