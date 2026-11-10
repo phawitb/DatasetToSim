@@ -74,6 +74,12 @@ def classify(config, registry, rgb, mask):
     """Which registry object a mask is, or None. Cubes also report a stack."""
     from studio_sam_auto import classify as classify_known, cube_color
     info = classify_known(config, rgb, mask)
+    if info and info['kind'] in ('cube', 'stack'):
+        # A printed box (the eraser) can also pass as a cube or a stack: keep whichever
+        # measured model explains the silhouette better.
+        other = _other_box(config, registry, rgb, mask)
+        if other and other['fit_rmse_px'] < info.get('fit_rmse_px', np.inf):
+            return other
     if info and info['kind'] == 'stack' and info.get('color') is None:
         info = None  # stacks are painted cubes; a plain box (the eraser) is checked below
     if info and info['kind'] == 'cube' and info.get('color') is None:
@@ -87,9 +93,15 @@ def classify(config, registry, rgb, mask):
             return None  # neither a painted cube nor the roll: not a known object
     if info:
         return info
-    # Any other registry box (eraser and future objects): fitted at mat height.
+    return _other_box(config, registry, rgb, mask)
+
+
+def _other_box(config, registry, rgb, mask):
+    """Any registry box other than the cube (eraser and future objects), at mat height."""
+    from studio_sam_auto import cube_color
     m = np.asarray(mask, bool); hsv = cv2.cvtColor(np.asarray(rgb, np.uint8), cv2.COLOR_RGB2HSV)
     (_, _), (rw, rh), _ = cv2.minAreaRect(_contour(m)); fill = m.sum() / max(1., rw * rh)
+    best = None
     for kind, entry in registry['objects'].items():
         shape = entry['shape']
         if kind in ('cube', 'tape', 'bowl') or shape['type'] != 'box' or fill < .65:
@@ -101,9 +113,9 @@ def classify(config, registry, rgb, mask):
             pose = box_pose(config, m, shape['size_m'], mat_top(config), kind)
         except ValueError:
             continue
-        if pose['fit_rmse_px'] <= 3.5:
-            return {'kind': kind, 'color': cube_color(rgb, m), 'fit_rmse_px': pose['fit_rmse_px'], 'brightness': float(hsv[m][:, 2].mean())}
-    return None
+        if pose['fit_rmse_px'] <= 3.5 and (best is None or pose['fit_rmse_px'] < best['fit_rmse_px']):
+            best = {'kind': kind, 'color': cube_color(rgb, m), 'fit_rmse_px': pose['fit_rmse_px'], 'brightness': float(hsv[m][:, 2].mean())}
+    return best
 
 
 def detect(client, folder, config, decode, registry=None):
@@ -164,6 +176,11 @@ def detect(client, folder, config, decode, registry=None):
     _stack_pairs(objects, folder, config)
     _assign_supports(objects, folder, registry)
     _fit_poses(objects, folder, config, registry, rgb)
+    # Only objects lying on the mat are part of the workspace (not the robot base or table).
+    mat = config['base_calibration']['world']['mat']
+    inside = lambda o: np.all(np.abs(np.asarray(o['position'][:2]) - mat['position'][:2]) <= np.asarray(mat['size'][:2]) / 2 + .005)
+    dropped = {o['id'] for o in objects if not inside(o)}
+    objects[:] = [o for o in objects if o['id'] not in dropped and o.get('support') not in dropped]
     return {'revision': revision, 'image_sha256': digest, 'model': found[0]['result']['model'], 'objects': objects,
             'detected': [{'kind': f['info']['kind'], 'point': f['point'], 'score': f['result']['score']} for f in found]}
 

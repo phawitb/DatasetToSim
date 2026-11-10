@@ -12,6 +12,13 @@ from studio_sam_geometry import (cube_pose_from_mask,tape_pose_from_mask,bowl_po
 MAX_CANDIDATES=40
 
 
+def mat_threshold(hsv):
+    """Brightness separating the dark mat from the white table, from this image
+    (Otsu), so daylight or lamp changes do not cut the mat into pieces."""
+    t,_=cv2.threshold(np.ascontiguousarray(hsv[:,:,2]),0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+    return float(np.clip(t,110,190))
+
+
 def robot_pixels(rgb):
     """Orange printed arm parts, dilated to cover cables and the gripper."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);h,s,v=hsv[:,:,0],hsv[:,:,1],hsv[:,:,2]
@@ -25,7 +32,7 @@ def robot_pixels(rgb):
 def candidate_points(rgb):
     """Prompt points for blobs that stand out from the mat; robot pixels excluded."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);h,s=hsv[:,:,0],hsv[:,:,1];v=hsv[:,:,2].astype(np.int16)
-    dark=cv2.morphologyEx(((v<130)&(s<70)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
+    dark=cv2.morphologyEx(((v<mat_threshold(hsv))&(s<70)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
     n,labels,stats,_=cv2.connectedComponentsWithStats(dark)
     if n<2:return []
     # The arm and its cables can cut the mat into pieces: keep every large dark piece.
@@ -142,7 +149,7 @@ def _stacked_score(rgb,item):
 def free_mat(rgb,masks=()):
     """Pixels of plain mat: not the arm, not any object (with a margin)."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)
-    free=((hsv[:,:,2]<130)&(hsv[:,:,1]<70)).astype(np.uint8)&~robot_pixels(rgb).astype(np.uint8)&1
+    free=((hsv[:,:,2]<mat_threshold(hsv))&(hsv[:,:,1]<70)).astype(np.uint8)&~robot_pixels(rgb).astype(np.uint8)&1
     for m in masks:free&=~cv2.dilate(np.asarray(m,np.uint8),np.ones((21,21),np.uint8))&1
     return cv2.erode(free,np.ones((25,25),np.uint8)).astype(bool)
 
