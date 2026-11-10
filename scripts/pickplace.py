@@ -282,10 +282,14 @@ def plan_spec(scene, registry, config, candidate=0):
         destination = objects[place['object']]
         item = surface(registry, destination, place.get('surface'))
         centre = surface_world(destination, item)
-        if item['type'] == 'inside':
-            bottom = centre[2]
-        else:
-            bottom = centre[2]
+        bottom = centre[2]
+        release = item['release']
+        if item['type'] == 'inside' and grasp['spec']['pads'] != 'fixed_in_hole':
+            # Lower into the container until the object's bottom is 15 mm above the rim,
+            # hold still, then open: a short, straight drop instead of one from travel height.
+            dshape = registry['objects'][destination['kind']]['shape']
+            bottom = destination['position'][2] - bottom_offset(dshape) + height(dshape) + .015
+            release = 'lower'
         if item.get('inner_radius_m') and min_width(shape) < 2 * item['inner_radius_m'] + .004:
             # Too small to bridge the hole of a ring top: set it on the ring wall instead,
             # its centre over the middle of the wall on the side facing the robot.
@@ -293,7 +297,7 @@ def plan_spec(scene, registry, config, candidate=0):
             toward = base - centre[:2]
             centre = np.r_[centre[:2] + middle * toward / np.linalg.norm(toward), centre[2]]
         target = {'xy': centre[:2].tolist(), 'bottom_z': float(bottom), 'type': item['type'], 'surface': item['name'],
-                  'object': destination['id'], 'release': item['release'], 'destination_yaw': float(destination.get('yaw', 0.)),
+                  'object': destination['id'], 'release': release, 'destination_yaw': float(destination.get('yaw', 0.)),
                   'destination_kind': destination['kind']}
     elif place.get('area') is not None:
         xy = _vector(place['area'], 2, 'Empty area')

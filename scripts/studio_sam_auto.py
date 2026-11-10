@@ -13,10 +13,16 @@ MAX_CANDIDATES=40
 
 
 def mat_threshold(hsv):
-    """Brightness separating the dark mat from the white table, from this image
-    (Otsu), so daylight or lamp changes do not cut the mat into pieces."""
-    t,_=cv2.threshold(np.ascontiguousarray(hsv[:,:,2]),0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-    return float(np.clip(t,110,190))
+    """Brightness separating the dark mat from the white table, from this image's
+    typical mat brightness, so daylight or lamp changes do not cut the mat apart."""
+    v=hsv[:,:,2].ravel();dark=np.sort(v)[:int(.4*len(v))]  # the mat covers well over 40% of the view
+    return float(np.clip(np.median(dark)+35,110,170))
+
+
+def mat_saturation(hsv):
+    """Typical saturation of the mat (warm light tints it), from its dark pixels."""
+    v=hsv[:,:,2].ravel();order=np.argsort(v)[:int(.4*len(v))]
+    return float(np.median(hsv[:,:,1].ravel()[order]))
 
 
 def robot_pixels(rgb):
@@ -32,7 +38,8 @@ def robot_pixels(rgb):
 def candidate_points(rgb):
     """Prompt points for blobs that stand out from the mat; robot pixels excluded."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);h,s=hsv[:,:,0],hsv[:,:,1];v=hsv[:,:,2].astype(np.int16)
-    dark=cv2.morphologyEx(((v<mat_threshold(hsv))&(s<70)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
+    mat_s=mat_saturation(hsv)
+    dark=cv2.morphologyEx(((v<mat_threshold(hsv))&(s<mat_s+40)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
     n,labels,stats,_=cv2.connectedComponentsWithStats(dark)
     if n<2:return []
     # The arm and its cables can cut the mat into pieces: keep every large dark piece.
@@ -56,7 +63,7 @@ def candidate_points(rgb):
             points.extend(extra[::max(1,len(extra)//6)][:6])
     # Painted cubes touching another object join its blob: prompt every vivid
     # coloured patch as well, before the blob grid points.
-    vivid=((s>65)&(v>70)&(((h<8)|(h>165))|((h>=14)&(h<=135)))).astype(np.uint8)&region&(1-robot)
+    vivid=((s>max(65,mat_s+45))&(v>70)&(((h<8)|(h>165))|((h>=14)&(h<=135)))).astype(np.uint8)&region&(1-robot)
     n,labels,stats,centres=cv2.connectedComponentsWithStats(cv2.morphologyEx(vivid,cv2.MORPH_OPEN,np.ones((3,3),np.uint8)))
     colour=[[int(x),int(y)] for i,(x,y) in enumerate(centres) if i and 60<=stats[i,4]<=2500]
     return (colour+[p for p in points if all(np.hypot(p[0]-c[0],p[1]-c[1])>10 for c in colour)])[:MAX_CANDIDATES]
@@ -64,7 +71,7 @@ def candidate_points(rgb):
 
 def CUBE_HUES(hue):
     """Painted cube colours by OpenCV hue (0-179)."""
-    return {'red':((hue<10)|(hue>165)),'yellow':((hue>=14)&(hue<=27)),'green':((hue>=28)&(hue<=95)),'blue':((hue>=96)&(hue<=135))}
+    return {'red':((hue<10)|(hue>165)),'yellow':((hue>=14)&(hue<=23)),'green':((hue>=24)&(hue<=95)),'blue':((hue>=96)&(hue<=135))}
 
 
 def cube_color(rgb,mask):
@@ -149,7 +156,7 @@ def _stacked_score(rgb,item):
 def free_mat(rgb,masks=()):
     """Pixels of plain mat: not the arm, not any object (with a margin)."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)
-    free=((hsv[:,:,2]<mat_threshold(hsv))&(hsv[:,:,1]<70)).astype(np.uint8)&~robot_pixels(rgb).astype(np.uint8)&1
+    free=((hsv[:,:,2]<mat_threshold(hsv))&(hsv[:,:,1]<mat_saturation(hsv)+40)).astype(np.uint8)&~robot_pixels(rgb).astype(np.uint8)&1
     for m in masks:free&=~cv2.dilate(np.asarray(m,np.uint8),np.ones((21,21),np.uint8))&1
     return cv2.erode(free,np.ones((25,25),np.uint8)).astype(bool)
 
