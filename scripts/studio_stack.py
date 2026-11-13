@@ -32,10 +32,11 @@ def add_obstacles(root,world):
         name=f'obstacle_{index}';kind=item['kind']
         body=ET.SubElement(body_root,'body',name=name,pos=' '.join(map(str,item['position'])),quat=' '.join(map(str,item.get('quaternion',[1,0,0,0]))))
         if kind=='cube':shape=dict(type='box',size=' '.join([str(item['size']/2)]*3))
+        elif kind=='stack':shape=dict(type='box',size=f"{item['size']/2} {item['size']/2} {item['height']/2}")
         elif kind=='tape':shape=dict(type='cylinder',size=f"{item['outer_diameter']/2} {item['width']/2}")
         elif kind=='bowl':shape=dict(type='cylinder',size=f"{item['outer_radius']} {item['height']/2}",pos=f"0 0 {item['height']/2}")
         else:raise ValueError('Unknown obstacle')
-        rgba={'cube':'.45 .45 .5 1','tape':'.8 .78 .7 .7','bowl':'.5 .65 .6 .6'}[kind]
+        rgba={'cube':'.45 .45 .5 1','stack':'.45 .45 .5 1','tape':'.8 .78 .7 .7','bowl':'.5 .65 .6 .6'}[kind]
         ET.SubElement(body,'geom',name=name+'_geom',**shape,**COLLISION)
         ET.SubElement(body,'geom',name=name+'_visual',**shape,rgba=rgba,contype='0',conaffinity='0',group='1',mass='0')
         names.append(name)
@@ -65,27 +66,40 @@ def obstacle_geoms(model,world,task):
     return ids
 
 
-def obstacle_clearance(model,frames,obstacles,margin):
-    """Smallest distance between any moving collision geom (arm, objects) and the obstacles.
+def obstacle_clearance(model,frames,obstacles,required,movers=None):
+    """Distances from the obstacles to the arm and to the manipulated object.
 
-    `frames` are full qpos vectors. Contacts are detected with the obstacle margin
-    widened to `margin`, so any pair closer than that is reported.
+    `frames` are full qpos vectors. The arm must keep `required`. The object may
+    start closer than that beside an obstacle, so it must keep the smaller of
+    `required` and its starting distance less 1 mm. Contacts are detected with the
+    obstacle margin widened, so every pair closer than 3 × `required` is seen.
     """
     obstacles=list(obstacles)
-    if not obstacles:return {'minimum_m':None,'closest':None,'frame':None}
+    if not obstacles:return None
+    cube=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,'cube')
     moving=set(int(i) for i in range(model.ngeom) if model.body_weldid[model.geom_bodyid[i]]!=0 and (model.geom_contype[i] or model.geom_conaffinity[i]))
-    saved=model.geom_margin[obstacles].copy();model.geom_margin[obstacles]=margin
-    data=mujoco.MjData(model);best=(np.inf,None,None);blocked=set(obstacles)
+    if movers is not None:moving=set(int(i) for i in movers)-set(int(o) for o in obstacles)
+    saved=model.geom_margin[obstacles].copy();model.geom_margin[obstacles]=3*required
+    data=mujoco.MjData(model);blocked=set(obstacles);detect=3*required
+    arm=[detect,None,None];held=[detect,None,None];initial=detect
     try:
         for index,q in enumerate(frames):
             data.qpos[:]=q;mujoco.mj_fwdPosition(model,data)
             for contact in data.contact[:data.ncon]:
                 pair={int(contact.geom1),int(contact.geom2)}
-                if pair&blocked and pair&moving and float(contact.dist)<best[0]:
-                    other=(pair-blocked).pop();hit=(pair&blocked).pop()
-                    best=(float(contact.dist),f'{model.body(model.geom_bodyid[other]).name} near {model.body(model.geom_bodyid[hit]).name}',index)
+                if not (pair&blocked and pair&moving) or not pair-blocked:continue
+                other=(pair-blocked).pop();hit=(pair&blocked).pop();dist=float(contact.dist)
+                is_object=model.geom_bodyid[other]==cube
+                if is_object and index==0:initial=min(initial,dist)
+                item=held if is_object else arm
+                if dist<item[0]:item[:]=[dist,f'{model.body(model.geom_bodyid[other]).name} near {model.body(model.geom_bodyid[hit]).name}',index]
     finally:model.geom_margin[obstacles]=saved
-    return {'minimum_m':None if not np.isfinite(best[0]) else best[0],'closest':best[1],'frame':best[2]}
+    object_required=max(0.,min(required,initial-.001))
+    slack=min(arm[0]-required,held[0]-object_required)
+    worst=arm if arm[0]-required<=held[0]-object_required else held
+    return {'minimum_m':None if worst[0]>=detect else worst[0],'closest':worst[1],'frame':worst[2],'required_m':required,
+            'arm_minimum_m':None if arm[0]>=detect else arm[0],'object_minimum_m':None if held[0]>=detect else held[0],
+            'object_initial_m':None if initial>=detect else initial,'object_required_m':object_required,'slack_m':slack,'cleared':bool(slack>=0)}
 
 
 def planned_frames(model,adapter,actions):

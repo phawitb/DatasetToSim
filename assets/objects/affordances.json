@@ -1,0 +1,337 @@
+{
+  "version": 1,
+  "note": "Contact areas for every New Run object, in each object's own frame (metres; z up). Grasps: where the two jaw pads close and across which axis. Place surfaces: where another object can be set down. Edited from the 3D-Objects page; New Run planning reads this file directly.",
+  "objects": {
+    "cube": {
+      "label": "19.5 mm cube",
+      "library_ids": [
+        "red-cube",
+        "green-cube",
+        "real-red-cube",
+        "tan-cube"
+      ],
+      "shape": {
+        "type": "box",
+        "size_m": [
+          0.0195,
+          0.0195,
+          0.0195
+        ],
+        "origin": "centre",
+        "mass_kg": 0.004448925
+      },
+      "grasps": [
+        {
+          "name": "Opposite side faces",
+          "centre_m": [
+            0,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            0,
+            90
+          ],
+          "width_m": 0.0195,
+          "pad_height_m": 0.01,
+          "pads": "between",
+          "gripper_native": {
+            "open": 35,
+            "close": 0,
+            "release": 40
+          },
+          "note": "Jaws close across two opposite side faces, a little above the cube centre (commanded height; the arm sags about 15 mm in contact)."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Top face",
+          "type": "top",
+          "centre_m": [
+            0,
+            0,
+            0.00975
+          ],
+          "half_extents_m": [
+            0.00975,
+            0.00975
+          ],
+          "release": "lower"
+        }
+      ]
+    },
+    "tape": {
+      "label": "Tape roll (53 mm)",
+      "library_ids": [
+        "tape"
+      ],
+      "shape": {
+        "type": "ring",
+        "origin": "centre"
+      },
+      "grasps": [
+        {
+          "name": "Wall through the hole",
+          "jaw_axis_deg": "radial",
+          "pad_height_m": 0.006,
+          "pads": "fixed_in_hole",
+          "gripper_native": "from_width",
+          "note": "Fixed jaw inside the core, moving jaw outside; pinches the wall. Any point around the ring."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Top of roll",
+          "type": "top",
+          "release": "lower"
+        }
+      ]
+    },
+    "bowl": {
+      "label": "Green bowl (118 mm)",
+      "library_ids": [
+        "green-bowl"
+      ],
+      "shape": {
+        "type": "bowl",
+        "outer_radius_m": 0.059,
+        "bottom_outer_radius_m": 0.049,
+        "height_m": 0.046175,
+        "wall_m": 0.002,
+        "floor_m": 0.004,
+        "origin": "bottom centre",
+        "mass_kg": 0.12
+      },
+      "grasps": [
+        {
+          "name": "Rim",
+          "centre_m": [
+            0.057999999999999996,
+            0,
+            0.038175
+          ],
+          "jaw_axis_deg": "radial",
+          "width_m": 0.002,
+          "pad_height_m": 0.016,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Pinch the wall just below the rim, jaws across the wall. Any point around the rim; the one nearest the robot is tried first."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Inside",
+          "type": "inside",
+          "centre_m": [
+            0,
+            0,
+            0.004
+          ],
+          "radius_m": 0.028999999999999998,
+          "release": "above_rim"
+        }
+      ]
+    },
+    "eraser": {
+      "label": "Eraser (35 \u00d7 18 \u00d7 11 mm)",
+      "library_ids": [
+        "eraser"
+      ],
+      "shape": {
+        "type": "box",
+        "size_m": [
+          0.035,
+          0.018,
+          0.011
+        ],
+        "origin": "centre",
+        "mass_kg": 0.009
+      },
+      "grasps": [
+        {
+          "name": "Long sides",
+          "centre_m": [
+            0,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            90
+          ],
+          "width_m": 0.018,
+          "pad_height_m": 0.009,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Jaws close across the 18 mm width, at the middle of the long sides."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Top face",
+          "type": "top",
+          "centre_m": [
+            0,
+            0,
+            0.0055
+          ],
+          "half_extents_m": [
+            0.0175,
+            0.009
+          ],
+          "release": "lower"
+        }
+      ]
+    },
+    "pen": {
+      "label": "Pen (135 mm \u00d7 12 mm)",
+      "library_ids": [
+        "pen"
+      ],
+      "shape": {
+        "type": "cylinder",
+        "length_m": 0.135,
+        "diameter_m": 0.011,
+        "axis": "x",
+        "section": "hexagon",
+        "origin": "centre",
+        "mass_kg": 0.006
+      },
+      "grasps": [
+        {
+          "name": "Across the barrel",
+          "centre_m": [
+            -0.01,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            90
+          ],
+          "width_m": 0.0127,
+          "pad_height_m": 0.006,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Jaws close across the barrel (11 mm, corner to corner of the hexagonal collision shape), a little behind the middle so the cap end does not tip it. The jaw tips may reach the mat here (tip margin 0 mm instead of the usual 4 mm).",
+          "tip_margin_m": 0.0
+        },
+        {
+          "name": "Behind the cap",
+          "centre_m": [
+            0.03,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            90
+          ],
+          "width_m": 0.0127,
+          "pad_height_m": 0.006,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Across the barrel just behind the cap. Used to stand the pen up in a cup: the wrist turns so the gripper points away from the robot, the end plug hangs down and goes in first, so most of the pen is inside before the jaws open. The jaw tips may reach the mat (tip margin 0 mm).",
+          "tip_margin_m": 0.0,
+          "stand_up": true
+        },
+        {
+          "name": "Near the end plug",
+          "centre_m": [
+            -0.03,
+            0,
+            0
+          ],
+          "jaw_axis_deg": [
+            90
+          ],
+          "width_m": 0.0127,
+          "pad_height_m": 0.006,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Across the barrel near the end plug: the other way to stand the pen up in a cup (cap end down), used when that keeps the wrist camera side up. The jaw tips may reach the mat (tip margin 0 mm).",
+          "tip_margin_m": 0.0,
+          "stand_up": true
+        }
+      ],
+      "place_surfaces": []
+    },
+    "cup": {
+      "label": "Plastic cup (75 mm rim)",
+      "library_ids": [
+        "cup"
+      ],
+      "shape": {
+        "type": "cup",
+        "outer_radius_m": 0.0375,
+        "bottom_outer_radius_m": 0.0275,
+        "height_m": 0.0844,
+        "wall_m": 0.002,
+        "floor_m": 0.002,
+        "origin": "centre",
+        "mass_kg": 0.035
+      },
+      "grasps": [
+        {
+          "name": "Rim",
+          "centre_m": [
+            0.03555,
+            0,
+            0.0342
+          ],
+          "jaw_axis_deg": "radial",
+          "width_m": 0.002,
+          "pad_height_m": 0.016,
+          "pads": "between",
+          "gripper_native": "from_width",
+          "note": "Pinch the 2 mm wall 8 mm below the rim, jaws across the wall. Any point around the rim; the one nearest the robot is tried first. The body (55\u201375 mm) is too wide to grip across."
+        }
+      ],
+      "place_surfaces": [
+        {
+          "name": "Inside",
+          "type": "inside",
+          "centre_m": [
+            0,
+            0,
+            -0.0402
+          ],
+          "radius_m": 0.0255,
+          "release": "above_rim",
+          "drop_above_rim_m": 0.015
+        }
+      ]
+    },
+    "nuc": {
+      "label": "Intel NUC7i3BNH (115 \u00d7 112 \u00d7 48 mm + 4 mm feet)",
+      "library_ids": [
+        "nuc"
+      ],
+      "graspable": false,
+      "shape": {
+        "type": "box",
+        "size_m": [
+          0.115,
+          0.112,
+          0.052
+        ],
+        "origin": "centre",
+        "mass_kg": 0.7
+      },
+      "grasps": [],
+      "place_surfaces": [
+        {
+          "name": "Top face",
+          "type": "top",
+          "centre_m": [
+            0,
+            0,
+            0.026
+          ],
+          "half_extents_m": [
+            0.0575,
+            0.056
+          ],
+          "release": "lower"
+        }
+      ]
+    }
+  }
+}

@@ -36,7 +36,7 @@ from studio_runtime import request_restart,supervise
 from studio_episode_appearance import APPEARANCE_VERSION,video_name as appearance_video_name
 from studio_sam_home import home_scene
 from studio_home_wrist import released_reference,wrist_home_scene
-from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair
+from studio_sam_client import SAMClient,decode_mask,save_role,refresh_pair,auto_selection,auto_place_record,finalize_selection,object_record,place_record
 from studio_sam_geometry import load_selection,validate_pair,scene_from_masks,validate_vision_age
 from dataset_to_sim.dataset import DatasetIndex
 from dataset_to_sim.studio import safe_file,execution_gate,validate_scene_match,JOINTS
@@ -53,6 +53,18 @@ generation_preview=PreviewManager(ROOT/'output/generation-previews');atexit.regi
 replay_datasets=ReplayDatasetManager(ROOT/'output/generated');atexit.register(replay_datasets.close)
 imports=ImportManager();atexit.register(imports.close)
 replay_previews=ReplayDatasetManager(ROOT/'output/replay-previews',media_prefix='/media/replay-previews');atexit.register(replay_previews.close)
+
+
+from top_camera import live_config
+
+
+def simulated_native(folder,count):
+    """Joint positions the contact simulation reached before each command: the hardware
+    holds the real arm to these (sag included) during still holds."""
+    try:
+        native=np.load(folder/'trace.npz')['native']
+    except (OSError,KeyError):return None
+    return native[:count].tolist() if len(native)>=count else None
 
 def dataset_build_busy():return generation.busy() or replay_datasets.busy() or replay_previews.busy()
 
@@ -100,6 +112,19 @@ def generation_spatial_coverage(identifier:str):
 
 @app.get('/api/objects')
 def objects_catalog():return object_catalog()
+
+@app.get('/api/affordances')
+def affordances():
+    from pickplace import load_registry
+    return load_registry()
+
+@app.post('/api/affordances')
+def save_affordances(body:dict):
+    """Contact areas edited on the 3D-Objects page; validated before New Run uses them."""
+    from pickplace import save_registry
+    with operation_lock:
+        if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current plan or simulation to finish')
+        return save_registry(body)
 
 @app.get('/api/objects/{identifier}/thumbnail')
 def objects_thumbnail(identifier:str):return Response(object_thumbnail(identifier),media_type='image/png')
@@ -271,6 +296,12 @@ async def protect(request:Request,call_next):
 
 @app.exception_handler(ValueError)
 async def invalid(request,exc):return JSONResponse({'error':str(exc)},status_code=409)
+
+@app.exception_handler(Exception)
+async def unexpected(request,exc):
+    # Never send a bare "Internal Server Error": the page must always get a readable reason.
+    import traceback;traceback.print_exc()
+    return JSONResponse({'error':f'{type(exc).__name__}: {exc}'},status_code=500)
 
 @app.get('/')
 def index():return FileResponse(ROOT/'web/index.html')
@@ -556,6 +587,34 @@ def robot_command(command:str,request:Request):
         if command in ['torque_off','torque_on']:current=None
         return result
 
+@app.post('/api/gripper_test')
+def gripper_test(body:dict|None=None):
+    """Open, then close only the gripper from the current arm pose and record the measured
+    gripper reading every 0.1 s, plus wrist images open and closed (output/studio/gripper-test-*)."""
+    body=body or {};opened=float(body.get('open',35.));closed=float(body.get('close',0.))
+    folder=WORK/f'gripper-test-{time.strftime("%Y%m%d-%H%M%S")}';folder.mkdir(parents=True,exist_ok=True)
+    log=[]
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
+        status=hardware.call('status')
+        if status.get('running'):raise ValueError('Robot is executing')
+        pose=np.asarray(status['positions'],float)
+        def move(value,label):
+            target=pose.copy();target[5]=value;started=time.monotonic()
+            hardware.call('go_home',target=target.tolist())
+            while True:
+                st=hardware.call('status');log.append({'step':label,'t':round(time.monotonic()-started,2),'command':value,'gripper':st['positions'][5]})
+                if not st.get('running') and time.monotonic()-started>1.:break
+                time.sleep(.1)
+            for _ in range(10):
+                time.sleep(.1);st=hardware.call('status');log.append({'step':label+' hold','t':round(time.monotonic()-started,2),'command':value,'gripper':st['positions'][5]})
+            shot=hardware.call('snapshot');(folder/f'wrist-{label}.jpg').write_bytes(base64.b64decode(shot['images']['wrist']))
+        move(opened,'open');move(closed,'close')
+    (folder/'readings.json').write_text(json.dumps(log,indent=1))
+    final=[r['gripper'] for r in log if r['step']=='close hold']
+    return {'folder':str(folder),'open_reading':[r['gripper'] for r in log if r['step']=='open hold'][-1],'closed_reading':final[-1],'readings':log}
+
 @app.get('/api/live/{view}')
 def live(view:str):
     if view not in ['top','wrist']:raise ValueError('Unknown camera')
@@ -574,8 +633,9 @@ def folder_for(identifier):
 def capture(body:dict):
     global current
     with operation_lock:
-        task=body.get('task','bowl')
-        if task not in ['bowl','stack','tape']:raise ValueError('Choose Place cube in bowl, Stack on cube or Place tape in bowl')
+        task=body.get('task','pickplace' if body.get('source','live')=='live' else 'bowl')
+        if task not in ['pickplace','bowl','stack','unstack','tape']:raise ValueError('Choose Pick & place')
+        if task=='pickplace' and body.get('source','live')!='live':raise ValueError('Pick & place requires a live capture')
         if 'bowl_present' in body and not isinstance(body['bowl_present'],bool):raise ValueError('Bowl presence must be true or false')
         if restarting:raise ValueError('Server restarting')
         if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
@@ -583,10 +643,16 @@ def capture(body:dict):
         identifier=uuid.uuid4().hex;folder=WORK/identifier;folder.mkdir()
         source=body.get('source','live')
         if task=='stack' and source!='live':raise ValueError('Stacking requires a live two-cube capture')
+        if task=='unstack' and source!='live':raise ValueError('Unstacking requires a live capture of the stacked cubes')
         if task=='tape' and source!='live':raise ValueError('Place tape in bowl requires a live capture with the tape roll')
         if source=='live':
             snapshot=hardware.call('snapshot')
             for view,image in snapshot.pop('images').items():(folder/f'{view}.jpg').write_bytes(base64.b64decode(image))
+            # Line the top image up with the recorded dataset's view (the camera
+            # calibration's view) if the camera has moved; the raw image is kept.
+            from top_camera import align
+            try:snapshot['camera_check']=align(folder)
+            except Exception as exc:snapshot['camera_check']={'ok':False,'moved_px':None,'note':str(exc)}
         elif source=='dataset':
             ds=DatasetIndex(DATA);index=int(body.get('episode',0))
             if not 0<=index<ds.episode_count:raise ValueError('Unknown episode')
@@ -598,7 +664,8 @@ def capture(body:dict):
             cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
             snapshot={'source':'dataset','episode':index,'captured_at':time.time(),'initial_native':ep.state_deg[0].tolist(),'calibration_hash':cfg['follower_calibration_sha256']}
         else:raise ValueError('Choose live or dataset capture')
-        snapshot.update(id=identifier,task=task,bowl_present=body.get('bowl_present',True) if task=='stack' else True)
+        # Stack/unstack: an explicit bowl choice is kept; otherwise the SAM obstacles decide.
+        snapshot.update(id=identifier,task=task,bowl_present=body.get('bowl_present') if task in ('stack','unstack') else True)
         (folder/'capture.json').write_text(json.dumps(snapshot,indent=2))
         current=identifier;jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':snapshot}
         return jobs[identifier]
@@ -610,40 +677,191 @@ def get_plan(identifier:str):
     if (folder/'selection.json').exists():result['selection']=json.loads((folder/'selection.json').read_text())
     return result
 
-@app.post('/api/captures/{identifier}/select')
-def select_object(identifier:str,body:dict):
-    folder=folder_for(identifier);role=body.get('role')
-    if role not in ['from','to','obstacle']:raise ValueError('Choose From, To or Bowl obstacle')
+def selection_guard(folder,identifier):
+    if restarting:raise ValueError('Server restarting')
+    if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
+    if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
+    if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
+    capture=json.loads((folder/'capture.json').read_text())
+    if capture.get('source')!='live' or capture.get('purpose')=='home':raise ValueError('Capture a live scene to select objects')
+    plan=folder/'plan.json'
+    if plan.exists() and json.loads(plan.read_text()).get('executed'):raise ValueError('Capture a new scene after execution')
+    return capture
+
+
+def invalidate_plan(folder,identifier,capture):
+    # A new selection invalidates every old trajectory and simulation.
+    for name in ['plan.json','plan.npz']:
+        (folder/name).unlink(missing_ok=True)
+    jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':capture}
+
+
+@app.post('/api/captures/{identifier}/auto_select')
+def auto_select_objects(identifier:str,body:dict|None=None):
+    """SAM every modelled object after Capture: From, To and all obstacles."""
+    folder=folder_for(identifier)
     with operation_lock:
-        if restarting:raise ValueError('Server restarting')
-        if current!=identifier:raise ValueError('Capture was replaced; use the current capture')
-        if jobs.get(identifier,{}).get('status') in ['running','executing','recording']:raise ValueError('Wait for the current operation')
-        if hardware.call('status').get('running'):raise ValueError('Stop the robot before selecting objects')
-        capture=json.loads((folder/'capture.json').read_text())
-        if role=='obstacle' and (capture.get('task')!='stack' or not capture.get('bowl_present',True)):raise ValueError('Bowl obstacle is only used for stacking with a bowl present')
-        if capture.get('source')!='live' or capture.get('purpose')=='home':raise ValueError('Capture a live scene to select objects')
-        plan=folder/'plan.json'
-        if plan.exists() and json.loads(plan.read_text()).get('executed'):raise ValueError('Capture a new scene after execution')
-        path=folder/'selection.json';selection=json.loads(path.read_text()) if path.exists() else {}
-        result=sam.predict(folder/'top.jpg',body.get('point'))
-        if result['image_sha256']!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed during segmentation')
-        if selection and selection['model']!=result['model']:raise ValueError('SAM model changed; capture a new scene')
-        revision=uuid.uuid4().hex
-        selected=save_role(folder,role,result,revision)
-        for other in [r for r in ['from','to','obstacle'] if r!=role and r in selection]:
-            mask=cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)
-            if mask is None:raise ValueError('Previous mask missing; capture again')
-            validate_pair(decode_mask(result),mask>0)
-        selection.update({role:selected,'revision':revision,'image_sha256':result['image_sha256'],'model':result['model']})
-        path.write_text(json.dumps(selection,indent=2))
-        # A new selection invalidates every old trajectory and simulation.
-        for name in ['plan.json','plan.npz']:
-            (folder/name).unlink(missing_ok=True)
-        jobs[identifier]={'id':identifier,'status':'captured','stage':'capture','capture':capture}
+        capture=selection_guard(folder,identifier)
+        cfg=live_config()
+        if capture.get('task')=='pickplace':
+            from pickplace_vision import detect,remap,scene_file
+            selection=detect(sam,folder,cfg,decode_mask)
+            # Run all re-captures: keep the user's From/To on the same objects.
+            remap(selection,(body or {}).get('previous'),cfg)
+            (folder/'selection.json').write_text(json.dumps(selection,indent=2))
+            if selection.get('from') and selection.get('to'):scene_file(folder,selection,cfg)
+            else:(folder/'pickplace-scene.json').unlink(missing_ok=True)
+            invalidate_plan(folder,identifier,capture)
+            return selection
+        selection=auto_selection(sam,folder,capture.get('task','bowl'),cfg)
+        invalidate_plan(folder,identifier,capture)
         return selection
 
 
+@app.post('/api/captures/{identifier}/select')
+def select_object(identifier:str,body:dict):
+    """Change one role by clicking: From, To (unstack: an empty mat spot) or add an obstacle."""
+    from studio_sam_auto import classify
+    folder=folder_for(identifier);role=body.get('role')
+    if role not in ['from','to','obstacle']:raise ValueError('Choose From, To or Obstacle')
+    with operation_lock:
+        capture=selection_guard(folder,identifier)
+        cfg=live_config()
+        path=folder/'selection.json';selection=json.loads(path.read_text()) if path.exists() else {}
+        if capture.get('task')=='pickplace':
+            from pickplace_vision import choose,scene_file
+            if role not in ['from','to']:raise ValueError('Choose From or To')
+            choose(selection,folder,role,body.get('point'),cfg)
+            selection['revision']=uuid.uuid4().hex
+            path.write_text(json.dumps(selection,indent=2))
+            if selection.get('from') and selection.get('to'):scene_file(folder,selection,cfg)
+            else:(folder/'pickplace-scene.json').unlink(missing_ok=True)
+            invalidate_plan(folder,identifier,capture)
+            return selection
+        if 'obstacle' in selection and 'objects' not in selection:selection['objects']=[{**selection.pop('obstacle'),'kind':'bowl'}]
+        revision=uuid.uuid4().hex
+        if role=='to' and capture.get('task')=='unstack':
+            selected=place_record(cfg,folder,body.get('point'),selection)
+            selection.update({'to':selected,'revision':revision})
+        else:
+            result=sam.predict(folder/'top.jpg',body.get('point'))
+            if result['image_sha256']!=hashlib.sha256((folder/'top.jpg').read_bytes()).hexdigest():raise ValueError('Capture changed during segmentation')
+            if selection.get('model') and selection['model']!=result['model']:raise ValueError('SAM model changed; capture a new scene')
+            mask=decode_mask(result)
+            if role=='obstacle':
+                rgb=cv2.cvtColor(cv2.imread(str(folder/'top.jpg')),cv2.COLOR_BGR2RGB);info=classify(cfg,rgb,mask)
+                if not info:raise ValueError('Obstacles must be a modelled object: a 19.5 mm cube, the tape roll or the bowl')
+                for item in selection.get('objects',[]):
+                    other=cv2.imread(str(folder/item['mask_file']),cv2.IMREAD_GRAYSCALE)>0
+                    if np.count_nonzero(mask&other)/max(1,min(mask.sum(),other.sum()))>.3:raise ValueError('That object is already selected')
+                selection.setdefault('objects',[]).append(object_record(folder,len(selection.get('objects',[])),result,info,revision))
+            else:
+                selected=save_role(folder,role,result,revision)
+                for other in [r for r in ['from','to'] if r!=role and r in selection and 'mask_file' in selection[r]]:
+                    validate_pair(mask,cv2.imread(str(folder/selection[other]['mask_file']),cv2.IMREAD_GRAYSCALE)>0)
+                selection[role]=selected
+                if role=='from' and capture.get('task')=='unstack':
+                    # The empty spot was checked against the old stack: choose a new one.
+                    selection.pop('to',None)
+                    try:
+                        place=auto_place_record(cfg,folder,selection)
+                        if place:selection['to']=place
+                    except ValueError:pass
+            selection.update({'revision':revision,'image_sha256':result['image_sha256'],'model':result['model']})
+        selection=finalize_selection(folder,selection)
+        invalidate_plan(folder,identifier,capture)
+        return selection
+
+
+@app.post('/api/camera/pose')
+def camera_pose(request:Request,body:dict|None=None):
+    """Move the arm straight to the arm pose of the dataset reference frame (a rest pose
+    next to Home), so the camera check compares like with like."""
+    global current
+    from top_camera import reference_pose
+    if not request.headers.get('x-studio-client'):raise ValueError('Moving the arm requires an owning control page')
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if dataset_build_busy():raise ValueError('Finish or cancel data generation before moving the robot')
+        if current and jobs.get(current,{}).get('status')=='running':raise ValueError('Wait for the current operation')
+        if hardware.call('status').get('running'):raise ValueError('Robot is executing')
+        from top_camera import poses
+        body=body or {}
+        index=int(body.get('pose',0));listed=poses()
+        if not 0<=index<len(listed):raise ValueError('Unknown camera check pose')
+        home=json.loads((ROOT/'calibration/studio-home.json').read_text())
+        # Raised poses are reached through the Home corridor: unfolded, raised, pose.
+        via=body.get('via')
+        if via not in (None,'unfolded','raised','home'):raise ValueError('Unknown waypoint')
+        target=np.asarray(home[via] if via else listed[index]['state_native'],float)
+        if via:camera_pose.last=None
+        command=target.copy()
+        if not via and body.get('correct') and camera_pose.last is not None:
+            # The servos stop a few degrees short of a rest pose: command past it by the
+            # remaining error (bounded), measured after the previous move.
+            measured=np.asarray(hardware.call('status')['positions'],float)
+            command=camera_pose.last.copy();command[:5]+=np.clip(target[:5]-measured[:5],-4,4)
+            command[:5]=np.clip(command[:5],target[:5]-10,target[:5]+10)
+        camera_pose.last=command
+        current=None
+        with stop_lock:
+            if restarting:raise ValueError('Server restarting')
+            return hardware.call('go_home',target=command.tolist())|{'target':target.tolist(),'command':command.tolist(),'count':len(listed)}
+camera_pose.last=None
+
+
+@app.post('/api/camera/check')
+def camera_check_now(body:dict|None=None):
+    """With the arm in the dataset frame's pose: compare the live top image with that
+    frame, arm included. No motion here."""
+    from top_camera import measure,poses,compare_arm,REFERENCE,POSE_TOLERANCE_DEG
+    if hardware.call('status').get('running'):raise ValueError('Wait for the arm to stop')
+    index=int((body or {}).get('pose',0));pose=poses()[index]
+    snapshot=hardware.call('snapshot')
+    error=np.abs(np.asarray(snapshot['initial_native'][:5])-np.asarray(pose['state_native'][:5]))
+    if np.max(error)>POSE_TOLERANCE_DEG:raise ValueError(f'The arm is {np.max(error):.1f}° from the dataset frame pose; move it there first')
+    image=cv2.imdecode(np.frombuffer(base64.b64decode(snapshot['images']['top']),np.uint8),cv2.IMREAD_COLOR)
+    reference=cv2.imread(str(REFERENCE.parent/pose['image']))
+    # Camera: the static scene (arm included only in the rest pose, where it is static).
+    _,result=measure(image,arm=not pose['raised'])
+    result|=compare_arm(reference,image)
+    folder=WORK/'camera-check';folder.mkdir(exist_ok=True)
+    side=np.hstack([reference,image,cv2.addWeighted(reference,.5,image,.5,0)])
+    for x,label in [(10,f"dataset ep{pose['episode']} frame {pose['frame']}"),(650,'live, same arm pose'),(1290,'50/50 overlay')]:
+        cv2.putText(side,label,(x,26),cv2.FONT_HERSHEY_SIMPLEX,.7,(0,0,255),2)
+    cv2.imwrite(str(folder/f'pose-{index}.jpg'),side)
+    return result|{'pose':index,'episode':pose['episode'],'frame':pose['frame'],'pose_error_deg':float(np.max(error)),'joint_error_deg':np.round(np.asarray(snapshot['initial_native'][:5])-pose['state_native'][:5],2).tolist(),'image':f'/media/studio/camera-check/pose-{index}.jpg'}
+
+
+def wrist_recheck(folder,report,fresh):
+    """After the Wrist check: the object must still be where the Wrist camera saw it."""
+    from pickplace import load_registry,settle
+    from pickplace_wrist import measure,colour_filter,RECHECK_SHIFT_M,RECHECK_TURN_RAD
+    cfg=live_config();registry=load_registry()
+    scene=settle(json.loads((folder/'pickplace-scene.json').read_text()),registry,cfg)
+    picked=next(o for o in scene['objects'] if o['id']==scene['pick'])
+    image=folder/f'wrist-recheck-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['wrist']))
+    rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
+    seen=measure(sam,image,cfg,registry,picked,fresh['initial_native'],decode_mask,colour_filter(rgb,picked.get('color')))
+    if seen['shift_m']>RECHECK_SHIFT_M or abs(seen['turn_rad'])>RECHECK_TURN_RAD:raise ValueError(f"The {picked['kind']} moved {seen['shift_m']*1000:.0f} mm since the Wrist check; capture again")
+
+
 def verify_selected_scene(folder,report,fresh):
+    if report.get('purpose')=='refine':return wrist_recheck(folder,report,fresh)
+    if report.get('task')=='pickplace':
+        # Every object is segmented again on a fresh image: none may have moved.
+        from pickplace_vision import refresh,compare
+        selection=json.loads((folder/'selection.json').read_text())
+        if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
+        image=folder/f'preflight-{uuid.uuid4().hex}.jpg';image.write_bytes(base64.b64decode(fresh['images']['top']))
+        from top_camera import align
+        moved=align(folder,name=image.name)
+        if moved.get('ok') is False and moved.get('moved_px') is not None:raise ValueError(moved.get('note') or 'The top camera moved')
+        cfg=live_config()
+        observed=refresh(sam,folder,selection,image,cfg,decode_mask,image.stem)
+        planned=json.loads((folder/'pickplace-scene.json').read_text())
+        compare(planned['objects'],observed,planned['pick'])
+        return
     from studio_stack import scene_calibration
     selection,_=load_selection(folder)
     if report.get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate and simulate the plan')
@@ -651,9 +869,55 @@ def verify_selected_scene(folder,report,fresh):
     image.write_bytes(base64.b64decode(fresh['images']['top']))
     checked,masks=refresh_pair(sam,folder,selection,image,image.stem)
     if checked['model']!=selection['model']:raise ValueError('SAM model changed; capture and select again')
-    cfg=json.loads((ROOT/'calibration/native-action-current.json').read_text())
-    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present',True)))
+    cfg=live_config()
+    # Every obstacle is segmented again too: none may have moved since simulation.
+    rgb=cv2.cvtColor(cv2.imread(str(image)),cv2.COLOR_BGR2RGB)
+    observed=scene_calibration(cfg,scene_from_masks(cfg,*masks,task=report.get('task','bowl'),bowl_present=report.get('bowl_present'),rgb=rgb))
     validate_scene_match(report['world'],observed.world)
+
+
+@app.post('/api/plans/{identifier}/refine')
+def refine_after_look(identifier:str):
+    """At the Look pose: measure the picked object with the Wrist camera and start a
+    new capture from this pose with the measured object, to plan and simulate again."""
+    global current
+    from pickplace import load_registry,settle
+    from pickplace_wrist import measure,colour_filter
+    folder=folder_for(identifier)
+    with operation_lock:
+        if restarting:raise ValueError('Server restarting')
+        if current!=identifier:raise ValueError('This capture was replaced')
+        report=json.loads((folder/'plan.json').read_text())
+        if not (report.get('look_pending') and report.get('executed')):raise ValueError('No Wrist check is pending for this run')
+        if hardware.call('status').get('running'):raise ValueError('Wait for the arm to stop at the Look pose')
+        trace=json.loads((folder/'hardware-trace.json').read_text()) if (folder/'hardware-trace.json').exists() else {}
+        if not trace.get('completed') or trace.get('error'):raise ValueError('The arm did not reach the Look pose: '+str(trace.get('error') or 'motion incomplete'))
+        look=np.load(folder/'plan.npz')['actions'][report['look_index']]
+        fresh=hardware.call('snapshot');q=np.asarray(fresh['initial_native'],float)
+        if np.any(np.abs(q[:5]-look[:5])>10):raise ValueError('The arm is not at the Look pose; return Home and capture again')
+        cfg=live_config();registry=load_registry()
+        child_id=uuid.uuid4().hex;child=WORK/child_id;child.mkdir()
+        for view,image in fresh['images'].items():(child/f'{view}.jpg').write_bytes(base64.b64decode(image))
+        from top_camera import align
+        align(child)
+        scene=json.loads((folder/'pickplace-scene.json').read_text());settled=settle(json.loads(json.dumps(scene)),registry,cfg)
+        picked=next(o for o in settled['objects'] if o['id']==settled['pick'])
+        rgb=cv2.cvtColor(cv2.imread(str(child/'wrist.jpg')),cv2.COLOR_BGR2RGB)
+        seen=measure(sam,child/'wrist.jpg',cfg,registry,picked,q,decode_mask,colour_filter(rgb,picked.get('color')))
+        save_role(child,'wrist-object',seen['result'],child_id)
+        for o in scene['objects']:
+            if o['id']==scene['pick']:o['position']=[seen['position'][0],seen['position'][1],0.];o['yaw']=seen['yaw']
+        refinement={k:v for k,v in seen.items() if k not in ('mask','result')}|{'parent':identifier}
+        scene['wrist_refinement']=refinement
+        (child/'pickplace-scene.json').write_text(json.dumps(scene,indent=2))
+        for name in ['selection.json','planning-options.json']:
+            if (folder/name).exists():(child/name).write_bytes((folder/name).read_bytes())
+        snapshot={k:v for k,v in fresh.items() if k!='images'}
+        snapshot.update(id=child_id,task='pickplace',purpose='refine',parent=identifier,source='live',bowl_present=None)
+        (child/'capture.json').write_text(json.dumps(snapshot,indent=2))
+        report['look_pending']=False;report['wrist_refinement']=refinement;report['refined_capture']=child_id;(folder/'plan.json').write_text(json.dumps(report,indent=2))
+        current=child_id;jobs[child_id]={'id':child_id,'status':'captured','stage':'capture','capture':snapshot}
+        return {'capture':snapshot,'refinement':refinement}
 
 
 def verify_home_scene(folder,reference,report,fresh,cfg):
@@ -688,7 +952,15 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
         if dataset_build_busy():raise ValueError('Finish or cancel data generation before planning or running the robot')
         if jobs.get(identifier,{}).get('status')=='running':raise ValueError('Operation already running')
         if hardware.call('status').get('running'):raise ValueError('Robot is executing')
-        if json.loads((folder/'capture.json').read_text()).get('source')=='live':
+        if json.loads((folder/'capture.json').read_text()).get('task')=='pickplace':
+            if not (folder/'pickplace-scene.json').exists():raise ValueError('Choose From and To first')
+            moved=json.loads((folder/'capture.json').read_text())
+            if (moved.get('camera_check') or {}).get('ok') is False and moved['camera_check'].get('moved_px') is not None:
+                raise ValueError(moved['camera_check'].get('note') or 'The top camera moved too far from the dataset view')
+            selection=json.loads((folder/'selection.json').read_text())
+            if json.loads((folder/'pickplace-scene.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
+            if operation!='plan' and (folder/'plan.json').exists() and json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
+        elif json.loads((folder/'capture.json').read_text()).get('source')=='live':
             selection,_=load_selection(folder)
             if operation!='plan' and (folder/'plan.json').exists():
                 if json.loads((folder/'plan.json').read_text()).get('selection_revision')!=selection['revision']:raise ValueError('Selection changed; regenerate the plan')
@@ -701,13 +973,19 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
             if timing_profile!=json.loads((folder/'plan.json').read_text()).get('timing_profile','conservative'):raise ValueError('Motion timing changed; generate and simulate a new plan')
         if operation=='execute':
             report=json.loads((folder/'plan.json').read_text())
+            from studio_planner import validate_plan_scene
+            validate_plan_scene(folder,report)
             fresh=hardware.call('snapshot');execution_gate(report,fresh['initial_native'],fresh['calibration_hash'])
             verify_selected_scene(folder,report,fresh)
             # SAM may take several seconds; re-check robot state immediately before dispatch.
             latest=hardware.call('snapshot');execution_gate(report,latest['initial_native'],latest['calibration_hash'])
             validate_vision_age(fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),time.time())
             if latest['stop_generation']!=fresh['stop_generation']:raise ValueError('Stop requested during segmentation')
-            saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
+            validate_plan_scene(folder,report)
+            saved=np.load(folder/'plan.npz');payload=report|{'actions':saved['actions'].tolist(),'simulated_native':simulated_native(folder,len(saved['actions'])),'timestamps':saved['timestamps'].tolist(),'stop_generation':fresh['stop_generation'],'verified_image_captured_at':fresh.get('image_captured_at',{}).get('top',fresh['captured_at']),'owner':request.headers.get('x-studio-client')}
+            if report.get('task')=='pickplace' and report.get('look_index') is not None:
+                # Stop still above the object; the Wrist check then re-plans the grasp.
+                payload['stop_index']=int(report['look_index']);report['look_pending']=True
             with stop_lock:
                 if restarting:raise ValueError('Server restarting; execution cancelled')
                 if requested_generation!=stop_generation:raise ValueError('Stop requested during preflight; execution cancelled')
@@ -722,7 +1000,7 @@ def plan_operation(identifier:str,operation:str,request:Request,body:dict|None=N
             if invalid.get('executed'):raise ValueError('Capture a new scene after an execution')
             invalid.update(outcome='not_simulated',transfer_checks_passed=False,simulated_action_hash=None,simulated_timestamp_hash=None,simulated_speed_scale=None,simulated_timing_profile=None,simulated_timing_contract_hash=None)
             invalid.pop('video',None);old.write_text(json.dumps(invalid,indent=2))
-        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale,'timing_profile':timing_profile}))
+        if operation=='plan':(folder/'planning-options.json').write_text(json.dumps({'motion_technique':technique,'speed_scale':speed_scale,'timing_profile':timing_profile,'wrist_check':bool(body.get('wrist_check',False))}))
         (folder/'job.json').unlink(missing_ok=True)
         jobs[identifier]={'id':identifier,'status':'running','stage':operation}
         def run():

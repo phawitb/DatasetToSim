@@ -1,0 +1,16 @@
+{
+  "note": "Tapered off-white plastic cup with faint horizontal ribs and a thin rim. Measured: 75 mm across the rim, 55 mm across the base (outside), 2 mm rim. 85 mm along the slanted side, so 84.4 mm tall. Mass (35 g, from a 2 mm polypropylene wall) is an estimate.",
+  "height_m": 0.0844,
+  "top_outer_diameter_m": 0.075,
+  "bottom_outer_diameter_m": 0.055,
+  "wall_m": 0.002,
+  "floor_m": 0.002,
+  "lip_m": 0.002,
+  "ribs": 24,
+  "mass_kg": 0.035,
+  "friction": [
+    0.7,
+    0.005,
+    0.0001
+  ]
+}

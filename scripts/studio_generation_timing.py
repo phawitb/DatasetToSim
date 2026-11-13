@@ -28,6 +28,12 @@ def recorded_timing(speed_scale):
     if limits.shape != (3, 6) or not np.isfinite(limits).all() or np.any(limits <= 0):
         raise ValueError('Invalid recorded motion profile')
     limits[0, :5] = np.minimum(limits[0, :5] * speed_scale, [100., 90., 75., 100., 100.])
+    if speed_scale < 1:
+        # The ceilings above cap most joints already at 100%, so a slower Travel speed
+        # must slow the capped joints too and soften their acceleration; otherwise 50%
+        # moves the loaded shoulder exactly as fast as 100%.
+        limits[0, :5] = np.minimum(limits[0, :5], np.array([100., 90., 75., 100., 100.]) * speed_scale)
+        limits[1, :5] *= speed_scale
     return {'name': 'recorded', 'reference': reference, 'profile_sha256': hashlib.sha256(raw).hexdigest(),
             'limits': limits.tolist(), 'tracking_velocity_ceiling_deg_s': [100., 90., 75., 100., 100.],
             'note': 'Recorded derivative envelope capped per joint at 100/90/75/100/100 deg/s for the unchanged 10-degree simulated tracking check. All episodes still require physical validation.'}
@@ -35,8 +41,9 @@ def recorded_timing(speed_scale):
 
 def generation_durations(waypoints, names):
     """Shorter task holds; derivative limits determine actual travel duration."""
-    holds = {'Grasp settle': .15, 'Grasp': .45, 'Placement settle': .3,
+    holds = {'Grasp settle': .15, 'Grasp': .45, 'Grip check': .4, 'Placement settle': .3, 'Look': .8,
              'Release': .45, 'Release on cube': .45, 'Release on table': .45, 'Release in bowl': .45, 'Lift out of roll': 1.5,
+             'Release in container': .45, 'Back out of container': .6, 'Rise clear of rim': .6, 'Rise out of container': .8, 'Turn jaws down': 1.2,
              'Final settle': 1.0}
     return [(q, holds.get(name, seconds * .20)) for (q, seconds), name in zip(waypoints, names)]
 

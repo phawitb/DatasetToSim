@@ -65,6 +65,9 @@ def execution_gate(plan, current, calibration_hash, now=None):
         raise ValueError('Dataset rehearsals cannot run on hardware; capture a live scene')
     if plan.get('outcome') != 'success' or not plan.get('transfer_checks_passed'):
         raise ValueError('Simulation and transfer checks must pass first')
+    if plan.get('task') == 'pickplace' and (not plan.get('scene_contract_hash') or
+            plan.get('simulated_scene_contract_hash') != plan['scene_contract_hash']):
+        raise ValueError('The current scene must be planned and simulated again')
     if plan.get('executed'):
         raise ValueError('This plan has already been consumed; capture again')
     if not 0 <= now - plan['captured_at'] <= 180:
@@ -96,3 +99,10 @@ def validate_scene_match(planned, observed):
     for obj in ['cube']+(['target_cube'] if stacking else []):
         difference=(yaw(observed[obj]['quaternion'])-yaw(planned[obj]['quaternion'])+np.pi/4)%(np.pi/2)-np.pi/4
         if abs(difference)>np.deg2rad(10):raise ValueError('Cube rotated; capture and simulate again')
+    # Every obstacle the plan avoided must still be where the simulation put it.
+    planned_obstacles,observed_obstacles=planned.get('obstacles',[]),observed.get('obstacles',[])
+    if [o['kind'] for o in planned_obstacles]!=[o['kind'] for o in observed_obstacles]:raise ValueError('Obstacles changed; capture and simulate again')
+    for before,after in zip(planned_obstacles,observed_obstacles):
+        if np.linalg.norm(np.array(after['position'][:2])-before['position'][:2])>.008:raise ValueError('An obstacle moved; capture and simulate again')
+    if 'placement' in planned and np.linalg.norm(np.array(observed.get('placement',{}).get('position',[np.inf]*3))-planned['placement']['position'])>.003:
+        raise ValueError('Unstack release spot changed; capture and simulate again')

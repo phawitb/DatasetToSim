@@ -16,6 +16,40 @@ export function triangleBuffer(part,scale){
  }
  return out;
 }
+const GRASP_RGBA=[.98,.45,.12,1],PAD_RGBA=[.92,.22,.12,1],SURFACE_RGBA=[.15,.62,.85,1];
+function box(centre,half,yaw,rgba){
+ const c=Math.cos(yaw),s=Math.sin(yaw),corners=[];
+ for(const z of [-1,1])for(const [x,y] of [[-1,-1],[1,-1],[1,1],[-1,1]]){const lx=x*half[0],ly=y*half[1];corners.push(centre[0]+c*lx-s*ly,centre[1]+s*lx+c*ly,centre[2]+z*half[2]);}
+ return {vertices:corners,faces:[0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,1,2,6,1,6,5,2,3,7,2,7,6,3,0,4,3,4,7],rgba,overlay:true};
+}
+function ring(centre,inner,outer,rgba,n=48){
+ const vertices=[],faces=[];
+ for(let i=0;i<n;i++){const a=i/n*2*Math.PI;for(const r of [inner,outer])vertices.push(centre[0]+r*Math.cos(a),centre[1]+r*Math.sin(a),centre[2]);}
+ for(let i=0;i<n;i++){const a=2*i,b=2*((i+1)%n);faces.push(a,b,a+1,b,b+1,a+1);}
+ return {vertices,faces,rgba,overlay:true};
+}
+/** Marker geometry for one registry entry, in the model's own frame (metres). */
+export function contactParts(entry){
+ const parts=[],pad=.003;
+ for(const grasp of entry?.grasps||[]){
+  const c=grasp.centre_m,half=grasp.width_m/2+pad/2;
+  if(grasp.pads==='fixed_in_hole'||grasp.jaw_axis_deg==='radial'){
+   const radius=Math.hypot(c[0],c[1]);
+   parts.push(ring([0,0,c[2]],Math.max(0,radius-.0015),radius+.0015,GRASP_RGBA));
+   parts.push(box([radius-half,0,c[2]],[pad/2,.004,.005],0,PAD_RGBA),box([radius+half,0,c[2]],[pad/2,.004,.005],0,PAD_RGBA));
+  }else for(const deg of grasp.jaw_axis_deg){
+   const a=deg*Math.PI/180,dx=Math.cos(a)*half,dy=Math.sin(a)*half;
+   parts.push(box([c[0]+dx,c[1]+dy,c[2]],[pad/2,.004,.005],a,PAD_RGBA),box([c[0]-dx,c[1]-dy,c[2]],[pad/2,.004,.005],a,PAD_RGBA));
+   parts.push(box(c,[half,.0007,.0007],a,GRASP_RGBA));
+  }
+ }
+ for(const surface of entry?.place_surfaces||[]){
+  const c=[surface.centre_m[0],surface.centre_m[1],surface.centre_m[2]+.0006];
+  if(surface.half_extents_m)parts.push(box(c,[surface.half_extents_m[0],surface.half_extents_m[1],.0003],0,SURFACE_RGBA));
+  else parts.push(ring(c,surface.inner_radius_m||0,surface.radius_m,SURFACE_RGBA));
+ }
+ return parts;
+}
 class ObjectPreview{
  constructor(canvas){
   this.canvas=canvas;this.parts=[];this.shaded=false;this.yaw=-.9;this.pitch=.45;this.zoom=1.4;
@@ -35,9 +69,9 @@ class ObjectPreview{
   this.observer=new ResizeObserver(()=>this.draw());this.observer.observe(canvas);
  }
  clear(){for(const part of this.parts)this.gl.deleteBuffer(part.buffer);this.parts=[];this.draw();}
- setMesh(mesh){
-  this.clear();const gl=this.gl,scale=Math.max(...mesh.dimensions_m)||1;
-  this.parts=mesh.parts.map(part=>{const values=triangleBuffer(part,scale),buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,values,gl.STATIC_DRAW);return {buffer,count:values.length/6,rgba:part.rgba};});this.reset();
+ setMesh(mesh,overlays=[]){
+  this.clear();const gl=this.gl,scale=Math.max(...mesh.dimensions_m)||1;this.scale=scale;
+  this.parts=[...mesh.parts,...overlays].map(part=>{const values=triangleBuffer(part,scale),buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,values,gl.STATIC_DRAW);return {buffer,count:values.length/6,rgba:part.rgba,overlay:!!part.overlay};});this.reset();
  }
  reset(){this.yaw=-.9;this.pitch=.45;this.zoom=1.4;this.draw();}
  draw(){
@@ -47,7 +81,13 @@ class ObjectPreview{
   const cy=Math.cos(this.yaw),sy=Math.sin(this.yaw),cp=Math.cos(this.pitch),sp=Math.sin(this.pitch);
   gl.uniform3fv(this.uniforms.right,[-sy,cy,0]);gl.uniform3fv(this.uniforms.up,[-sp*cy,-sp*sy,cp]);gl.uniform3fv(this.uniforms.eye,[cp*cy,cp*sy,sp]);gl.uniform2fv(this.uniforms.scale,[this.zoom/Math.max(1,width/height),this.zoom/Math.max(1,height/width)]);
   gl.uniform1f(this.uniforms.shaded,this.shaded?1:0);
-  for(const part of this.parts){gl.bindBuffer(gl.ARRAY_BUFFER,part.buffer);gl.enableVertexAttribArray(this.position);gl.enableVertexAttribArray(this.normal);gl.vertexAttribPointer(this.position,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(this.normal,3,gl.FLOAT,false,24,12);gl.uniform4fv(this.uniforms.color,part.rgba);gl.drawArrays(gl.TRIANGLES,0,part.count);}
+  // Contact markers draw last and on top, so areas inside the model stay visible.
+  this.parts.sort((a,b)=>a.overlay-b.overlay);
+  for(const part of this.parts){if(part.overlay)gl.disable(gl.DEPTH_TEST);gl.bindBuffer(gl.ARRAY_BUFFER,part.buffer);gl.enableVertexAttribArray(this.position);gl.enableVertexAttribArray(this.normal);gl.vertexAttribPointer(this.position,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(this.normal,3,gl.FLOAT,false,24,12);gl.uniform4fv(this.uniforms.color,part.rgba);gl.drawArrays(gl.TRIANGLES,0,part.count);}
+ }
+ setOverlays(overlays){
+  const gl=this.gl;for(const part of this.parts.filter(p=>p.overlay))gl.deleteBuffer(part.buffer);
+  this.parts=this.parts.filter(p=>!p.overlay).concat(overlays.map(part=>{const values=triangleBuffer(part,this.scale||1),buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,values,gl.STATIC_DRAW);return {buffer,count:values.length/6,rgba:part.rgba,overlay:true};}));this.draw();
  }
  setLighting(value){this.shaded=value;this.draw();}
  destroy(){this.observer.disconnect();this.clear();this.gl.deleteProgram(this.program);}
@@ -57,16 +97,18 @@ export class ObjectsView{
  constructor(host,api){
   this.host=host;this.api=api;this.active=false;this.version=0;this.items=[];this.meshes=new Map();this.preview=null;this.lighting='material';
   host.classList.add('objects-view');
-  host.innerHTML=`<div class="objects-heading"><div><div class="objects-eyebrow">MODEL LIBRARY</div><h2>Model library</h2><p>Explore the models in your simulation and the tasks that use them.</p></div><div class="objects-summary" aria-live="polite"></div></div><div class="objects-workspace"><aside class="objects-library"><label for="objects-search">Find a model or task</label><input id="objects-search" type="search" placeholder="Search objects…" autocomplete="off"><div class="objects-list"></div></aside><section class="objects-detail"><div class="objects-detail-heading"><div><span class="objects-category"></span><h2 class="objects-name">Select an object</h2></div><button type="button" class="objects-reset">Reset view</button></div><div class="objects-controls"><fieldset class="objects-color-control"><legend>Color variant</legend><div id="objects-variant" class="objects-swatch-buttons" role="group" aria-label="Color variant"></div><span class="objects-color-label"></span></fieldset><fieldset class="objects-appearance-control"><legend>Preview appearance</legend><div id="objects-lighting" class="objects-appearance-buttons" role="group" aria-label="Preview appearance"></div></fieldset><div class="objects-material-palette" aria-label="Materials in this model"></div><div class="objects-sources"></div><span class="objects-material-note"></span></div><div class="objects-stage"><canvas tabindex="0" aria-label="Interactive 3D model. Drag or use arrow keys to orbit; scroll or use plus and minus to zoom; Home to reset."></canvas><div class="objects-preview-status" role="status"></div><div class="objects-preview-help">Drag to orbit · Scroll to zoom</div><span class="objects-preview-label">ACTUAL MODEL GEOMETRY</span></div><div class="objects-facts"></div><p class="objects-description"></p><div class="objects-usage"><h3>Used in tasks</h3><div class="objects-tasks"></div></div></section></div><p class="objects-note" role="status"></p>`;
+  host.innerHTML=`<div class="objects-heading"><div><div class="objects-eyebrow">MODEL LIBRARY</div><h2>Model library</h2><p>Explore the models in your simulation and the tasks that use them.</p></div><div class="objects-summary" aria-live="polite"></div></div><div class="objects-workspace"><aside class="objects-library"><label for="objects-search">Find a model or task</label><input id="objects-search" type="search" placeholder="Search objects…" autocomplete="off"><div class="objects-list"></div></aside><section class="objects-detail"><div class="objects-detail-heading"><div><span class="objects-category"></span><h2 class="objects-name">Select an object</h2></div><button type="button" class="objects-reset">Reset view</button></div><div class="objects-controls"><fieldset class="objects-color-control"><legend>Color variant</legend><div id="objects-variant" class="objects-swatch-buttons" role="group" aria-label="Color variant"></div><span class="objects-color-label"></span></fieldset><fieldset class="objects-appearance-control"><legend>Preview appearance</legend><div id="objects-lighting" class="objects-appearance-buttons" role="group" aria-label="Preview appearance"></div></fieldset><div class="objects-material-palette" aria-label="Materials in this model"></div><div class="objects-sources"></div><span class="objects-material-note"></span></div><div class="objects-stage"><canvas tabindex="0" aria-label="Interactive 3D model. Drag or use arrow keys to orbit; scroll or use plus and minus to zoom; Home to reset."></canvas><div class="objects-preview-status" role="status"></div><div class="objects-preview-help">Drag to orbit · Scroll to zoom</div><span class="objects-preview-label">ACTUAL MODEL GEOMETRY</span></div><div class="objects-facts"></div><div class="objects-contacts hidden"><div class="objects-contacts-heading"><h3>Contact areas</h3><span class="objects-contacts-legend"><i class="grasp"></i>Grasp · jaw pads <i class="surface"></i>Place surface</span></div><p class="objects-contacts-note">Where the jaws close and where other objects can be set down, in this model's own frame. New Run plans every pick and place from these values.</p><div class="objects-contacts-form"></div><div class="objects-contacts-actions"><button type="button" class="objects-contacts-save button">Save contact areas</button><button type="button" class="objects-contacts-reset text-button">Discard changes</button><span class="objects-contacts-status" role="status"></span></div></div><p class="objects-description"></p><div class="objects-usage"><h3>Used in tasks</h3><div class="objects-tasks"></div></div></section></div><p class="objects-note" role="status"></p>`;
   this.find=selector=>host.querySelector(selector);
   this.find('#objects-search').addEventListener('input',()=>this.renderList());
   this.find('.objects-reset').onclick=()=>this.preview?.reset();
+  this.find('.objects-contacts-save').onclick=()=>this.saveContacts();
+  this.find('.objects-contacts-reset').onclick=()=>{this.draft=null;this.renderContacts();};
 
  }
  async load(){
   this.active=true;const version=++this.version;this.find('.objects-note').textContent='Loading the current simulation models…';
   try{
-   const data=await this.api('/api/objects');if(!this.active||version!==this.version)return;
+   const [data,registry]=await Promise.all([this.api('/api/objects'),this.api('/api/affordances').catch(()=>null)]);if(!this.active||version!==this.version)return;this.registry=registry;
    if(this.revision!==data.revision){this.meshes.clear();this.revision=data.revision;}
    this.items=data.objects;this.find('.objects-summary').textContent=`${data.objects.length} models · ${data.source_count||3} sources`;this.find('.objects-note').textContent=data.note;
    this.renderList();const item=this.items.find(item=>item.id===this.selected)||this.items[0];if(item)await this.select(item.id);
@@ -112,6 +154,37 @@ export class ObjectsView{
   for(const source of item.sources||[]){const badge=element('span','objects-source',source.label);badge.title=source.path;sources.append(badge);}
  }
  appearanceNote(){this.find('.objects-material-note').textContent=this.lighting==='studio'?'Preview lighting only. Dataset lighting and camera color processing can differ.':'Unlit simulation base colors. Dataset images also include lighting and may include camera color matching.';}
+ contactKind(){
+  const ids=[this.selected,this.variant];
+  return Object.entries(this.registry?.objects||{}).find(([kind,entry])=>ids.includes(kind)||ids.some(id=>(entry.library_ids||[]).includes(id)))?.[0];
+ }
+ contactEntry(){const kind=this.contactKind();return kind?(this.draft?.kind===kind?this.draft.entry:this.registry.objects[kind]):null;}
+ renderContacts(){
+  const panel=this.find('.objects-contacts'),kind=this.contactKind();panel.classList.toggle('hidden',!kind);this.preview?.setOverlays(kind?contactParts(this.contactEntry()):[]);if(!kind)return;
+  const entry=this.contactEntry(),form=this.find('.objects-contacts-form');form.replaceChildren();
+  const mm=v=>Number((v*1000).toFixed(2)),edit=(update)=>{if(this.draft?.kind!==kind)this.draft={kind,entry:structuredClone(this.registry.objects[kind])};update(this.draft.entry);this.preview?.setOverlays(contactParts(this.draft.entry));this.find('.objects-contacts-status').textContent='Unsaved changes';};
+  const field=(label,value,onchange,type='number')=>{const wrap=element('label','objects-contact-field');wrap.append(element('span','',label));const input=element('input');input.type=type;if(type==='number')input.step='0.5';input.value=value;input.onchange=()=>onchange(input.value);wrap.append(input);return wrap;};
+  const select=(label,value,options,onchange)=>{const wrap=element('label','objects-contact-field');wrap.append(element('span','',label));const input=element('select');for(const o of options)input.append(new Option(o,o));input.value=value;input.onchange=()=>onchange(input.value);wrap.append(input);return wrap;};
+  entry.grasps.forEach((grasp,i)=>{const box=element('fieldset','objects-contact');box.append(element('legend','','Grasp · '+grasp.name));
+   const at=(k,v)=>edit(e=>{e.grasps[i][k]=v;});
+   ['x','y','z'].forEach((axis,j)=>box.append(field(`Centre ${axis} (mm)`,mm(grasp.centre_m[j]),v=>edit(e=>{e.grasps[i].centre_m[j]=Number(v)/1000;}))));
+   box.append(field('Pad height (mm)',mm(grasp.pad_height_m),v=>at('pad_height_m',Number(v)/1000)),field('Width (mm)',mm(grasp.width_m),v=>at('width_m',Number(v)/1000)),
+    field('Jaw axis (° or radial)',grasp.jaw_axis_deg==='radial'?'radial':grasp.jaw_axis_deg.join(', '),v=>at('jaw_axis_deg',v.trim()==='radial'?'radial':v.split(',').map(Number)),'text'),
+    select('Pads',grasp.pads,['between','fixed_in_hole'],v=>at('pads',v)));
+   if(grasp.note)box.append(element('p','objects-contact-note',grasp.note));form.append(box);});
+  (entry.place_surfaces||[]).forEach((surface,i)=>{const box=element('fieldset','objects-contact surface');box.append(element('legend','','Place surface · '+surface.name));
+   const at=(k,v)=>edit(e=>{e.place_surfaces[i][k]=v;});
+   ['x','y','z'].forEach((axis,j)=>box.append(field(`Centre ${axis} (mm)`,mm(surface.centre_m[j]),v=>edit(e=>{e.place_surfaces[i].centre_m[j]=Number(v)/1000;}))));
+   if(surface.half_extents_m)['x','y'].forEach((axis,j)=>box.append(field(`Half size ${axis} (mm)`,mm(surface.half_extents_m[j]),v=>edit(e=>{e.place_surfaces[i].half_extents_m[j]=Number(v)/1000;}))));
+   else{box.append(field('Radius (mm)',mm(surface.radius_m),v=>at('radius_m',Number(v)/1000)));if('inner_radius_m' in surface)box.append(field('Hole radius (mm)',mm(surface.inner_radius_m),v=>at('inner_radius_m',Number(v)/1000)));}
+   box.append(select('Type',surface.type,['top','inside'],v=>at('type',v)),select('Release',surface.release,['lower','above_rim'],v=>at('release',v)));form.append(box);});
+  if(this.draft?.kind!==kind)this.find('.objects-contacts-status').textContent='';
+ }
+ async saveContacts(){
+  const kind=this.contactKind();if(!kind||this.draft?.kind!==kind)return;const status=this.find('.objects-contacts-status');
+  try{status.textContent='Saving…';const registry=structuredClone(this.registry);registry.objects[kind]=this.draft.entry;this.registry=await this.api('/api/affordances',registry);this.draft=null;status.textContent='Saved · New Run uses these contact areas from the next plan';this.renderContacts();}
+  catch(error){status.textContent=error.message;}
+ }
  async selectVariant(identifier){
   const model=this.items.find(item=>item.id===this.selected),item=model?.variants.find(v=>v.id===identifier);if(!item)return;this.variant=identifier;const version=++this.version;
   this.renderControls(model,item);this.appearanceNote();
@@ -123,7 +196,7 @@ export class ObjectsView{
   try{
    if(!this.preview)this.preview=new ObjectPreview(this.find('canvas'));
    let mesh=this.meshes.get(identifier);if(!mesh){mesh=await this.api(item.mesh_url);if(!this.active||version!==this.version)return;this.meshes.set(identifier,mesh);}
-   if(!this.active||version!==this.version)return;this.preview.setMesh(mesh);this.preview.setLighting(this.lighting==='studio');this.find('canvas').setAttribute('aria-label',`${item.name} 3D preview. Drag or arrow keys to orbit; scroll or plus and minus to zoom; Home to reset.`);status.textContent='';
+   if(!this.active||version!==this.version)return;this.preview.setMesh(mesh,this.contactKind()?contactParts(this.contactEntry()):[]);this.renderContacts();this.preview.setLighting(this.lighting==='studio');this.find('canvas').setAttribute('aria-label',`${item.name} 3D preview. Drag or arrow keys to orbit; scroll or plus and minus to zoom; Home to reset.`);status.textContent='';
   }catch(error){if(this.active&&version===this.version){status.textContent=error.message;const retry=element('button','','Retry preview');retry.type='button';retry.onclick=()=>this.selectVariant(identifier);status.append(retry);}}
  }
  suspend(){this.active=false;this.version++;}

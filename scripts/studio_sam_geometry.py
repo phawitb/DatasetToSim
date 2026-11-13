@@ -48,9 +48,25 @@ def validate_pair(a,b):
     if np.count_nonzero(a&b)/min(a.sum(),b.sum())>.1:raise ValueError('Choose different objects for From and To')
 
 
-def fit_mask_pose(mask,camera,initial,edge,support):
+def project_box(camera,xy_yaw,edge,support,height,width=None):
+    """Image hull of an edge × (width or edge) × height box on `support`."""
+    import itertools
+    from scipy.spatial import ConvexHull
+    from scipy.spatial.transform import Rotation
+    width=edge if width is None else width
+    corners=np.array(list(itertools.product([-edge/2,edge/2],[-width/2,width/2],[0,height])))
+    world=corners@Rotation.from_euler('z',xy_yaw[2]).as_matrix().T+[xy_yaw[0],xy_yaw[1],support]
+    rotation=Rotation.from_quat(np.array(camera['quaternion'])[[1,2,3,0]]).as_matrix()
+    points=(world-np.array(camera['position']))@rotation@np.diag([1,-1,-1])
+    focal=240/np.tan(np.deg2rad(camera['fovy']/2));pixels=points[:,:2]/points[:,2:]*focal+[320,240]
+    return pixels[ConvexHull(pixels).vertices]
+
+
+def fit_mask_pose(mask,camera,initial,edge,support,height=None,width=None,tolerance_px=3.):
+    """Cube (or, with `height`/`width`, any upright box) pose fit to the SAM silhouette."""
     from scipy.optimize import least_squares
-    from dataset_to_sim.scene_estimation import project_cube,_sample,_distance
+    from dataset_to_sim.scene_estimation import project_cube as _cube,_sample,_distance
+    project_cube=(lambda camera,pose,edge,support:project_box(camera,pose,edge,support,height or edge,width)) if (height or width) else _cube
     contours,_=cv2.findContours(np.asarray(mask,dtype=np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     observed=cv2.convexHull(max(contours,key=cv2.contourArea))[:,0,:].astype(float);points=_sample(observed)
     def residual(pose):
@@ -59,13 +75,13 @@ def fit_mask_pose(mask,camera,initial,edge,support):
     initial=np.asarray(initial,float);lo=initial+[-.02,-.02,-np.pi/2];hi=initial+[.02,.02,np.pi/2]
     fits=[least_squares(residual,initial+[0,0,shift],bounds=(lo,hi),diff_step=1e-4,loss='soft_l1',f_scale=1.,max_nfev=100) for shift in [0,-np.pi/4,np.pi/4]]
     best=min(fits,key=lambda r:r.cost);error=float(np.sqrt(np.mean(residual(best.x)**2)))
-    if not best.success or error>3:raise ValueError('From mask does not match the calibrated cube profile; reselect the cube')
+    if not best.success or error>tolerance_px:raise ValueError('From mask does not match the calibrated cube profile; reselect the cube')
     return best.x,{'method':'measured cube fit to SAM mask only','boundary_rmse_px':error,'observed_hull':observed.tolist(),'projected_hull':project_cube(camera,best.x,edge,support).tolist()}
 
 
-OBJECT_KINDS=('cube','tape','bowl')
+OBJECT_KINDS=('cube','stack','tape','bowl')
 # Clearance of an empty-mat unstack release from every other object center (m).
-PLACE_CLEARANCE_M={'cube':.06,'tape':.075,'bowl':.11,'from':.07}
+PLACE_CLEARANCE_M={'cube':.06,'stack':.06,'tape':.075,'bowl':.11,'from':.07}
 
 
 def _contour(mask):
@@ -110,10 +126,66 @@ def cube_pose_from_mask(config,mask,*,elevated=False,label='From'):
     corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
     cal=episode_scene(config,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'bowl_pixel':[320.,240.]})
     c=cal.world['cube'];q=c['quaternion'];support=cal.data['scene_estimation']['cube_support_z_m']
-    if elevated:support+=c['size']+.0002
-    pose,fit=fit_mask_pose(mask,cal.camera('top'),[*c['position'][:2],2*np.arctan2(q[3],q[0])],c['size'],support)
+    initial=[*c['position'][:2],2*np.arctan2(q[3],q[0])]
+    if elevated:
+        # SAM may return the top cube alone or the whole stack (top face plus the
+        # lower cube's sides): fit both measured shapes and keep the better one.
+        fits=[]
+        for height,base in [(None,support+c['size']+.0002),(2*c['size']+.0002,support)]:
+            try:fits.append((fit_mask_pose(mask,cal.camera('top'),initial,c['size'],base,height),height))
+            except ValueError:pass
+        if not fits:raise ValueError(f'{label} must match the calibrated 19.5 mm cube on top of another cube')
+        (pose,fit),height=min(fits,key=lambda f:f[0][1]['boundary_rmse_px']);fit['silhouette']='stack' if height else 'top cube'
+        support+=c['size']+.0002
+    else:pose,fit=fit_mask_pose(mask,cal.camera('top'),initial,c['size'],support)
     world={'position':[float(pose[0]),float(pose[1]),support+c['size']/2+.0002],'quaternion':_yaw_quaternion(pose[2]),'size':c['size']}
     return world,fit,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(mask))]}
+
+
+def _color_pixels(rgb,mask):
+    hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);m=np.asarray(mask,bool);vivid=m&(hsv[:,:,1]>45)
+    hue=hsv[:,:,0]
+    from studio_sam_auto import CUBE_HUES
+    return {name:vivid&m for name,m in CUBE_HUES(hue).items()}
+
+
+def stack_poses_from_mask(config,mask,rgb,*,label='From'):
+    """Top and lower cube of a hand-made stack, each with its own position and yaw.
+
+    The top cube is fitted alone to the pixels of its own colour (its top face and
+    visible sides). The lower cube is then fitted so the two cubes together explain
+    the whole SAM silhouette. Stacked by hand, the top cube is often turned and
+    shifted against the lower one.
+    """
+    from scipy.optimize import least_squares
+    from scipy.spatial import ConvexHull
+    from strict_action_scene import episode_scene
+    from dataset_to_sim.scene_estimation import _sample,_distance
+    colors=_color_pixels(rgb,mask);name=max(colors,key=lambda k:colors[k].sum());top_mask=colors[name]
+    if top_mask.sum()<.2*np.asarray(mask,bool).sum():raise ValueError(f'{label}: the top cube colour is unclear; click the top cube')
+    top_mask=cv2.morphologyEx(top_mask.astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
+    n,labels,stats,_=cv2.connectedComponentsWithStats(top_mask);top_mask=labels==1+int(np.argmax(stats[1:,4]))
+    contour=_contour(top_mask);corners=cv2.boxPoints(cv2.minAreaRect(contour));center=corners.mean(axis=0)
+    cal=episode_scene(config,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'bowl_pixel':[320.,240.]})
+    c=cal.world['cube'];q=c['quaternion'];edge=c['size'];support=cal.data['scene_estimation']['cube_support_z_m'];camera=cal.camera('top')
+    initial=[*c['position'][:2],2*np.arctan2(q[3],q[0])]
+    top,fit=fit_mask_pose(top_mask,camera,initial,edge,support+edge+.0002)
+    observed=cv2.convexHull(_contour(mask))[:,0,:].astype(float);points=_sample(observed)
+    top_hull=project_box(camera,top,edge,support+edge+.0002,edge)
+    def residual(pose):
+        both=np.vstack([top_hull,project_box(camera,pose,edge,support,edge)]);hull=both[ConvexHull(both).vertices]
+        return np.r_[_distance(_sample(hull),observed),_distance(points,hull)]
+    lo=np.r_[top[:2]-.012,top[2]-np.pi/4];hi=np.r_[top[:2]+.012,top[2]+np.pi/4]
+    fits=[least_squares(residual,np.clip(top+[0,0,shift],lo,hi),bounds=(lo,hi),diff_step=1e-4,loss='soft_l1',f_scale=1.,max_nfev=100) for shift in [0,-np.pi/8,np.pi/8]]
+    best=min(fits,key=lambda r:r.cost);error=float(np.sqrt(np.mean(residual(best.x)**2)))
+    if error>3.5:raise ValueError(f'{label} does not match two stacked 19.5 mm cubes; click the top cube')
+    top_world={'position':[float(top[0]),float(top[1]),support+edge+.0002+edge/2+.0002],'quaternion':_yaw_quaternion(top[2]),'size':edge}
+    bottom_world={'position':[float(best.x[0]),float(best.x[1]),support+edge/2+.0002],'quaternion':_yaw_quaternion(best.x[2]),'size':edge}
+    fit.update(silhouette='top cube by colour + lower cube',top_color=name,stack_boundary_rmse_px=error,
+               top_offset_from_lower_mm=float(np.linalg.norm(top[:2]-best.x[:2])*1000),
+               top_yaw_from_lower_deg=float(np.rad2deg((top[2]-best.x[2]+np.pi/4)%(np.pi/2)-np.pi/4)))
+    x,y,w,h=cv2.boundingRect(_contour(mask))
+    return top_world,bottom_world,fit,{'cube_pixel':center.tolist(),'cube_pixel_corners':corners.tolist(),'cube_bbox':[x,y,w,h,int(np.count_nonzero(mask))]}
 
 
 def tape_pose_from_mask(config,mask,*,label='From'):
@@ -140,6 +212,10 @@ def bowl_pose_from_mask(config,mask):
 def obstacle_world(config,kind,mask):
     """World pose of a modelled workspace object that the arm must avoid."""
     if kind=='cube':world,fit,_=cube_pose_from_mask(config,mask,label='Obstacle cube')
+    elif kind=='stack':
+        # Two stacked cubes: one static box, centred half way up.
+        world,fit,_=cube_pose_from_mask(config,mask,elevated=True,label='Obstacle stack')
+        edge=world['size'];world['position'][2]-=edge/2+.0001;world['height']=2*edge+.0002
     elif kind=='tape':world,fit,_=tape_pose_from_mask(config,mask,label='Obstacle tape roll')
     elif kind=='bowl':world,fit=bowl_pose_from_mask(config,mask),None
     else:raise ValueError('Obstacles must be a cube, tape roll or bowl')
@@ -165,7 +241,7 @@ def validate_placement(config,placement,source_xy,obstacles):
         if np.linalg.norm(xy-np.asarray(item['position'][:2]))<PLACE_CLEARANCE_M[item['kind']]:raise ValueError(f'To is too close to a {item["kind"]}; choose an empty spot')
 
 
-def scene_from_masks(config,source,target,obstacles=None,*,task='bowl',bowl_present=None):
+def scene_from_masks(config,source,target,obstacles=None,*,task='bowl',bowl_present=None,rgb=None):
     """Metric scene from SAM masks.
 
     `obstacles` lists every other modelled object as (kind, mask). For stack and
@@ -190,7 +266,9 @@ def scene_from_masks(config,source,target,obstacles=None,*,task='bowl',bowl_pres
     extra=[(kind,mask) for kind,mask in obstacles if not (model_bowl is not None and mask is model_bowl)]
     if task=='tape':scene=tape_scene_from_masks(config,source,target)
     else:
-        world,fit,pixels=cube_pose_from_mask(config,source,elevated=task=='unstack')
+        lower=None
+        if task=='unstack' and rgb is not None:world,lower,fit,pixels=stack_poses_from_mask(config,source,rgb)
+        else:world,fit,pixels=cube_pose_from_mask(config,source,elevated=task=='unstack')
         bowl=bowl_from_mask(model_bowl) if model_bowl is not None else [320.,240.]
         scene={**pixels,'bowl_pixel':list(bowl),'method':'SAM 2.1 From/To masks; calibrated metric projection',
                'cube_pose_from_initial_rgb':{'position':world['position'],'quaternion':world['quaternion']},'cube_pose_fit':fit}
@@ -203,7 +281,7 @@ def scene_from_masks(config,source,target,obstacles=None,*,task='bowl',bowl_pres
     if task=='unstack':
         # The lower cube is hidden under the top one: same XY and yaw, on the mat.
         top=scene['cube_pose_from_initial_rgb'];edge=config['base_calibration']['world']['cube']['size']
-        bottom={'position':[*top['position'][:2],top['position'][2]-edge-.0002],'quaternion':list(top['quaternion']),'size':edge}
+        bottom=lower or {'position':[*top['position'][:2],top['position'][2]-edge-.0002],'quaternion':list(top['quaternion']),'size':edge}
         xy=pixel_to_mat(config,target,edge/2)
         validate_placement(config,xy,top['position'],scene['obstacles'])
         scene.update(task='unstack',bowl_present=bool(bowl_present),target_cube=bottom,place_pixel=[float(v) for v in target],

@@ -3,7 +3,7 @@
 Run: blender --background --python assets/models/tape/build_tape.py
 
 Dimensions come from tape.json, the user's measurements of the real roll: 53 mm outer
-diameter, 24 mm wide, 26 mm core hole, 30 mm core outer diameter (2 mm wall).
+diameter, 24 mm wide, 25 mm core hole, 30 mm core outer diameter (2.5 mm wall).
 """
 import json
 from pathlib import Path

@@ -29,6 +29,30 @@ def _derivative_peaks(curve):
     return peaks
 
 
+def _time_optimal(curve,guides,limits,peaks,duration,minimum,grip_window):
+    """The same quintic path, with a time-optimal speed profile instead of one uniform
+    time scale (studio_topp). Kept only when it is shorter and every sampled velocity,
+    acceleration and jerk stays within the same limits; the gripper keeps Natural's
+    minimum-jerk schedule over its own window."""
+    import os
+    # Off by default: in 30-scene benchmarks it shortened motions only ~5% because the
+    # loaded shoulder then trails its command and Run all has to slow down anyway.
+    if not os.environ.get('NATURAL_TIME_OPTIMAL'):return None
+    from studio_topp import time_optimal,_derivatives
+    result=time_optimal(curve,limits,minimum=minimum,joints=range(5))
+    if result is None or not result[2]['within_limits'] or result[2]['duration']>=duration-1/30:return None
+    q,times,info=result
+    # The gripper needs its own minimum time for the same schedule.
+    if peaks[0,5] and any((peaks[o,5]/limits[o,5])**(1/(o+1))>times[-1] for o in range(3)):return None
+    low,high=grip_window;u=times/times[-1];s=np.clip((u-low)/(high-low),0,1);s=10*s**3-15*s**4+6*s**5
+    q=q.copy();q[:,5]=guides[0,5]+(guides[-1,5]-guides[0,5])*s;q[0]=guides[0];q[-1]=guides[-1]
+    vel,acc,jerk=_derivatives(q,30.)
+    if np.any(vel>limits[0]+1e-6) or np.any(acc>limits[1]+1e-6) or np.any(jerk>limits[2]+1e-6):return None
+    return q,times,{'max_velocity':vel.tolist(),'max_acceleration':acc.tolist(),'max_jerk':jerk.tolist(),'duration':float(times[-1]),
+                    'grip_window':list(grip_window),'guide_count':len(guides),'timing':'time-optimal along the path (TOPP, sampled limits)',
+                    'uniform_duration':float(duration),'acceleration_fraction':info['acceleration_fraction']}
+
+
 def coordinated_curve(guides,minimum=0.,speed_scale=1.,grip_window=(0.,1.), derivative_limits=None):
     guides=np.asarray(guides,float);limits=[motion_speed_limits(speed_scale)*.92,FLOW_ACCELERATION,FLOW_JERK] if derivative_limits is None else np.asarray(derivative_limits,float)*np.array([[.92],[1.],[1.]])
     if guides.ndim!=2 or guides.shape[1]!=6 or len(guides)<2 or not np.isfinite(guides).all():raise ValueError('Natural requires finite six-joint guides')
@@ -46,21 +70,33 @@ def coordinated_curve(guides,minimum=0.,speed_scale=1.,grip_window=(0.,1.), deri
     s=np.clip((u-low)/(high-low),0,1);s=10*s**3-15*s**4+6*s**5
     actions[:,5]=guides[0,5]+delta*s
     actions[0]=guides[0];actions[-1]=guides[-1]
+    fast=_time_optimal(curve,guides,limits,peaks,duration,minimum,grip_window)
+    if fast is not None:return fast
     return actions,np.arange(ticks+1)/30,{'max_velocity':(peaks[0]/duration).tolist(),'max_acceleration':(peaks[1]/duration**2).tolist(),
         'max_jerk':(peaks[2]/duration**3).tolist(),'duration':duration,'grip_window':list(grip_window),'guide_count':len(guides)}
 
 
-def interpolate_natural(waypoints,names,speed_scale=1.,derivative_limits=None):
+def interpolate_natural(waypoints,names,speed_scale=1.,derivative_limits=None,lift_stop=False,return_stop=False):
     """Merge travel stages while keeping grasp/release/settle exact and stopped."""
     poses=np.asarray([q for q,_ in waypoints],float);seconds=np.asarray([s for _,s in waypoints],float)
     travel={'Unfold from rest','Raise','Open above cube','Lift','Transfer','Retreat','Return raised','Return unfolded','Home'}
     floors=np.array([s*.55/speed_scale if name in travel else s for s,name in zip(seconds,names)])
     lower=next((name for name in ['Lower onto cube','Lower onto table'] if name in names),'Transfer')
-    spans={0:names.index('Pregrasp') if 'Pregrasp' in names else names.index('Approach'),names.index('Grasp'):names.index(lower)}
+    carry=names.index('Grip check') if 'Grip check' in names else names.index('Grasp')
+    spans={0:names.index('Pregrasp') if 'Pregrasp' in names else names.index('Approach'),carry:names.index(lower)}
+    if lift_stop and 'Lift' in names:
+        # Rise straight to travel height first (a wide held object, such as a bowl held by
+        # its rim, otherwise starts moving sideways while still low and sweeps neighbours).
+        spans[carry]=names.index('Lift');spans[names.index('Lift')]=names.index(lower)
     if 'Home' in names:
         # From the release (or the jaw retreat out of a tape roll) to Home is one coordinated path.
-        release=next(name for name in ['Release on cube','Release on table','Lift out of roll','Release'] if name in names)
+        release=next(name for name in ['Release on cube','Release on table','Lift out of roll','Turn jaws down','Release'] if name in names)
         spans[names.index(release)]=names.index('Home')
+        if return_stop and 'Return raised' in names:
+            # Reach the raised corridor before folding toward Home. Blending it
+            # away can sweep neighbours during the empty-handed return.
+            spans[names.index(release)]=names.index('Return raised')
+            spans[names.index('Return raised')]=names.index('Home')
     out=[poses[:1]];knots=[0];end_names=['Start'];phases=[];task_knots={'Start':0}
     index=0
     while index<len(poses)-1:

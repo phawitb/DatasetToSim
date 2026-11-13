@@ -22,6 +22,11 @@ from studio_recording import Recording
 from dataset_to_sim.studio import JOINTS, validate_trajectory, execution_gate, native_limits, validate_simulated_timing, motion_speed_limits
 
 
+# Hold compensation: per-frame integral gain, bound (deg) and fade per moving frame.
+HOLD_GAIN=.2
+HOLD_LIMIT_DEG=4.
+HOLD_FADE=.85
+
 def open_calibrated_connection(robot):
     # LeRobot robot.connect() configures motors inside torque_disabled().
     # This workcell is already configured: preserve torque across handoffs.
@@ -29,6 +34,20 @@ def open_calibrated_connection(robot):
     if not robot.is_calibrated:raise ValueError('Motor calibration does not match the saved calibration')
     torque=[robot.bus.read('Torque_Enable',name,normalize=False) for name in JOINTS]
     return True if all(v==1 for v in torque) else False if all(v==0 for v in torque) else None
+
+
+# Gripper position gain. LeRobot configures 16 (motor default 32) for every joint; at 16
+# the gripper barely squeezes a thin part (a 2 mm cup wall touches at ~1-2 units from
+# the fully-closed command, and the servo's force grows with that small error). The
+# 50% torque limit and the current protection LeRobot sets stay unchanged.
+GRIPPER_P=32
+
+
+def set_gripper_gain(bus,torque):
+    current=bus.read('P_Coefficient','gripper',normalize=False)
+    if current==GRIPPER_P or torque is not True:return current
+    with bus.torque_disabled('gripper'):bus.write('P_Coefficient','gripper',GRIPPER_P,normalize=False)
+    return bus.read('P_Coefficient','gripper',normalize=False)
 
 
 def prepare_follower_speed(bus,reset):
@@ -82,6 +101,7 @@ class Hardware:
             torque=open_calibrated_connection(robot)
             spec=spec_from_file_location('studio_handoff',benchmark/'robot_handoff.py');mod=module_from_spec(spec);spec.loader.exec_module(mod)
             prepare_follower_speed(robot.bus,mod.reset_follower_speed)
+            self.gripper_p=set_gripper_gain(robot.bus,torque)
             self.robot=robot;self.connected=True;self.torque_enabled=torque;self.error=None;self.hold_latched=False
             for name,camera in cfg.get('cameras',{}).items():
                 cap=cv2.VideoCapture(camera['index']);cap.set(cv2.CAP_PROP_FRAME_WIDTH,camera.get('w',640));cap.set(cv2.CAP_PROP_FRAME_HEIGHT,camera.get('h',480))
@@ -102,7 +122,7 @@ class Hardware:
 
     def status(self,client_id=None):
         if client_id and client_id==self.execution_owner:self.last_heartbeat=time.monotonic()
-        result={'connected':self.connected,'torque_enabled':self.torque_enabled,'running':self.running,'stopped':self.stopped.is_set(),'progress':self.progress,'error':self.error,'execution':self.execution,'elapsed':time.monotonic()-self.started_at if self.running and self.started_at else None,'recording_error':self.recording_error}
+        result={'connected':self.connected,'torque_enabled':self.torque_enabled,'running':self.running,'stopped':self.stopped.is_set(),'progress':self.progress,'error':self.error,'execution':self.execution,'elapsed':time.monotonic()-self.started_at if self.running and self.started_at else None,'recording_error':self.recording_error,'gripper_p':getattr(self,'gripper_p',None)}
         if self.connected:
             result['positions']=self.positions().tolist()
             result['cameras']={name:time.monotonic()-stamp<.75 for name,(stamp,_) in self.frames.items()}
@@ -203,27 +223,55 @@ class Hardware:
             if actual_hash!=plan['action_hash'] or actual_hash!=plan.get('simulated_action_hash'):
                 raise ValueError('Commands do not match the simulated trajectory')
             if np.max(np.abs(actions[0]-plan['initial_native']))>1e-6:raise ValueError('First command must equal captured pose')
+            from studio_grasp import grasp_check,verify_grasp
+            grip_check=grasp_check(plan,actions,ts,plan.get('simulated_native'))
+            stop=plan.get('stop_index')
+            if stop is not None:
+                # Look-then-grasp: run only the verified prefix up to the still Look hold.
+                stop=int(stop)
+                if not 0<stop<len(actions)-1 or np.any(np.abs(actions[stop]-actions[stop-1])>1e-6):raise ValueError('Look stop must be inside a still hold')
+                actions=actions[:stop+1];ts=ts[:stop+1]
             from studio_sam_geometry import validate_vision_age
             validate_vision_age(plan.get('verified_image_captured_at',0),time.time())
             recorder=Recording(ROOT/'output/studio'/plan['id'],self.frames,self.stopped)
             self.running=True;self.recording_error=None;self.stopped.clear();self.error=None;self.progress=0.;self.last_heartbeat=time.monotonic();self.execution=plan['id'];self.history=[];self.execution_owner=plan['owner'];self.consumed.add(plan['id'])
         def run():
-            start=time.monotonic();self.started_at=start;journal=None
+            start=time.monotonic();self.started_at=start;journal=None;grip_result=None
             try:
                 recorder.start(start)
                 journal_path=ROOT/'output/studio'/plan['id']/'hardware-commands.jsonl'
                 journal_path.parent.mkdir(parents=True,exist_ok=True)
                 journal=journal_path.open('a',buffering=1)
+                # Servo hold compensation (pick and place): while the arm joints are commanded
+                # to hold still (grasp and placement settles, closing, releasing), drive the
+                # real joints to where the contact simulation's joints were (its gravity sag
+                # included, which the plan already accounts for). The real servos otherwise
+                # stop 1-4 deg off, ~1 cm at the jaws. Integrated, bounded, and faded out as
+                # soon as the arm moves again.
+                expected=np.asarray(plan['simulated_native'],float)[:len(actions)] if plan.get('simulated_native') is not None else None
+                compensate=plan.get('task')=='pickplace' and expected is not None and expected.shape==actions.shape;offset=np.zeros(6)
                 for i,(q,t) in enumerate(zip(actions,ts)):
                     if self.stopped.wait(max(0,start+float(t)-time.monotonic())):break
                     if time.monotonic()-self.last_heartbeat>3:raise RuntimeError('Control page heartbeat lost')
                     if time.monotonic()-(start+float(t))>.15:raise RuntimeError('Command timing deadline missed')
                     self.check_cameras()
                     measured=self.positions()
+                    observed_at=time.monotonic()-start
+                    if grip_check is not None and i==grip_check['index']:
+                        # Check the settled closure before sending any lift command.
+                        try:
+                            grip_result=verify_grasp(grip_check,self.history+[{'index':i,'measured':measured.tolist(),'observed_at':observed_at}])
+                        except RuntimeError as exc:
+                            grip_result={'passed':False,'index':i,'error':str(exc),'measured':measured.tolist()}
+                            raise
                     previous=actions[max(0,i-1)]
                     if np.any(np.abs(measured-previous)>np.array([10.]*5+[25.])):raise RuntimeError('Robot deviated from planned motion')
-                    self.send(q);self.progress=(i+1)/len(actions)
-                    self.history.append({'time':time.monotonic()-start,'target':q.tolist(),'measured':measured.tolist()})
+                    if compensate:
+                        if i>0 and np.all(np.abs(q[:5]-actions[i-1][:5])<.05):
+                            offset[:5]=np.clip(offset[:5]+HOLD_GAIN*(expected[i][:5]-measured[:5]),-HOLD_LIMIT_DEG,HOLD_LIMIT_DEG)
+                        else:offset*=HOLD_FADE
+                    self.send(q+offset);self.progress=(i+1)/len(actions)
+                    self.history.append({'index':i,'time':time.monotonic()-start,'observed_at':observed_at,'target':q.tolist(),'measured':measured.tolist(),'sent':(q+offset).tolist()})
                     journal.write(json.dumps(self.history[-1])+'\n')
                 if not self.stopped.is_set():self.stopped.wait(1/30)
             except Exception as exc:self.error=str(exc)
@@ -239,7 +287,7 @@ class Hardware:
                 except Exception as exc:self.recording_error=str(exc)
                 if self.recording_error and not self.error:self.error='camera recording failed: '+self.recording_error
                 path=ROOT/'output/studio'/plan['id']/'hardware-trace.json'
-                try:path.write_text(json.dumps({'error':self.error,'samples':self.history,'completed':self.progress==1. and self.error is None}))
+                try:path.write_text(json.dumps({'error':self.error,'samples':self.history,'grasp_check':grip_result,'completed':self.progress==1. and self.error is None}))
                 except OSError as exc:
                     if not self.error:self.error='Could not save hardware trace: '+str(exc)
                 finally:self.running=False

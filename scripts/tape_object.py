@@ -10,7 +10,6 @@ therefore a hollow ring of convex wedges; ``cube_geom`` keeps the outer
 cylinder only as a non-colliding outline for bowl containment.
 """
 import json
-from functools import lru_cache
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -24,9 +23,9 @@ VISUAL_PARTS = [('tape_roll', '.93 .91 .84 .55'), ('tape_core', '.55 .40 .26 1')
 PAD_THICKNESS_M = .006
 # Open moving jaw clears the outer wall by this much before closing.
 OPEN_SIDE_CLEARANCE_M = .013
-# Fixed pad centre sits this far from the roll axis, towards the moving jaw,
-# when it enters the hole (keeps its 6 x 16 mm pad clear of the 26 mm core).
-FIXED_PAD_RADIUS_M = .0055
+# Centre the 6 x 16 mm fixed pad in the hole on entry: 3.96 mm planar
+# clearance in a 25 mm core (the old 5.5 mm offset left only 0.83 mm).
+FIXED_PAD_RADIUS_M = 0.
 # The open moving jaw reaches ~55 mm from the roll axis on one side.
 LAYOUT_JAW_CLEARANCE_M = .03
 WALL_SEGMENTS = 24
@@ -36,9 +35,14 @@ RELEASE_CLEARANCE_M = .008
 SQUEEZE_NATIVE = 12.
 
 
-@lru_cache(maxsize=1)
 def dimensions():
-    return json.loads((MODEL_DIR / 'tape.json').read_text())
+    # Measurements can change while Studio is running. Never retain an unversioned
+    # copy: geometry, fitting and grasp planning must see the same current file.
+    size = json.loads((MODEL_DIR / 'tape.json').read_text())
+    values = [size[k] for k in ('outer_diameter_m', 'core_outer_diameter_m', 'core_inner_diameter_m', 'width_m', 'mass_kg')]
+    if not np.isfinite(values).all() or min(values) <= 0 or not values[2] < values[1] < values[0]:
+        raise ValueError('Invalid measured tape dimensions')
+    return size
 
 
 def is_tape(world):
@@ -85,37 +89,39 @@ def apply_tape(root, world):
     """Turn the manipulated cube body of an MJCF tree into the tape roll in place."""
     if not is_tape(world):
         return root
+    body = root.find(".//body[@name='cube']")
+    add_tape_geometry(root, body, body.find("geom[@name='cube_geom']"), world['cube'].get('mass_kg'))
+    return root
+
+
+def add_tape_geometry(root, body, geom, mass_kg=None, prefix=''):
+    """Give `body` the roll's collision wedges and visual meshes; `geom` (a box
+    with the scene's contact material) becomes the non-colliding outline."""
     size = dimensions()
     width, radius = size['width_m'], size['outer_diameter_m'] / 2
     asset = root.find('asset')
-    body = root.find(".//body[@name='cube']")
-    geom = body.find("geom[@name='cube_geom']")
     inner = size['core_inner_diameter_m'] / 2
     angles = np.arange(48) * 2 * np.pi / 48
     outline = [[radius * np.cos(a), radius * np.sin(a), z] for z in (-width / 2, width / 2) for a in angles]
-    ET.SubElement(asset, 'mesh', name='tape_collision_mesh', vertex=_numbers(outline))
+    ET.SubElement(asset, 'mesh', name=prefix + 'tape_collision_mesh', vertex=_numbers(outline))
     physics = {key: geom.get(key) for key in ('contype', 'conaffinity', 'friction', 'condim', 'solref', 'solimp') if geom.get(key)}
     for key in ('size', 'type', 'rgba', 'material'):
         geom.attrib.pop(key, None)
-    # Outline only: bowl containment reads its vertices; it never collides or weighs.
-    geom.set('type', 'mesh'); geom.set('mesh', 'tape_collision_mesh'); geom.set('group', '3')
+    geom.set('type', 'mesh'); geom.set('mesh', prefix + 'tape_collision_mesh'); geom.set('group', '3')
     geom.set('rgba', '.93 .91 .84 .3'); geom.set('mass', '0'); geom.set('contype', '0'); geom.set('conaffinity', '0')
-    # Hollow wall: convex wedges between the core hole and the outer surface,
-    # with the cube's contact physics and the roll's mass shared between them.
-    mass = world['cube'].get('mass_kg', size['mass_kg']) / WALL_SEGMENTS
+    mass = (size['mass_kg'] if mass_kg is None else mass_kg) / WALL_SEGMENTS
     for k in range(WALL_SEGMENTS):
         edges = [k * 2 * np.pi / WALL_SEGMENTS, (k + 1) * 2 * np.pi / WALL_SEGMENTS]
         wedge = [[r * np.cos(a), r * np.sin(a), z] for z in (-width / 2, width / 2) for r in (inner, radius) for a in edges]
-        ET.SubElement(asset, 'mesh', name=f'tape_wall_{k}_mesh', vertex=_numbers(wedge))
-        ET.SubElement(body, 'geom', name=f'tape_wall_{k}', type='mesh', mesh=f'tape_wall_{k}_mesh', group='3',
+        ET.SubElement(asset, 'mesh', name=f'{prefix}tape_wall_{k}_mesh', vertex=_numbers(wedge))
+        ET.SubElement(body, 'geom', name=f'{prefix}tape_wall_{k}', type='mesh', mesh=f'{prefix}tape_wall_{k}_mesh', group='3',
                       rgba='.93 .91 .84 .3', mass=str(mass), **physics)
     for name, rgba in VISUAL_PARTS:
         vertices, faces = _obj(MODEL_DIR / f'{name}.obj')
-        vertices = vertices - [0, 0, width / 2]  # Blender parts sit on z=0; centre them on the body
-        ET.SubElement(asset, 'mesh', name=f'{name}_visual', vertex=_numbers(vertices), face=' '.join(map(str, faces.ravel())))
-        ET.SubElement(body, 'geom', name=f'{name}_visual', type='mesh', mesh=f'{name}_visual', rgba=rgba,
+        # build_tape exports parts centred on the origin, like the collision ring.
+        ET.SubElement(asset, 'mesh', name=f'{prefix}{name}_visual', vertex=_numbers(vertices), face=' '.join(map(str, faces.ravel())))
+        ET.SubElement(body, 'geom', name=f'{prefix}{name}_visual', type='mesh', mesh=f'{prefix}{name}_visual', rgba=rgba,
                       contype='0', conaffinity='0', group='2', mass='0')
-    return root
 
 
 def jaw_openings(model, data, adapter, qpos, width):

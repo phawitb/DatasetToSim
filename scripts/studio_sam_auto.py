@@ -12,6 +12,19 @@ from studio_sam_geometry import (cube_pose_from_mask,tape_pose_from_mask,bowl_po
 MAX_CANDIDATES=40
 
 
+def mat_threshold(hsv):
+    """Brightness separating the dark mat from the white table, from this image's
+    typical mat brightness, so daylight or lamp changes do not cut the mat apart."""
+    v=hsv[:,:,2].ravel();dark=np.sort(v)[:int(.4*len(v))]  # the mat covers well over 40% of the view
+    return float(np.clip(np.median(dark)+35,110,170))
+
+
+def mat_saturation(hsv):
+    """Typical saturation of the mat (warm light tints it), from its dark pixels."""
+    v=hsv[:,:,2].ravel();order=np.argsort(v)[:int(.4*len(v))]
+    return float(np.median(hsv[:,:,1].ravel()[order]))
+
+
 def robot_pixels(rgb):
     """Orange printed arm parts, dilated to cover cables and the gripper."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);h,s,v=hsv[:,:,0],hsv[:,:,1],hsv[:,:,2]
@@ -22,15 +35,20 @@ def robot_pixels(rgb):
     return cv2.dilate(arm,np.ones((31,31),np.uint8)).astype(bool)
 
 
-def candidate_points(rgb):
+def candidate_points(rgb,mat_region=None):
     """Prompt points for blobs that stand out from the mat; robot pixels excluded."""
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV);h,s=hsv[:,:,0],hsv[:,:,1];v=hsv[:,:,2].astype(np.int16)
-    dark=cv2.morphologyEx(((v<130)&(s<70)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
+    mat_s=mat_saturation(hsv)
+    dark=cv2.morphologyEx(((v<mat_threshold(hsv))&(s<mat_s+40)).astype(np.uint8),cv2.MORPH_OPEN,np.ones((5,5),np.uint8))
     n,labels,stats,_=cv2.connectedComponentsWithStats(dark)
     if n<2:return []
-    mat=(labels==1+int(np.argmax(stats[1:,4]))).astype(np.uint8)
+    # The arm and its cables can cut the mat into pieces: keep every large dark piece.
+    largest=int(stats[1:,4].max());mat=np.isin(labels,[i for i in range(1,n) if stats[i,4]>=max(5000,.15*largest)]).astype(np.uint8)
     region=np.zeros_like(mat);cv2.fillConvexPoly(region,cv2.convexHull(cv2.findNonZero(mat)),1)
     region=cv2.erode(region,np.ones((11,11),np.uint8))
+    # The calibrated mat outline (when given) also covers mat corners hidden behind tall
+    # objects, which the dark-pixel hull can cut off (a cup in a corner had no prompt).
+    if mat_region is not None:region=np.maximum(region,cv2.erode(np.asarray(mat_region,np.uint8),np.ones((7,7),np.uint8)))
     background=cv2.medianBlur(np.where(mat>0,hsv[:,:,2],0).astype(np.uint8),31).astype(np.int16)
     robot=robot_pixels(rgb).astype(np.uint8)
     blobs=(((np.abs(v-background)>35)|(s>90)).astype(np.uint8)&region&(1-robot))
@@ -45,16 +63,30 @@ def candidate_points(rgb):
             # also prompt a sparse grid inside it.
             yy,xx=np.nonzero((distance>4)&((np.indices(distance.shape)[0]%24==0)&(np.indices(distance.shape)[1]%24==0)))
             extra=[[int(a),int(b)] for a,b in zip(xx,yy) if np.hypot(a-x,b-y)>15]
-            points.extend(extra[::max(1,len(extra)//6)][:6])
-    return points[:MAX_CANDIDATES]
+            # One prompt per ~1500 px: a blob that joins a box, a roll and a bowl still
+            # gets a prompt on each of them.
+            count=int(np.clip(stats[i,4]//1500,6,24))
+            points.extend(extra[::max(1,len(extra)//count)][:count])
+    # Painted cubes touching another object join its blob: prompt every vivid
+    # coloured patch as well, before the blob grid points.
+    vivid=((s>max(65,mat_s+45))&(v>70)&(((h<8)|(h>165))|((h>=14)&(h<=135)))).astype(np.uint8)&region&(1-robot)
+    n,labels,stats,centres=cv2.connectedComponentsWithStats(cv2.morphologyEx(vivid,cv2.MORPH_OPEN,np.ones((3,3),np.uint8)))
+    colour=[[int(x),int(y)] for i,(x,y) in enumerate(centres) if i and 60<=stats[i,4]<=2500]
+    return (colour+[p for p in points if all(np.hypot(p[0]-c[0],p[1]-c[1])>10 for c in colour)])[:MAX_CANDIDATES]
+
+
+def CUBE_HUES(hue):
+    """Painted cube colours by OpenCV hue (0-179)."""
+    return {'red':((hue<10)|(hue>165)),'yellow':((hue>=14)&(hue<=23)),'green':((hue>=24)&(hue<=95)),'blue':((hue>=96)&(hue<=135))}
 
 
 def cube_color(rgb,mask):
     hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)[np.asarray(mask,bool)]
     vivid=hsv[hsv[:,1]>45]
     if len(vivid)<max(10,.15*len(hsv)):return None
-    hue=vivid[:,0];red=np.count_nonzero((hue<10)|(hue>165));green=np.count_nonzero((hue>=20)&(hue<=95))
-    return 'red' if red>.5*len(vivid) else 'green' if green>.5*len(vivid) else None
+    hue=vivid[:,0];counts={name:np.count_nonzero(m) for name,m in CUBE_HUES(hue).items()}
+    best=max(counts,key=counts.get)
+    return best if counts[best]>.45*len(vivid) else None
 
 
 def classify(config,rgb,mask):
@@ -67,6 +99,12 @@ def classify(config,rgb,mask):
         try:
             world,fit,_=cube_pose_from_mask(config,m,label='Object')
             return {'kind':'cube','color':cube_color(rgb,m),'position':world['position'],'fit_rmse_px':fit['boundary_rmse_px']}
+        except ValueError:pass
+    if max(w,h)<=75 and fill>.55:
+        try:
+            # Two stacked cubes: SAM often returns the top face and the lower cube's sides together.
+            world,fit,_=cube_pose_from_mask(config,m,elevated=True,label='Object')
+            if fit.get('silhouette')=='stack':return {'kind':'stack','color':cube_color(rgb,m),'position':world['position'],'fit_rmse_px':fit['boundary_rmse_px']}
         except ValueError:pass
     if max(w,h)>=90:
         try:
@@ -121,8 +159,19 @@ def _stacked_score(rgb,item):
     return green if color=='red' else red if color=='green' else max(red,green)
 
 
-def auto_place(config,source_xy,obstacles):
-    """Nearest reachable empty-mat spot about 100 mm from the stack."""
+def free_mat(rgb,masks=()):
+    """Pixels of plain mat: not the arm, not any object (with a margin)."""
+    hsv=cv2.cvtColor(np.asarray(rgb,np.uint8),cv2.COLOR_RGB2HSV)
+    free=((hsv[:,:,2]<mat_threshold(hsv))&(hsv[:,:,1]<mat_saturation(hsv)+40)).astype(np.uint8)&~robot_pixels(rgb).astype(np.uint8)&1
+    for m in masks:free&=~cv2.dilate(np.asarray(m,np.uint8),np.ones((21,21),np.uint8))&1
+    return cv2.erode(free,np.ones((25,25),np.uint8)).astype(bool)
+
+
+def auto_place(config,source_xy,obstacles,free=None):
+    """Nearest reachable empty-mat spot about 100 mm from the stack; `free` is an
+    image mask the spot must lie in (plain mat seen by the top camera)."""
+    from studio_sam_geometry import mat_to_pixel
+    edge=config['base_calibration']['world']['cube']['size']
     mat=config['base_calibration']['world']['mat'];base=np.asarray(config['base_calibration']['world']['robot_base']['position'][:2])
     best=None
     for x in np.arange(mat['position'][0]-.17,mat['position'][0]+.171,.01):
@@ -131,6 +180,9 @@ def auto_place(config,source_xy,obstacles):
             if not .15<=reach<=.30:continue
             try:validate_placement(config,xy,source_xy,obstacles)
             except ValueError:continue
+            if free is not None:
+                u,v=np.round(mat_to_pixel(config,xy,edge/2)).astype(int)
+                if not (0<=u<640 and 0<=v<480 and free[v,u]):continue
             cost=abs(np.linalg.norm(xy-np.asarray(source_xy[:2]))-.10)+.2*abs(reach-.22)
             if best is None or cost<best[0]:best=(cost,xy)
     return None if best is None else best[1]
@@ -152,7 +204,9 @@ def assign_roles(task,objects,rgb=None):
         ordered=by_color(cubes,'red');source=ordered[0] if ordered else None
         rest=by_color([i for i in cubes if i!=source],'green');target=rest[0] if rest else None
     elif task=='unstack':
-        if cubes:source=max(cubes,key=lambda i:(_stacked_score(rgb,objects[i]) if rgb is not None else 0,objects[i]['result']['score']))
+        stacks=[i for i,o in enumerate(objects) if o['info']['kind']=='stack']
+        if stacks:source=max(stacks,key=lambda i:objects[i]['result']['score'])
+        elif cubes:source=max(cubes,key=lambda i:(_stacked_score(rgb,objects[i]) if rgb is not None else 0,objects[i]['result']['score']))
     names={'bowl':('cube','bowl'),'tape':('tape roll','bowl'),'stack':('cube to pick','cube to stack on'),'unstack':('top cube of the stack',None)}[task]
     if source is None:notes.append(f'No {names[0]} found; click it as From')
     if names[1] and target is None:notes.append(f'No {names[1]} found; click it as To')
